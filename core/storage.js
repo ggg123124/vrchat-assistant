@@ -43,6 +43,14 @@ export class Storage {
     } catch (e) {
       console.warn(`[storage] site-worlds DDL 加载失败: ${e.message}`);
     }
+    // 迁移：旧库 site_world_recommendations 缺 created_at 列
+    try {
+      const sCols = this._query(`PRAGMA table_info(site_world_recommendations)`);
+      if (!sCols.some(c => c.name === 'created_at')) {
+        this.db.exec(`ALTER TABLE site_world_recommendations ADD COLUMN created_at TEXT DEFAULT ''`);
+        console.warn('[storage] site_world_recommendations 已迁移：添加 created_at 列');
+      }
+    } catch (e) { /* 表不存在时忽略 */ }
     // 迁移：旧库 world_cache 缺 note 列
     const worldCols = this._query(`PRAGMA table_info(world_cache)`);
     if (!worldCols.some(c => c.name === 'note')) {
@@ -887,24 +895,24 @@ export class Storage {
 
   // ── 世界推荐网站分析（world_analytics） ──
 
-  upsertSiteWorld({ worldId, worldName, authorName, description, imageUrl, favorites, visits, popularity, capacity, tags, source, sourceId, sourceUrl, sourceDate, category }) {
+  upsertSiteWorld({ worldId, worldName, authorName, description, imageUrl, favorites, visits, popularity, capacity, tags, source, sourceId, sourceUrl, sourceDate, category, createdAt }) {
     this._run(
       `INSERT INTO site_world_recommendations
         (world_id, world_name, author_name, description, image_url, favorites, visits, popularity, capacity, tags,
-         source, source_id, source_url, source_date, category, first_seen_at, last_seen_at)
+         source, source_id, source_url, source_date, created_at, category, first_seen_at, last_seen_at)
        VALUES ($worldId, $worldName, $authorName, $description, $imageUrl, $favorites, $visits, $popularity, $capacity, $tags,
-         $source, $sourceId, $sourceUrl, $sourceDate, $category, datetime('now'), datetime('now'))
+         $source, $sourceId, $sourceUrl, $sourceDate, $createdAt, $category, datetime('now'), datetime('now'))
        ON CONFLICT(world_id, source) DO UPDATE SET
          world_name = $worldName, author_name = $authorName, description = $description, image_url = $imageUrl,
          favorites = $favorites, visits = $visits, popularity = $popularity, capacity = $capacity, tags = $tags,
-         source_url = $sourceUrl, source_date = $sourceDate, category = $category, last_seen_at = datetime('now')`,
+         source_url = $sourceUrl, source_date = $sourceDate, created_at = $createdAt, category = $category, last_seen_at = datetime('now')`,
       {
         $worldId: worldId, $worldName: worldName || '', $authorName: authorName || '',
         $description: description || '', $imageUrl: imageUrl || '',
         $favorites: favorites || 0, $visits: visits || 0, $popularity: popularity || 0,
         $capacity: capacity || 0, $tags: tags || '[]',
         $source: source || 'planetvrchat', $sourceId: sourceId || '', $sourceUrl: sourceUrl || '',
-        $sourceDate: sourceDate || '', $category: category || '',
+        $sourceDate: sourceDate || '', $createdAt: createdAt || '', $category: category || '',
       }
     );
   }
@@ -921,10 +929,12 @@ export class Storage {
     );
   }
 
-  getSiteWorlds({ sinceDate, category, sortBy = 'favorites', limit = 50 } = {}) {
+  getSiteWorlds({ sinceDate, sinceCreatedAt, category, sortBy = 'favorites', limit = 50 } = {}) {
     let sql = `SELECT * FROM site_world_recommendations WHERE 1=1`;
     const params = {};
     if (sinceDate) { sql += ` AND source_date >= $sinceDate`; params.$sinceDate = sinceDate; }
+    // 按世界真实创建时间过滤（VRChat created_at）——"新图"用这个
+    if (sinceCreatedAt) { sql += ` AND created_at >= $sinceCreatedAt`; params.$sinceCreatedAt = sinceCreatedAt; }
     if (category) { sql += ` AND category = $category`; params.$category = category; }
     const sorters = {
       favorites: `ORDER BY favorites DESC`,

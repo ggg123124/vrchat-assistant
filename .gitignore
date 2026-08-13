@@ -34,3 +34,6 @@ backup/
 backups/
 *.sqlite3-wal
 *.sqlite3-shm
+
+# ── 生成产物 ──
+*.pdf

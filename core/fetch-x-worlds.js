@@ -344,6 +344,7 @@ function mapWorld(w) {
     popularity: w.popularity || 0,
     capacity: w.capacity || 0,
     tags: Array.isArray(w.tags) ? w.tags : [],
+    createdAt: w.created_at || w.publicationDate || '',   // 世界真实创建时间（VRChat API）
   };
 }
 

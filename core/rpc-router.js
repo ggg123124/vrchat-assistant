@@ -98,6 +98,10 @@ import {
   handleSiteWorldCategories,
   handleSiteWorldStats,
 } from './handlers/site-worlds.js';
+import {
+  handleGetMyFavoriteWorlds,
+  handleGetMyFavoriteGroups,
+} from './handlers/favorite-worlds.js';
 
 export async function handleRpc(rpc, session, res) {
   const { id, method, params } = rpc;
@@ -370,6 +374,13 @@ export async function handleRpc(rpc, session, res) {
             break;
           case 'site_world_stats':
             result = await handleSiteWorldStats();
+            break;
+          // 我的收藏世界
+          case 'get_my_favorite_worlds':
+            result = await handleGetMyFavoriteWorlds(args);
+            break;
+          case 'get_my_favorite_groups':
+            result = await handleGetMyFavoriteGroups();
             break;
           default:
             throw new Error(`Unknown tool: ${name}`);

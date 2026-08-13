@@ -697,24 +697,28 @@ export const CUSTOM_TOOLS = [
   // ── 世界推荐网站分析（world_analytics） ──
   {
     name: 'world_analytics',
-    description: '[扫描·网站分析] 抓取世界推荐网站（PlanetVRC planetvrchat.net）指定时间窗口内推荐的世界，聚合 VRChat 收藏/浏览/描述数据入库。days 可选 1/7/30（日10/周50/月100 上限），配合 site_worlds 查询排行。',
+    description: '[扫描·网站分析] 抓取世界推荐数据入库。mode=site（默认）抓取 PlanetVRC 收录的世界（可能含老图重传）；mode=new 直接按 VRChat 创建时间拉最新发布的世界（真正的"新图"）。days 可选 1/7/30（日10/周50/月100 上限），配合 site_worlds 查询排行。',
     inputSchema: {
       type: 'object',
       properties: {
         days: { type: 'number', description: '时间窗口：1=日/7=周/30=月，默认 7' },
         refresh: { type: 'boolean', description: '是否强制重新抓取，默认 true' },
+        mode: { type: 'string', enum: ['site', 'new'], description: 'site=PlanetVRC收录（默认）/ new=按VRChat创建时间拉新图' },
       },
     },
   },
   {
     name: 'site_worlds',
-    description: '[查询·网站分析] 查询推荐网站收录的世界排行：按收藏比（favorites/visits）/收藏数/浏览数排序，支持类型过滤（category），返回世界名/作者/收藏/浏览/收藏比/简介/图片。days 1/7/30。',
+    description: '[查询·网站分析] 查询推荐网站收录的世界排行：按收藏比（favorites/visits）/收藏数/浏览数排序，支持类型过滤（category），返回世界名/作者/收藏/浏览/收藏比/简介/图片。days 1/7/30；newOnly=true 时只显示 VRChat 真实创建时间在窗口内的新世界（排除老图重传）；默认排除 Avatar/模型展示世界且收藏数≥50。',
     inputSchema: {
       type: 'object',
       properties: {
         days: { type: 'number', description: '时间窗口：1=日/7=周/30=月，默认 7' },
         sortBy: { type: 'string', enum: ['favorites_ratio', 'favorites', 'visits', 'popularity'], description: '排序方式，默认 favorites_ratio（收藏比）' },
         category: { type: 'string', description: '类型过滤（先运行 site_world_categories 看可用类型）' },
+        newOnly: { type: 'boolean', description: '只显示窗口内新发布的世界（按 VRChat created_at），默认 false' },
+        excludeAvatar: { type: 'boolean', description: '排除 Avatar/模型展示类世界，默认 true' },
+        minFavorites: { type: 'number', description: '收藏数下限（默认 50，低于此数不上榜）' },
         limit: { type: 'number', description: '返回条数，默认 20，最大 100' },
       },
     },
@@ -738,6 +742,23 @@ export const CUSTOM_TOOLS = [
   {
     name: 'site_world_stats',
     description: '[查询·网站分析] 查看推荐网站分析的总收录数、最近扫描日期。',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  // ── 我的收藏世界分析 ──
+  {
+    name: 'get_my_favorite_worlds',
+    description: '[查询·收藏] 拉取当前账号收藏的全部世界，按标签分类（Avatar/恐怖/游戏/音乐/社交/拍照/休闲/风景/其他），返回世界名/作者/收藏/浏览/简介/分类。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        limit: { type: 'number', description: '每类返回条数上限，默认 500' },
+        sortBy: { type: 'string', enum: ['favorites', 'visits', 'name'], description: '排序方式，默认 favorites' },
+      },
+    },
+  },
+  {
+    name: 'get_my_favorite_groups',
+    description: '[查询·收藏] 列出当前账号的世界收藏分组（收藏夹名）。',
     inputSchema: { type: 'object', properties: {} },
   },
 ];

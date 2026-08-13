@@ -9,7 +9,7 @@ def mcp_call(tool, args=None):
                        "params": {"name": tool, "arguments": args}}).encode()
     req = urllib.request.Request("http://127.0.0.1:8799/mcp", data=body,
                                  headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=120) as resp:
+    with urllib.request.urlopen(req, timeout=300) as resp:
         raw = resp.read().decode()
     # 解析 SSE: 取所有 data: 行并拼接
     texts = []

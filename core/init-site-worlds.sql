@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS site_world_recommendations (
   source_id TEXT DEFAULT '',                -- 来源站内的 ID（如帖子 ID）
   source_url TEXT DEFAULT '',               -- 来源站链接
   source_date TEXT DEFAULT '',              -- 来源站发布日期（ISO）
+  created_at TEXT DEFAULT '',               -- 世界真实创建时间（VRChat API created_at）
   category TEXT DEFAULT '',                 -- 类型（quest/feature_tag 等分类名）
   first_seen_at TEXT DEFAULT (datetime('now')),
   last_seen_at TEXT DEFAULT (datetime('now')),
