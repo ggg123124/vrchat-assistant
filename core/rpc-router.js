@@ -91,6 +91,13 @@ import {
   handleXRemoveCreator,
   handleXWorlds,
 } from './handlers/x-worlds.js';
+import {
+  handleWorldAnalytics,
+  handleSiteWorlds,
+  handleSiteWorldTrends,
+  handleSiteWorldCategories,
+  handleSiteWorldStats,
+} from './handlers/site-worlds.js';
 
 export async function handleRpc(rpc, session, res) {
   const { id, method, params } = rpc;
@@ -346,7 +353,23 @@ export async function handleRpc(rpc, session, res) {
             result = handleXRemoveCreator(args);
             break;
           case 'x_worlds':
-            result = handleXWorlds(args);
+            result = await handleXWorlds(args);
+            break;
+          // 世界推荐网站分析
+          case 'world_analytics':
+            result = await handleWorldAnalytics(args);
+            break;
+          case 'site_worlds':
+            result = await handleSiteWorlds(args);
+            break;
+          case 'site_world_trends':
+            result = await handleSiteWorldTrends(args);
+            break;
+          case 'site_world_categories':
+            result = await handleSiteWorldCategories();
+            break;
+          case 'site_world_stats':
+            result = await handleSiteWorldStats();
             break;
           default:
             throw new Error(`Unknown tool: ${name}`);

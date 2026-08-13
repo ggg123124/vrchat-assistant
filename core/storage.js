@@ -14,6 +14,7 @@ import path from 'node:path';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DDL_PATH = path.join(__dirname, 'init-db.sql');
 const X_WORLDS_DDL_PATH = path.join(__dirname, 'init-x-worlds.sql');
+const SITE_WORLDS_DDL_PATH = path.join(__dirname, 'init-site-worlds.sql');
 
 export class Storage {
   /** @type {import('better-sqlite3').Database} */
@@ -34,6 +35,13 @@ export class Storage {
       this.db.exec(xddl);
     } catch (e) {
       console.warn(`[storage] x-worlds DDL 加载失败: ${e.message}`);
+    }
+    // 世界推荐网站分析表（world_analytics 工具）
+    try {
+      const sddl = readFileSync(SITE_WORLDS_DDL_PATH, 'utf-8');
+      this.db.exec(sddl);
+    } catch (e) {
+      console.warn(`[storage] site-worlds DDL 加载失败: ${e.message}`);
     }
     // 迁移：旧库 world_cache 缺 note 列
     const worldCols = this._query(`PRAGMA table_info(world_cache)`);
@@ -875,5 +883,77 @@ export class Storage {
 
   clearXWorlds() {
     this._run(`DELETE FROM x_world_recommendations`);
+  }
+
+  // ── 世界推荐网站分析（world_analytics） ──
+
+  upsertSiteWorld({ worldId, worldName, authorName, description, imageUrl, favorites, visits, popularity, capacity, tags, source, sourceId, sourceUrl, sourceDate, category }) {
+    this._run(
+      `INSERT INTO site_world_recommendations
+        (world_id, world_name, author_name, description, image_url, favorites, visits, popularity, capacity, tags,
+         source, source_id, source_url, source_date, category, first_seen_at, last_seen_at)
+       VALUES ($worldId, $worldName, $authorName, $description, $imageUrl, $favorites, $visits, $popularity, $capacity, $tags,
+         $source, $sourceId, $sourceUrl, $sourceDate, $category, datetime('now'), datetime('now'))
+       ON CONFLICT(world_id, source) DO UPDATE SET
+         world_name = $worldName, author_name = $authorName, description = $description, image_url = $imageUrl,
+         favorites = $favorites, visits = $visits, popularity = $popularity, capacity = $capacity, tags = $tags,
+         source_url = $sourceUrl, source_date = $sourceDate, category = $category, last_seen_at = datetime('now')`,
+      {
+        $worldId: worldId, $worldName: worldName || '', $authorName: authorName || '',
+        $description: description || '', $imageUrl: imageUrl || '',
+        $favorites: favorites || 0, $visits: visits || 0, $popularity: popularity || 0,
+        $capacity: capacity || 0, $tags: tags || '[]',
+        $source: source || 'planetvrchat', $sourceId: sourceId || '', $sourceUrl: sourceUrl || '',
+        $sourceDate: sourceDate || '', $category: category || '',
+      }
+    );
+  }
+
+  logSiteScan({ scanDate, source, worldId, worldName, favorites, visits, popularity }) {
+    this._run(
+      `INSERT OR IGNORE INTO site_world_scan_log (scan_date, source, world_id, world_name, favorites, visits, popularity)
+       VALUES ($scanDate, $source, $worldId, $worldName, $favorites, $visits, $popularity)`,
+      {
+        $scanDate: scanDate, $source: source || 'planetvrchat',
+        $worldId: worldId, $worldName: worldName || '',
+        $favorites: favorites || 0, $visits: visits || 0, $popularity: popularity || 0,
+      }
+    );
+  }
+
+  getSiteWorlds({ sinceDate, category, sortBy = 'favorites', limit = 50 } = {}) {
+    let sql = `SELECT * FROM site_world_recommendations WHERE 1=1`;
+    const params = {};
+    if (sinceDate) { sql += ` AND source_date >= $sinceDate`; params.$sinceDate = sinceDate; }
+    if (category) { sql += ` AND category = $category`; params.$category = category; }
+    const sorters = {
+      favorites: `ORDER BY favorites DESC`,
+      visits: `ORDER BY visits DESC`,
+      popularity: `ORDER BY popularity DESC`,
+      favorites_ratio: `ORDER BY (favorites * 1.0 / NULLIF(visits, 0)) DESC`,
+    };
+    sql += ` ` + (sorters[sortBy] || sorters.favorites);
+    sql += ` LIMIT $limit`;
+    params.$limit = limit;
+    return this._query(sql, params);
+  }
+
+  getSiteWorldHistory(worldId, source = 'planetvrchat') {
+    return this._query(
+      `SELECT * FROM site_world_scan_log WHERE world_id = $worldId AND source = $source ORDER BY scan_date ASC`,
+      { $worldId: worldId, $source: source }
+    );
+  }
+
+  getSiteScanDates(limit = 30) {
+    return this._query(
+      `SELECT DISTINCT scan_date FROM site_world_scan_log ORDER BY scan_date DESC LIMIT $limit`,
+      { $limit: limit }
+    );
+  }
+
+  clearSiteWorlds() {
+    this._run(`DELETE FROM site_world_recommendations`);
+    this._run(`DELETE FROM site_world_scan_log`);
   }
 }
