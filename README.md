@@ -3,7 +3,7 @@
 
 > 技术栈：Node.js + SQLite + WebSocket + MCP + Hermes 插件
 
-通过 WebSocket 实时采集好友上下线、世界切换、Avatar/状态变化并入库。以 55 个 MCP 工具向 AI Agent 暴露全部能力——不只查询，还涵盖社交互动（戳戳/邀请/好友请求）、媒体管理（emoji/相册/图库）、群组操作、推荐系统等。附带 Hermes 插件实现进程托管（自动拉起 + 崩溃自愈）。
+通过 WebSocket 实时采集好友上下线、世界切换、Avatar/状态变化并入库。以覆盖实时监控/社交互动/媒体管理/群组操作/智能推荐等能力域的 MCP 工具向 AI Agent 暴露全部能力——不只查询，还涵盖社交互动（戳戳/邀请/好友请求）、媒体管理（emoji/相册/图库）、群组操作、推荐系统等。附带 Hermes 插件实现进程托管（自动拉起 + 崩溃自愈）。
 
 > 🤖 **AI Agent 优先项目**：程序只面向 AI Agent 使用与开发，人类不直接编码。详见下方「[项目定位](#-ai-agent-优先项目定位)」与 [DEVELOPMENT.md](./DEVELOPMENT.md)。
 
@@ -30,12 +30,13 @@ QQ 群：**851865556** — 欢迎加入，交流使用问题、功能建议与�
 - **fork 自由**：MIT 协议，任何人可以 fork，让 AI Agent 按自己的需求扩展，无需事先征得同意。
 - **提交 PR 有要求**：单一职责、不破坏现有行为、DB 变更带迁移、文档同步、不提交密钥等 11 条硬性要求，详见 [DEVELOPMENT.md](./DEVELOPMENT.md)。
 - 面向 AI Agent 的部署配置引导见 [AGENTS.md](./AGENTS.md)。
+- **项目演进记录**见 [docs/history/](./docs/history/INDEX.md)——里程碑时间线、每月发布/PR/关键 commit 与演进意义（为什么做、确立了什么模式），新 Agent 上手建议先读。
 
 ---
 
 ## ✨ 功能
 
-按能力域划分的功能概览，全部 55 个 MCP 工具与详细参数见下方「🔌 MCP 工具」。
+按能力域划分的功能概览，全部 MCP 工具与详细参数见下方「🔌 MCP 工具」。
 
 ### 📡 实时监控与认证自愈
 
@@ -58,7 +59,7 @@ QQ 群：**851865556** — 欢迎加入，交流使用问题、功能建议与�
 
 ### 👥 群组管理
 
-- 群组信息、群组房实时列表、加入/退出、公告窥探（加入→读公告→退出）
+- 群组信息、群组房实时列表、加入/退出、公告窥探（加入→读公告→退出）、群组热度（活动排行/热力图）
 
 ### 🗄 数据与洞察
 
@@ -93,13 +94,23 @@ curl http://127.0.0.1:8799/health
 
 返回 `Auth: true`、`WS: connected`、在线好友数。
 
+## 🛡 常驻服务（开机自启 + 崩溃自愈）
+
+服务默认手动启动；如需**开机自动启动、崩溃自动修复、每日修复报告**（Windows），仓库自带一键脚本：
+
+```bat
+service-windows\setup-windows.cmd
+```
+
+详见 [service-windows/README.md](./service-windows/README.md)。数据库 / 备份目录可通过 `VRC_MONITOR_DB_PATH` / `VRC_MONITOR_BACKUP_DIR` 环境变量迁移到任意位置（写入仓库根 `.env` 即可，服务启动时自动加载）。
+
 ## 📦 Agent Skill 安装（开箱即用）
 
 仓库 `skills/` 目录自带 2 份**面向 AI Agent 的 skill 文档**（已隐去所有敏感信息，任何用户可直接使用）。安装后，Agent 无需 curl 手写 JSON-RPC，直接掌握查询工作流、正确工具选择和常见陷阱：
 
 | Skill | 内容 | 适用场景 |
 |-------|------|----------|
-| `skills/vrc-monitor-agent/` | 55 个 MCP 工具清单、5 大查询工作流（在线/同屏/时间线/上线规律/昵称）、常见陷阱、健康检查 | 日常好友查询与社交操作 |
+| `skills/vrc-monitor-agent/` | MCP 工具清单、5 大查询工作流（在线/同屏/时间线/上线规律/昵称）、常见陷阱、健康检查 | 日常好友查询与社交操作 |
 | `skills/vrc-monitor-companion-query/` | 「谁和我/和 XX 一起玩过」同屏交叉查询的正确姿势（为何不委派子 agent） | 同屏/玩伴查询 |
 
 **安装方式**（以 Hermes 为例，其他 Agent 框架同理）——把 skill 目录复制到你的 skills 目录：
@@ -165,7 +176,7 @@ cp desktop/plugin.js "$HERMES_HOME/desktop-plugins/vrc-monitor/"
 - **双路检测**：状态文件 pid 存活 **或** 端口探测成功，均可识别为运行中（防状态文件丢失误判）
 - **日志**：`$HERMES_HOME/workspace/vrc-monitor/monitor.log`
 
-## 🔌 MCP 工具（55 个）
+## 🔌 MCP 工具
 
 服务监听 `http://127.0.0.1:8799/mcp`，通过 HTTP SSE 提供 MCP 协议。Hermes 用户可在 `$HERMES_HOME/config.yaml`（Windows 为 `%LOCALAPPDATA%\hermes\config.yaml`）配置：
 
@@ -181,9 +192,15 @@ mcp_servers:
 |------|------|
 | `get_online_friends` | 当前在线好友列表（含昵称 nickname + 房型解析 locationParsed：worldId/instanceId/type/ownerId/region） |
 | `get_friend_info` | 好友详细信息 |
-| `search_users` | 按名字搜索用户 |
+| `search_users` | 按名字搜索用户（API 优先；API 无匹配时自动回退本地好友库模糊搜索 display_name/备注，结果带 `source: local_friends` 标记） |
 | `search_groups` | 按名字搜索群组（API 用 query 参数，不是 search） |
 | `search_worlds` | 按名字搜索世界（英文/日文走 API；中文自动加本地缓存兜底） |
+| `search_planet_worlds` | **PlanetVRC 地图检索**（2026-08-13 新增）：planetvrchat.net 日文世界目录关键词搜索 → 世界名/wrld_id/平台/分类/收藏数；适合 VRChat API 搜不到的日文/小众图。`limit` 最大 8（每个结果抓详情页补 wrld_id/人数/访问量） |
+| `recommend_planet_worlds` | **PlanetVRC 地图推荐**（2026-08-13 新增）：按访问量（热门）/发布日期（新作）/更新时间排行拉取 PlanetVRC 世界目录 Top N，结构与搜索一致 |
+| `search_booth_items` | **BOOTH 素材检索**（2026-08-13 新增）：booth.pm（pixiv 数字商品平台）关键词搜索 VRChat 素材（avatar/衣装/3D 模型等）→ 名称/价格/收藏数（wishlistCount=热度）/卖家/标签/售罄状态。`detail=false` 快速列表（仅 id+名称）；默认 `detail=true` 逐个补详情（~0.5s/个，最多 10 个）。注：**下载量/销量 Booth 不公开**（匿名恒为 0），用收藏数作热度信号 |
+| `get_booth_item` | **BOOTH 单品详情**：按 itemId 查商品 → 名称/价格/描述/标签/图片/卖家/发布时间/收藏数/变体。注：下载量/销量不公开。**本地缓存**：命中返回 `cached:true`（booth_items 快照），`forceRefresh:true` 强制实时 |
+| `get_booth_history` | **BOOTH 查询历史**（本地缓存）：已查过的商品快照，按收藏数/更新时间排序，`minWishlist` 过滤 → 趋势跟踪 |
+| `get_booth_searches` | **BOOTH 搜索历史**：最近搜索词 + 结果 id + 时间 |
 
 ### 事件历史
 
@@ -216,7 +233,24 @@ mcp_servers:
 | 工具 | 说明 |
 |------|------|
 | `scan_new_worlds` | 扫描最近 N 天创建的新世界（默认 7，1-30），过滤测试/垃圾图后写入 `new_worlds` 表，按热度返回推荐 TOP10；`dryRun: true` 只看不写。认证复用主服务登录态 |
-| `get_new_worlds` | 只读查询已跟踪的新世界：`onlyUnvisited` 只看未逛过、`sortBy`（favorites/occupants/popularity/created_at）、`limit`（默认 10，最大 50） |
+| `get_new_worlds` | 只读查询已跟踪的新世界：`onlyUnvisited` 只看未逛过、`sortBy`（favorites/occupants/popularity/created_at）、`excludeTheme` 排除主题（按 author_tag_* 逗号分隔）、`limit`（默认 10，最大 50） |
+| `rate_world` | 用户反馈：给世界打好评/烂图标记（rating: 1=好图加权 / -1=烂图降权 / 0=清除），影响推荐排序（worldScore 加权） |
+| `mark_world_visited` | 显式确认逛过某世界（事件驱动 visited 会漏记，开图闭环手动确认用） |
+| `recommend_worlds` | **多源融合世界推荐**（2026-08-13 新增）：local 新世界池 × PlanetVRC 排行 × 官方主题搜索 × 用户反馈（好评/烂图/收藏），评分含热度+新鲜度+主题+作者画像（30 天窗口熟客），输出可解释 `reasons`；`theme`（sleep/chat/onsen/game）、`excludeTheme` 排除、`sources` 多源选择、`excludeVisited` 去重 |
+| `favorite_world` | **云端收藏**（2026-08-13 新增）：把世界加入 VRChat 收藏夹分组（tag: worlds0-4，默认 worlds0），写操作需确认；成功后本地 world_cache.favorited=1 供推荐加权 |
+
+### X 博主世界推荐（2026-08-14 新增）
+
+| 工具 | 说明 |
+|------|------|
+| `x_world_digest` | **X 博主推荐聚合**：聚合指定 X（Twitter）博主近 1/3/7/15/30 天推荐的世界，按收藏数排序，收藏/浏览比 ≥ 1/5 标 ⭐ 重点；`creator` 只看某博主、`refresh=true` 先抓最新推文再查、`limit`/`days`/`highlightRatio` 可调 |
+| `x_scan_creators` | 立即抓取所有已配置博主的最新推文，提取推荐世界并查询收藏/浏览数据入库（Nitter RSS 多实例回退，默认直连，代理走 `VRC_MONITOR_HTTP_PROXY`/`HTTPS_PROXY`） |
+| `x_creators` | 列出已配置的 X 博主清单 |
+| `x_add_creator` | 添加追踪的 X 博主（screen_name 必填，可选显示名 name） |
+| `x_remove_creator` | 移除追踪的 X 博主 |
+| `x_worlds` | 已收录推荐世界列表（调试用，按收藏数排序） |
+
+> 说明：数据源为 Nitter RSS（免费匿名，无需 X API key），大陆网络需配置代理（`HTTPS_PROXY` 或 `VRC_MONITOR_HTTP_PROXY`）才能访问；Nitter 无分页（约 26 小时覆盖），采用定期采集累积模型。X 推荐体系与上方 `recommend_worlds` 多源推荐数据独立、互不参与融合。
 
 ### 关注名单
 
@@ -269,6 +303,7 @@ mcp_servers:
 | `get_group_info` | 群组详情（名称/成员数/shortCode/描述/认证状态/**joinState**(open/request/invite)等；`includeAnnouncement: true` 时附带公告，非成员为 null；`groupId` 必填） |
 | `get_group_instances` | **群组当前开放的实例（群组房）**：返回 instanceId/location/memberCount + 世界信息；空数组 = 没开房（`groupId` 必填） |
 | `get_group_announcement` | 群组公告（title/text/作者/时间；无公告或非成员返回 null 不报错；`groupId` 必填） |
+| `get_group_heat` | **群组热度**（2026-08-13 新增）：本地事件库聚合群组房活动——热度榜（活动次数/活跃好友数/涉及世界数/成员数 + 较上一等长窗口趋势 trendPct）+ 前 topK 群按（星期×小时）北京时区热力图；兼容 `grp_`/`gmem_` 双前缀群 ID。参数：`days`(默认7,最大30) 或 `startTime`/`endTime`、`topK`(默认5,最大10) |
 | `join_group` | 加入群组（open 群直接加入；已是成员返回 alreadyMember:true 不报错；`groupId` 必填） |
 | `leave_group` | 退出群组（`POST /groups/{id}/leave`；必须 `confirm: true`；非成员返回 notMember） |
 | `peek_group_announcement` | **窥探群公告**（2026-08-09 新增）：一键「加入→读公告→退出」，仅对 open 群生效，需 `confirm: true` |
@@ -290,12 +325,12 @@ mcp_servers:
 │   ├── vrchat-launch.js        # 打开实例统一入口（管道探测 + API 回退）
 │   ├── new-worlds.js           # 新世界扫描核心逻辑
 │   ├── backup.js               # 数据库在线备份
-│   ├── mcp-definitions.js      # MCP 工具定义（55 个工具）
+│   ├── mcp-definitions.js      # MCP 工具定义
 │   ├── server-context.js       # 共享上下文（ctx 对象 + log + parseLocation）
 │   ├── http-server.js          # HTTP 服务器 + SSE 端点
 │   ├── rpc-router.js           # RPC 分发（tools/call → handler）
 │   ├── otp-fetcher.js          # OTP 邮箱获取
-│   └── handlers/               # 55 个 MCP 工具的 handler
+│   └── handlers/               # 各 MCP 工具的 handler
 │       ├── recommend.js       #   推荐系统（好友收藏位置/推荐加入/偏好/学习）
 │       ├── friends.js         #   好友查询（在线/详情/搜索/共同好友/添加/删除）
 │       ├── instance.js        #   实例操作（创建/自我邀请/打开世界）
@@ -326,6 +361,7 @@ mcp_servers:
 ├── AGENTS.md                  # Agent 部署配置引导
 ├── ARCHITECTURE.md            # 系统架构文档
 ├── DEVELOPMENT.md             # 开发规范
+├── docs/history/               # 演进记录（月度，含里程碑时间线）
 └── README.md
 ```
 

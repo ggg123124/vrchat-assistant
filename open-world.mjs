@@ -120,7 +120,17 @@ if (!/^wrld_/.test(target)) {
     // 兜底：vrc-monitor 自己的 events 表（world_name 记录，无第三方依赖）
     try {
       const Database = (await import('better-sqlite3')).default;
-      const db = new Database(path.join(__dirname, 'vrc-monitor.sqlite3'), { readonly: true, timeout: 10000 });
+      let dbPath = process.env.VRC_MONITOR_DB_PATH;
+      if (!dbPath) {
+        try {
+          const envFile = path.join(__dirname, '.env');
+          if (existsSync(envFile)) {
+            const line = readFileSync(envFile, 'utf-8').split(/\r?\n/).find(l => l.trim().startsWith('VRC_MONITOR_DB_PATH='));
+            if (line) dbPath = path.resolve(line.slice('VRC_MONITOR_DB_PATH='.length).trim());
+          }
+        } catch { /* ignore */ }
+      }
+      const db = new Database(dbPath || path.join(__dirname, 'vrc-monitor.sqlite3'), { readonly: true, timeout: 10000 });
       const rows = db.prepare(
         `SELECT world_id, world_name FROM events
          WHERE world_name IS NOT NULL AND world_name != '' AND world_name = ?

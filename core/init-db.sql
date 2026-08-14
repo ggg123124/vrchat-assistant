@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS world_cache (
   capacity INTEGER,
   favorites INTEGER,
   tags TEXT,                       -- JSON array
+  favorited INTEGER DEFAULT 0,     -- 云端收藏标记（favorite_world 成功时写 1）
   updated_at TEXT DEFAULT (datetime('now'))
 );
 
@@ -99,11 +100,19 @@ CREATE TABLE IF NOT EXISTS group_cache (
   updated_at TEXT DEFAULT (datetime('now'))
 );
 
+-- PlanetVRC 抓取结果 TTL 缓存（推荐融合用；排行/搜索页 6h、详情页 24h，调用方传 TTL）
+CREATE TABLE IF NOT EXISTS planet_cache (
+  key TEXT PRIMARY KEY,
+  payload TEXT,                  -- JSON 字符串
+  fetched_at TEXT                -- 写入时间 ISO 8601
+);
+
 -- 新地图追踪（scan_new_worlds MCP 工具维护：新发布世界的收藏/逛过标记）
 CREATE TABLE IF NOT EXISTS new_worlds (
   world_id TEXT PRIMARY KEY,
   world_name TEXT NOT NULL DEFAULT '',
   author_name TEXT DEFAULT '',
+  author_id TEXT DEFAULT '',     -- 世界作者 ID（作者维度推荐用）
   created_at TEXT,               -- 世界创建时间（API）
   first_seen_at TEXT,            -- 首次被本工具记录的时间
   favorites INTEGER DEFAULT 0,   -- 最近一次抓取时的收藏数（热度）
@@ -113,7 +122,8 @@ CREATE TABLE IF NOT EXISTS new_worlds (
   visited_at TEXT,               -- 逛过的时间（若已逛）
   tags TEXT DEFAULT '',          -- 作者标签 JSON 数组（author_tag_*，主题分类用）
   description TEXT DEFAULT '',   -- 世界描述（主题关键词匹配用）
-  source TEXT DEFAULT 'new'      -- 来源: new=新发布-推荐 / hot=热门图追加
+  source TEXT DEFAULT 'new',     -- 来源: new=新发布-推荐 / hot=热门图追加
+  user_rating INTEGER DEFAULT 0  -- 用户反馈: -1=烂图(junk) / 0=无标记 / 1=好图（recommend 评分加权用）
 );
 CREATE INDEX IF NOT EXISTS idx_new_worlds_visited ON new_worlds(visited);
 
@@ -142,3 +152,31 @@ CREATE TABLE IF NOT EXISTS join_choices (
   world_tags TEXT DEFAULT ''        -- 被选世界的 author_tag_* 标签 JSON 数组（类型偏好学习用）
 );
 CREATE INDEX IF NOT EXISTS idx_join_choices_created ON join_choices(created_at);
+
+-- BOOTH 商品快照缓存（search_booth_items / get_booth_item 命中时 upsert，Issue #28）
+-- 目的：搜过的商品事后可查、收藏数趋势跟踪、重复搜索走缓存避免触发 booth.pm 限流
+CREATE TABLE IF NOT EXISTS booth_items (
+  id TEXT PRIMARY KEY,               -- BOOTH item id（字符串，兼容数字）
+  name TEXT NOT NULL DEFAULT '',
+  price TEXT DEFAULT '',             -- 原价格字符串（¥ 5,500 / ¥ 500~ 多档变体）
+  wishlist_count INTEGER DEFAULT 0,  -- 收藏数（BOOTH 唯一公开热度信号）
+  shop_name TEXT DEFAULT '',
+  description TEXT DEFAULT '',
+  tags TEXT DEFAULT '',              -- JSON 数组
+  image_url TEXT DEFAULT '',         -- 首图 original URL
+  url TEXT DEFAULT '',
+  published_at TEXT DEFAULT '',
+  is_sold_out INTEGER DEFAULT 0,
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_booth_items_wishlist ON booth_items(wishlist_count);
+
+-- BOOTH 搜索历史（记录搜索词与结果，支持"查历史搜索"）
+CREATE TABLE IF NOT EXISTS booth_search_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  query TEXT NOT NULL,
+  result_ids TEXT DEFAULT '',        -- JSON 数组（商品 id 列表）
+  result_count INTEGER DEFAULT 0,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_booth_search_created ON booth_search_history(created_at);

@@ -45,7 +45,7 @@ VRChat WebSocket (wss://pipeline.vrchat.cloud)
 | `vrchat-launch.js` | 149 | 打开实例统一入口。Windows 命名管道直发（游戏内弹菜单）→ 探测失败静默回退 API 自我邀请。平台门控 + 超时保护 | `openInstance()` 函数 |
 | `new-worlds.js` | 92 | 新世界扫描核心逻辑。垃圾过滤、热度评分、分类、翻页拉取。不含认证/数据库副作用，MCP handler 与 CLI 共用 | `isJunkWorld` / `worldScore` / `classifyWorlds` / `fetchFreshWorlds` |
 | `backup.js` | 74 | 数据库在线备份。better-sqlite3 `db.backup()` API，WAL 模式无需停机。保留最近 2 份，旧备份自动清理 | `backupDatabase()` 函数 |
-| `mcp-definitions.js` | 640 | MCP 工具定义。55 个工具的 name + description + inputSchema 纯数据，无运行时依赖 | `CUSTOM_TOOLS` 数组 |
+| `mcp-definitions.js` | 640 | MCP 工具定义。name + description + inputSchema 纯数据，无运行时依赖 | `CUSTOM_TOOLS` 数组 |
 | `server-context.js` | 66 | 共享上下文。可变 `ctx` 对象持有所有运行时状态（storage/api/rateLimiter/wsManager 等），`log()`、`parseLocation()`、watchlist 内存缓存管理 | `ctx` / `log` / `parseLocation` / `refreshWatchlistCache` / `invalidateWatchlistCache` |
 | `http-server.js` | 140 | HTTP 服务器 + SSE 端点。McpSession 管理、`sendSSE`/`sendError` 响应辅助、`/health` + `/mcp` 请求路由 | `createServer` / `sendSSE` / `sendError` |
 | `rpc-router.js` | 341 | RPC 分发。`handleRpc` 将 `tools/call` 映射到对应 handler，3 个内联 case（send_boop/send_invite/request_invite）直接访问 ctx.api | `handleRpc` |
@@ -54,7 +54,7 @@ VRChat WebSocket (wss://pipeline.vrchat.cloud)
 
 ## core/handlers/ 子目录
 
-55 个 MCP 工具的 handler 按功能域分拆到 7 个文件，共享 `ctx` 上下文：
+各 MCP 工具的 handler 按功能域分拆到 7 个文件，共享 `ctx` 上下文：
 
 | 文件 | 行数 | 工具域 | 导出函数数 |
 |------|------|--------|----------|

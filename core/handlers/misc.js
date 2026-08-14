@@ -62,10 +62,11 @@ export async function handleScanNewWorlds({ days = 7, dryRun = false }) {
 
   if (!dryRun) {
     const upsert = storage.db.prepare(
-      `INSERT INTO new_worlds (world_id, world_name, author_name, created_at, first_seen_at, favorites, occupants, popularity, visited, visited_at, tags, description)
-       VALUES (@world_id, @world_name, @author_name, @created_at, @first_seen_at, @favorites, @occupants, @popularity, @visited, @visited_at, @tags, @description)
+      `INSERT INTO new_worlds (world_id, world_name, author_name, author_id, created_at, first_seen_at, favorites, occupants, popularity, visited, visited_at, tags, description)
+       VALUES (@world_id, @world_name, @author_name, @author_id, @created_at, @first_seen_at, @favorites, @occupants, @popularity, @visited, @visited_at, @tags, @description)
        ON CONFLICT(world_id) DO UPDATE SET
          world_name = excluded.world_name,
+         author_id = excluded.author_id,
          favorites = excluded.favorites,
          occupants = excluded.occupants,
          popularity = excluded.popularity,
@@ -85,6 +86,7 @@ export async function handleScanNewWorlds({ days = 7, dryRun = false }) {
           world_id: w.id,
           world_name: w.name || '',
           author_name: w.authorName || '',
+          author_id: w.authorId || '',
           created_at: w.created_at || null,
           first_seen_at: now,
           favorites: w.favorites || 0,
@@ -108,7 +110,22 @@ export async function handleScanNewWorlds({ days = 7, dryRun = false }) {
     tx();
   }
 
+  // 注入 DB 用户反馈（user_rating）到候选对象——否则 worldScore 加权对 API 对象恒为 0（Review 修复 #1）
+  // unvisited 来自 API 拉取对象（无 userRating 字段），按 worldId 批量查 new_worlds 的 user_rating
+  const ratingParams = {};
+  const ratingRows = unvisited.length > 0
+    ? (() => {
+        unvisited.forEach((w, i) => { ratingParams[`w${i}`] = w.id; });
+        return storage._query(
+          `SELECT world_id, user_rating FROM new_worlds WHERE world_id IN (${unvisited.map((_, i) => `$w${i}`).join(',')})`,
+          ratingParams
+        );
+      })()
+    : [];
+  const ratingMap = new Map(ratingRows.map(r => [r.world_id, r.user_rating || 0]));
+
   const recommended = [...unvisited]
+    .map(w => ({ ...w, userRating: ratingMap.get(w.id) || 0 }))
     .sort((a, b) => worldScore(b) - worldScore(a))
     .slice(0, 10)
     .map(w => ({
@@ -120,6 +137,7 @@ export async function handleScanNewWorlds({ days = 7, dryRun = false }) {
       popularity: w.popularity || 0,
       author: w.authorName,
       tags: (w.tags || []).filter(t => t.startsWith('author_tag_')).map(t => t.replace('author_tag_', '')),
+      userRating: w.userRating,
     }));
 
   return {
@@ -134,37 +152,95 @@ export async function handleScanNewWorlds({ days = 7, dryRun = false }) {
   };
 }
 
-export function handleGetNewWorlds({ onlyUnvisited = false, limit = 10, sortBy = 'favorites' }) {
+export function handleGetNewWorlds({ onlyUnvisited = false, limit = 10, sortBy = 'favorites', excludeTheme = '' }) {
   const { storage } = ctx;
   if (!['favorites', 'occupants', 'popularity', 'created_at'].includes(sortBy)) sortBy = 'favorites';
   limit = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 50);
 
+  // Issue #19 痛点 4：排除主题（按 author_tag_* 匹配，逗号分隔）。SQL 层排除（Review 修复 #3），
+  // 避免 LIMIT 后 JS 过滤导致返回 < limit；total 也按排除语义统计。
+  const excludedThemes = typeof excludeTheme === 'string' && excludeTheme.trim()
+    ? excludeTheme.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
+    : [];
+
+  // 构造排除条件：tags 列是 JSON 数组字符串（["author_tag_game",...]），用 json_each 拆行匹配主题
+  let where = '';
+  const whereParams = {};
+  if (onlyUnvisited) where += 'WHERE visited = 0';
+  if (excludedThemes.length > 0) {
+    // 排除 = 不存在任何匹配主题的行（json_each 拆 JSON tags 数组匹配）
+    // 兜底：json_valid(tags) 为假（空串/脏数据）时按 '[]' 处理，避免 malformed JSON 崩溃
+    const notExists = excludedThemes.map((_, i) =>
+      `NOT EXISTS (
+        SELECT 1 FROM json_each(CASE WHEN json_valid(new_worlds.tags) THEN new_worlds.tags ELSE '[]' END)
+        WHERE lower(value) = $th${i}
+      )`
+    ).join(' AND ');
+    where += (where ? ' AND ' : 'WHERE ') + notExists;
+    excludedThemes.forEach((t, i) => { whereParams[`th${i}`] = `author_tag_${t}`; });
+  }
+
   const total = storage._query(
-    `SELECT COUNT(*) AS cnt FROM new_worlds${onlyUnvisited ? ' WHERE visited = 0' : ''}`
+    `SELECT COUNT(*) AS cnt FROM new_worlds ${where}`,
+    whereParams
   )[0].cnt;
 
+  // 超额取数兜底：排除后可能不足 limit，取 3 倍候选再 JS 精过滤（tags 解析）
+  const fetchLimit = Math.min(limit * 3, 100);
   const rows = storage._query(
-    `SELECT world_id, world_name, author_name, created_at, first_seen_at, favorites, occupants, popularity, visited, visited_at
+    `SELECT world_id, world_name, author_name, created_at, first_seen_at, favorites, occupants, popularity, visited, visited_at, tags, user_rating
      FROM new_worlds
-     ${onlyUnvisited ? 'WHERE visited = 0' : ''}
+     ${where}
      ORDER BY ${sortBy} DESC
-     LIMIT ${limit}`
+     LIMIT ${fetchLimit}`,
+    whereParams
   );
 
-  const worlds = rows.map(r => ({
-    worldId: r.world_id,
-    worldName: r.world_name,
-    authorName: r.author_name,
-    created: r.created_at,
-    firstSeen: r.first_seen_at,
-    favorites: r.favorites,
-    occupants: r.occupants,
-    popularity: r.popularity,
-    visited: r.visited === 1,
-    visitedAt: r.visited_at,
-  }));
+  const worlds = rows
+    .map(r => {
+      let worldTags = [];
+      try { worldTags = JSON.parse(r.tags || '[]'); } catch (_) {}
+      const themeTags = worldTags.filter(t => t.startsWith('author_tag_')).map(t => t.replace('author_tag_', '').toLowerCase());
+      return {
+        worldId: r.world_id,
+        worldName: r.world_name,
+        authorName: r.author_name,
+        created: r.created_at,
+        firstSeen: r.first_seen_at,
+        favorites: r.favorites,
+        occupants: r.occupants,
+        popularity: r.popularity,
+        visited: r.visited === 1,
+        visitedAt: r.visited_at,
+        tags: themeTags,
+        userRating: r.user_rating || 0,
+      };
+    })
+    .slice(0, limit);
 
   return { total, worlds };
+}
+
+/** 用户反馈：好图/烂图标记（Issue #19） */
+export function handleRateWorld({ worldId, rating = 0 }) {
+  const { storage } = ctx;
+  if (!worldId) throw new Error('worldId is required');
+  const r = parseInt(rating, 10);
+  if (r !== -1 && r !== 0 && r !== 1) {
+    throw new Error('rating must be -1 (junk), 0 (clear), or 1 (good)');
+  }
+  const result = storage.rateWorld({ worldId, rating: r });
+  log(`⭐ 用户反馈: ${worldId} → rating=${result.userRating}${result.worldName ? ` (${result.worldName})` : ''}`);
+  return result;
+}
+
+/** 显式确认逛过某世界（Issue #19 痛点 3） */
+export function handleMarkWorldVisited({ worldId }) {
+  const { storage } = ctx;
+  if (!worldId) throw new Error('worldId is required');
+  const result = storage.markWorldVisited({ worldId });
+  log(`✅ 手动标记 visited: ${worldId}${result.worldName ? ` (${result.worldName})` : ''}`);
+  return result;
 }
 
 export function handleGetWatchlist() {

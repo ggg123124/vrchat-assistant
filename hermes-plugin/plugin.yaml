@@ -1,5 +1,5 @@
 name: vrc-monitor
-version: 1.14.0
+version: 1.17.0
 description: "Manages the VRChat friend monitoring service (vrc-monitor) as a detached Node.js subprocess. Auto-starts on session begin; provides vrc_status / vrc_start / vrc_stop / vrc_restart tools for manual lifecycle control."
 author: 超级有节操的逆袭
 kind: standalone

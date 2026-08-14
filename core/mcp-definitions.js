@@ -1,13 +1,12 @@
 /**
- * MCP 工具定义 — 55 个工具的 name + description + inputSchema
+ * MCP 工具定义 — name + description + inputSchema
  *
  * 纯数据模块，无运行时依赖。
  * start-monitor.js 导入后在 tools/list 和启动校验中使用。
  */
 
 export const CUSTOM_TOOLS = [
-  // ── 已有的写工具 ──
-  {
+{
     name: 'send_boop',
     description: '[write·vrchat] Send a boop to a user. Requires userId.',
     inputSchema: {
@@ -19,7 +18,7 @@ export const CUSTOM_TOOLS = [
       required: ['userId'],
     },
   },
-  {
+{
     name: 'get_boop_emojis',
     description: '[query] List built-in boop emojis and their emojiId format.',
     inputSchema: {
@@ -27,7 +26,7 @@ export const CUSTOM_TOOLS = [
       properties: {},
     },
   },
-  {
+{
     name: 'upload_emoji',
     description: '[write·vrchat] Upload a custom boop emoji (requires VRChat Plus). Returns fileId to use as emojiId in send_boop.',
     inputSchema: {
@@ -40,7 +39,7 @@ export const CUSTOM_TOOLS = [
       required: ['imagePath'],
     },
   },
-  {
+{
     name: 'upload_print',
     description: '[write·vrchat] Upload a photo to your VRChat prints album (requires VRChat Plus).',
     inputSchema: {
@@ -52,7 +51,7 @@ export const CUSTOM_TOOLS = [
       required: ['imagePath'],
     },
   },
-  {
+{
     name: 'upload_gallery_image',
     description: '[write·vrchat] Upload an image to your VRC+ gallery (requires VRChat Plus).',
     inputSchema: {
@@ -63,7 +62,7 @@ export const CUSTOM_TOOLS = [
       required: ['imagePath'],
     },
   },
-  {
+{
     name: 'get_prints',
     description: '[query] List your VRChat prints (VRChat Plus photo album).',
     inputSchema: {
@@ -74,7 +73,7 @@ export const CUSTOM_TOOLS = [
       },
     },
   },
-  {
+{
     name: 'remove_print',
     description: '[write·vrchat] Remove a print from your VRChat prints album. Requires printId and confirm: true to execute (irreversible).',
     inputSchema: {
@@ -86,7 +85,7 @@ export const CUSTOM_TOOLS = [
       required: ['printId'],
     },
   },
-  {
+{
     name: 'get_gallery_images',
     description: '[query] List your VRChat gallery images (VRChat Plus).',
     inputSchema: {
@@ -96,7 +95,7 @@ export const CUSTOM_TOOLS = [
       },
     },
   },
-  {
+{
     name: 'remove_gallery_image',
     description: '[write·vrchat] Remove an image from your VRChat gallery. Requires fileId and confirm: true to execute (irreversible).',
     inputSchema: {
@@ -108,7 +107,7 @@ export const CUSTOM_TOOLS = [
       required: ['fileId'],
     },
   },
-  {
+{
     name: 'download_print',
     description: '[query] Download a photo from your VRChat prints album to local disk. Returns local file path.',
     inputSchema: {
@@ -120,7 +119,7 @@ export const CUSTOM_TOOLS = [
       required: ['printId'],
     },
   },
-  {
+{
     name: 'download_gallery_image',
     description: '[query] Download an image from your VRC+ gallery to local disk. Returns local file path.',
     inputSchema: {
@@ -132,7 +131,7 @@ export const CUSTOM_TOOLS = [
       required: ['fileId'],
     },
   },
-  {
+{
     name: 'send_invite',
     description: '[write·vrchat] Send an invite to join your current instance.',
     inputSchema: {
@@ -146,7 +145,7 @@ export const CUSTOM_TOOLS = [
       required: ['userId', 'worldId', 'instanceId'],
     },
   },
-  {
+{
     name: 'request_invite',
     description: '[write·vrchat] Request an invite from a user.',
     inputSchema: {
@@ -158,7 +157,7 @@ export const CUSTOM_TOOLS = [
       required: ['userId'],
     },
   },
-  {
+{
     name: 'create_instance',
     description: '[write·vrchat] Create a new instance (room) for a world. Returns instance location ready for invite_myself. Region defaults to jp.',
     inputSchema: {
@@ -173,7 +172,7 @@ export const CUSTOM_TOOLS = [
       required: ['worldId'],
     },
   },
-  {
+{
     name: 'invite_myself',
     description: '[write·vrchat] Open an instance in the running VRChat client (same engine as open_world): named-pipe launch first (Windows, silent in-game join dialog), falls back to API self-invite (client teleports on accept) when pipe unavailable. Accepts location (worldId:instanceId) or worldId+instanceId separately.',
     inputSchema: {
@@ -186,7 +185,7 @@ export const CUSTOM_TOOLS = [
       },
     },
   },
-  {
+{
     name: 'open_world',
     description: '[write·vrchat] Open a world/instance in the running VRChat client. If only worldId given, creates a new instance first (hidden jp default), then: named-pipe launch (VRChatURLLaunchPipe → silent in-game join dialog, Windows, 1 step) with API self-invite fallback (invite notification) when pipe unavailable. Core: core/vrchat-launch.js openInstance.',
     inputSchema: {
@@ -201,8 +200,7 @@ export const CUSTOM_TOOLS = [
       },
     },
   },
-
-  {
+{
     name: 'send_friend_request',
     description: '[write·vrchat] Send a friend request to a user. Supports userId or exact displayName match.',
     inputSchema: {
@@ -213,7 +211,7 @@ export const CUSTOM_TOOLS = [
       },
     },
   },
-  {
+{
     name: 'remove_friend',
     description: '[write·vrchat] Remove a friend. Requires userId or exact displayName match, plus confirm: true to execute (irreversible).',
     inputSchema: {
@@ -225,8 +223,7 @@ export const CUSTOM_TOOLS = [
       },
     },
   },
-  // ── 只读查询工具 ──
-  {
+{
     name: 'get_online_friends',
     description: '[query] List currently online friends from VRChat API.',
     inputSchema: {
@@ -234,7 +231,7 @@ export const CUSTOM_TOOLS = [
       properties: {},
     },
   },
-  {
+{
     name: 'get_friend_info',
     description: '[query] Get detailed info about a specific friend from API.',
     inputSchema: {
@@ -245,7 +242,7 @@ export const CUSTOM_TOOLS = [
       },
     },
   },
-  {
+{
     name: 'get_mutual_friends',
     description: '[query] List mutual friends between you and a user (userId or exact displayName). Includes local nicknames.',
     inputSchema: {
@@ -257,7 +254,7 @@ export const CUSTOM_TOOLS = [
       },
     },
   },
-  {
+{
     name: 'search_users',
     description: '[query] Search VRChat users by display name.',
     inputSchema: {
@@ -269,7 +266,7 @@ export const CUSTOM_TOOLS = [
       required: ['query'],
     },
   },
-  {
+{
     name: 'get_database_stats',
     description: '[system] Get local database statistics (event count, friend count, etc).',
     inputSchema: {
@@ -277,7 +274,7 @@ export const CUSTOM_TOOLS = [
       properties: {},
     },
   },
-  {
+{
     name: 'get_server_status',
     description: '[system] Check server health and auth status.',
     inputSchema: {
@@ -285,8 +282,7 @@ export const CUSTOM_TOOLS = [
       properties: {},
     },
   },
-  // ── 事件历史与世界名工具 ──
-  {
+{
     name: 'get_friend_events',
     description: '[query] Query a friend\'s event history from local database.',
     inputSchema: {
@@ -300,7 +296,7 @@ export const CUSTOM_TOOLS = [
       required: ['userId'],
     },
   },
-  {
+{
     name: 'get_recent_events',
     description: '[query] Get the latest event stream from local database.',
     inputSchema: {
@@ -313,7 +309,7 @@ export const CUSTOM_TOOLS = [
       },
     },
   },
-  {
+{
     name: 'get_world_name',
     description: '[query] Get world name by worldId. Checks local cache first, falls back to API.',
     inputSchema: {
@@ -325,7 +321,7 @@ export const CUSTOM_TOOLS = [
       required: ['worldId'],
     },
   },
-  {
+{
     name: 'set_world_note',
     description: '[manage] Set or update a user note for a world (stored locally, never overwritten by API refresh). Empty string clears the note.',
     inputSchema: {
@@ -337,7 +333,7 @@ export const CUSTOM_TOOLS = [
       required: ['worldId', 'note'],
     },
   },
-  {
+{
     name: 'get_world_history',
     description: '[query] Get change history of a world\'s info (name, description, capacity, etc.).',
     inputSchema: {
@@ -349,7 +345,7 @@ export const CUSTOM_TOOLS = [
       required: ['worldId'],
     },
   },
-  {
+{
     name: 'get_weekly_report',
     description: '[query] Generate a weekly gaming report for the authenticated user: active days, play time, worlds visited, companion friends (with nicknames), own online pattern, group activities and friend group calendar. Data from local events DB + cached group info.',
     inputSchema: {
@@ -359,7 +355,7 @@ export const CUSTOM_TOOLS = [
       },
     },
   },
-  {
+{
     name: 'scan_new_worlds',
     description: '[action] Scan VRChat for worlds created in the last N days, filter junk, write to the new_worlds table, and return a recommended list. dryRun=true only reports without writing.',
     inputSchema: {
@@ -370,7 +366,7 @@ export const CUSTOM_TOOLS = [
       },
     },
   },
-  {
+{
     name: 'get_new_worlds',
     description: '[query] Query tracked new worlds from the new_worlds table (read-only). Filter by visited, sort by heat, limit count.',
     inputSchema: {
@@ -379,10 +375,34 @@ export const CUSTOM_TOOLS = [
         onlyUnvisited: { type: 'boolean', default: false, description: 'Only return worlds the user has not visited' },
         limit: { type: 'number', default: 10, description: 'Max rows (1-50, default 10)' },
         sortBy: { type: 'string', enum: ['favorites', 'occupants', 'popularity', 'created_at'], default: 'favorites', description: 'Sort field (descending)' },
+        excludeTheme: { type: 'string', description: 'Comma-separated theme keywords to exclude (matched against author tags, e.g. "game,horror,dance")' },
       },
     },
   },
-  {
+{
+    name: 'rate_world',
+    description: '[action] Rate a world as good/junk for recommendation feedback (Issue #19). rating=1 good (weighted up), -1 junk (weighted down/excluded), 0 clear.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        worldId: { type: 'string', description: 'VRChat world ID (wrld_...)' },
+        rating: { type: 'number', enum: [-1, 0, 1], description: '-1=junk, 0=clear, 1=good' },
+      },
+      required: ['worldId', 'rating'],
+    },
+  },
+{
+    name: 'mark_world_visited',
+    description: '[action] Explicitly mark a world as visited (Issue #19: event-driven visited can miss). Useful to close the recommend-open-browse loop.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        worldId: { type: 'string', description: 'VRChat world ID (wrld_...)' },
+      },
+      required: ['worldId'],
+    },
+  },
+{
     name: 'get_watchlist',
     description: '[manage] List all watched friends.',
     inputSchema: {
@@ -390,7 +410,7 @@ export const CUSTOM_TOOLS = [
       properties: {},
     },
   },
-  {
+{
     name: 'add_to_watchlist',
     description: '[manage] Add a friend to watchlist.',
     inputSchema: {
@@ -403,7 +423,7 @@ export const CUSTOM_TOOLS = [
       required: ['userId'],
     },
   },
-  {
+{
     name: 'remove_from_watchlist',
     description: '[manage] Remove a friend from watchlist.',
     inputSchema: {
@@ -414,8 +434,7 @@ export const CUSTOM_TOOLS = [
       required: ['userId'],
     },
   },
-  // ── 新增：同屏好友查询 ──
-  {
+{
     name: 'get_companions',
     description: '[query] Find all friends who were in the same instances as you during a time range. Uses SQLite cross-reference by instanceId. Each companion has: userId/displayName/firstSeen/lastSeen/matchCount/worlds (worlds is a STRING array of world names or worldIds, NOT objects).',
     inputSchema: {
@@ -428,8 +447,7 @@ export const CUSTOM_TOOLS = [
       required: ['startTime', 'endTime'],
     },
   },
-  // ── 新增：好友上线规律分析 ──
-  {
+{
     name: 'get_online_pattern',
     description: '[query] Analyze a friend\'s online activity pattern (hourly distribution and frequency in Beijing time).',
     inputSchema: {
@@ -443,8 +461,7 @@ export const CUSTOM_TOOLS = [
       required: ['userId'],
     },
   },
-  // ── 新增：昵称映射 ──
-  {
+{
     name: 'get_nicknames',
     description: '[manage] Query friend nickname mappings (exact by userId, fuzzy by nickname/displayName, or all).',
     inputSchema: {
@@ -455,7 +472,7 @@ export const CUSTOM_TOOLS = [
       },
     },
   },
-  {
+{
     name: 'set_nickname',
     description: '[manage] Set or update a friend nickname mapping (upsert).',
     inputSchema: {
@@ -468,8 +485,7 @@ export const CUSTOM_TOOLS = [
       required: ['userId', 'nickname'],
     },
   },
-  // ── 新增：group 查询工具 ──
-  {
+{
     name: 'get_user_groups',
     description: '[group] List groups a user has joined (default: current account). withDetails=true also fetches descriptions.',
     inputSchema: {
@@ -480,7 +496,7 @@ export const CUSTOM_TOOLS = [
       },
     },
   },
-  {
+{
     name: 'get_group_info',
     description: '[group] Get a VRChat group\'s details (name, member count, description, verified status). includeAnnouncement=true also fetches the announcement.',
     inputSchema: {
@@ -492,7 +508,7 @@ export const CUSTOM_TOOLS = [
       required: ['groupId'],
     },
   },
-  {
+{
     name: 'get_group_instances',
     description: '[group] List a group\'s currently open group instances (rooms). Empty array = no rooms open.',
     inputSchema: {
@@ -503,7 +519,7 @@ export const CUSTOM_TOOLS = [
       required: ['groupId'],
     },
   },
-  {
+{
     name: 'get_group_announcement',
     description: '[group] Get a group\'s announcement post (title/text/author/createdAt). null if none or not a member.',
     inputSchema: {
@@ -514,7 +530,58 @@ export const CUSTOM_TOOLS = [
       required: ['groupId'],
     },
   },
-  {
+{
+    name: 'search_planet_worlds',
+    description: '[query·地图] Search VRChat worlds on PlanetVRC (planetvrchat.net, Japanese world directory) by keyword. Returns world name, wrld_id (when enriched), platform, categories, favorites/visitors counts. Useful for finding worlds by Japanese/English keywords that the VRChat API search may miss.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Keyword (supports Japanese/English)' },
+        limit: { type: 'number', default: 5, description: 'Max results (default 5, max 8; each result fetches its detail page for wrld_id/stats)' },
+      },
+      required: ['query'],
+    },
+  },
+{
+    name: 'recommend_planet_worlds',
+    description: '[query·推荐] PlanetVRC world rankings (planetvrchat.net): popular (most visited), new (recently published), or updated. Returns worlds with wrld_id, maxPlayers, visitors, favorites, publishedAt.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sort: { type: 'string', default: 'popular', description: 'popular | new | updated' },
+        limit: { type: 'number', default: 5, description: 'Max results (default 5, max 8)' },
+      },
+    },
+  },
+{
+    name: 'recommend_worlds',
+    description: '[query·推荐] Multi-source world recommendation: fuses local new_worlds + PlanetVRC popularity ranking + official theme search, scored by heat × user feedback × freshness × theme match × author affinity. Returns scored candidates with explainable reasons and canOpen flag (planet cards are resolved to wrld_ ids via official name lookup).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        theme: { type: 'string', enum: ['sleep', 'chat', 'onsen', 'game', 'default'], default: 'default', description: 'Theme to boost (sleep boosts sleep_ok worlds strongly; other themes boost keyword matches)' },
+        excludeTheme: { type: 'string', description: 'Comma-separated themes to exclude (matched against author_tag_* and name/description keywords, e.g. "game,horror")' },
+        limit: { type: 'number', default: 5, description: 'Max results (1-10, default 5)' },
+        sources: { type: 'string', default: 'local,planet', description: 'Comma-separated sources: local (new_worlds table), planet (PlanetVRC ranking), official (theme keyword search)' },
+        excludeVisited: { type: 'boolean', default: true, description: 'Skip worlds already visited' },
+        detail: { type: 'boolean', default: true, description: 'Enrich description/imageUrl/note from world_cache' },
+      },
+    },
+  },
+{
+    name: 'get_group_heat',
+    description: '[query·热度] Group activity heat: rank groups by how much your friends/you were in their group rooms (activityCount, friendCount, worldCount, trendPct vs previous equal window) + day-of-week×hour Beijing-time heatmap for top groups. Data from local event history (supports grp_/gmem_ ids).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        days: { type: 'number', default: 7, description: 'Analyze last N days (Beijing natural days, default 7, max 30)' },
+        startTime: { type: 'string', description: 'ISO 8601 start (optional, overrides days)' },
+        endTime: { type: 'string', description: 'ISO 8601 end (optional, must pair with startTime)' },
+        topK: { type: 'number', default: 5, description: 'Number of top groups to include a heatmap for (default 5, max 10)' },
+      },
+    },
+  },
+{
     name: 'search_groups',
     description: '[group] Search VRChat groups by name. Returns matching groups (query param; API requires query, NOT search).',
     inputSchema: {
@@ -526,7 +593,7 @@ export const CUSTOM_TOOLS = [
       required: ['query'],
     },
   },
-  {
+{
     name: 'search_worlds',
     description: '[query] Search VRChat worlds by name. English/Japanese search the live API; Chinese keywords fall back to local cache (API CJK search is unreliable).',
     inputSchema: {
@@ -538,7 +605,7 @@ export const CUSTOM_TOOLS = [
       required: ['query'],
     },
   },
-  {
+{
     name: 'backup_database',
     description: '[system] Immediately back up the local database (WAL online backup, no restart needed). Keeps the 2 most recent backups in backups/.',
     inputSchema: {
@@ -546,7 +613,7 @@ export const CUSTOM_TOOLS = [
       properties: {},
     },
   },
-  {
+{
     name: 'join_group',
     description: '[group] Join a group. Open groups join instantly; 400 already-member is returned as alreadyMember:true (no error).',
     inputSchema: {
@@ -557,7 +624,7 @@ export const CUSTOM_TOOLS = [
       required: ['groupId'],
     },
   },
-  {
+{
     name: 'leave_group',
     description: '[group] Leave a group (removes your membership). Requires confirm: true. 404 non-member returns notMember:true.',
     inputSchema: {
@@ -569,7 +636,7 @@ export const CUSTOM_TOOLS = [
       required: ['groupId'],
     },
   },
-  {
+{
     name: 'peek_group_announcement',
     description: '[group] Peek a group announcement: joins if joinState=open, reads announcement, then leaves. Non-open groups return peekable:false.',
     inputSchema: {
@@ -581,7 +648,7 @@ export const CUSTOM_TOOLS = [
       required: ['groupId'],
     },
   },
-  {
+{
     name: 'get_favorite_friends_locations',
     description: '[query·好友收藏] 列出某个好友收藏夹（线上收藏分组）内所有好友的当前位置列表。可指定 groupName（如 "new"、"join" 等收藏夹名）或 favoriteGroupId；不指定则列出全部分组。返回按推荐度排序：在线且实例可加入的在前（public/friends/hidden=friend+/group 实例均可加入），仅 private 实例自动排除（看不到位置），按实例内玩家数/容量比 + 收藏热度综合评分。也可用 searchName 直接按名字在好友列表里查某人的位置（能看到具体位置即代表可加入，标记 joinable；纯 private 才进不去）。',
     inputSchema: {
@@ -593,7 +660,7 @@ export const CUSTOM_TOOLS = [
       },
     },
   },
-  {
+{
     name: 'recommend_join',
     description: '[query·推荐加入] 查看全部在线好友在做什么，按推荐度排序给出可加入的推荐。综合评分：熟悉度（最近30天+历史一年共玩次数，来自本地 events 同屏统计）+ 收藏夹分组权重（可配置）+ 房间场景（睡觉图人少=电灯泡风险降权）+ 实例人数/容量比 + 实例类型（public/friends/friend+/group 可加入，private 排除）。返回 TopN 推荐及理由。',
     inputSchema: {
@@ -604,7 +671,7 @@ export const CUSTOM_TOOLS = [
       },
     },
   },
-  {
+{
     name: 'set_join_preference',
     description: '[配置·推荐偏好] 用自然语言设置「推荐加入」的评分偏好，持久化到 config 表，下次推荐自动生效。例：「我不喜欢人太多」→ 爆满惩罚加重(80)、人数权重降低(×1.5)、冷清不罚；「喜欢热闹」→ 人数权重加强(×4)、爆满轻罚(20)；「恢复默认」→ 清除偏好。',
     inputSchema: {
@@ -615,12 +682,12 @@ export const CUSTOM_TOOLS = [
       required: ['preference'],
     },
   },
-  {
+{
     name: 'get_join_preference',
     description: '[配置·推荐偏好] 查询当前「推荐加入」的评分偏好（含解析结果与设置时间）。',
     inputSchema: { type: 'object', properties: {} },
   },
-  {
+{
     name: 'record_join_choice',
     description: '[配置·选择学习] 记录一次「从推荐列表中选择加入」的行为（用户选择谁/哪张图）。服务端自动从最近一次 recommend_join 的快照补全上下文（人数/类型/熟悉度/排名/列表基线），写入 join_choices 表；积累 ≥5 次后自动分析用户偏好（选人少→避人潮、总选熟人→熟悉度加权等）并应用到推荐权重。用法：先运行 recommend_join 拉列表，再从列表里选一个人记录：传 userId 或 displayName（模糊匹配）。',
     inputSchema: {
@@ -631,11 +698,71 @@ export const CUSTOM_TOOLS = [
       },
     },
   },
-  {
+{
     name: 'get_join_learning',
     description: '[配置·选择学习] 查看推荐选择学习状态：累计选择数、自动分析出的偏好（人数倾向/熟悉度加权/安静图倾向）与生效中的权重调整。',
     inputSchema: { type: 'object', properties: {} },
   },
+{
+    name: 'favorite_world',
+    description: '[action·写操作] 把世界加入你的 VRChat 云端收藏夹（POST /favorites，云端写入，调用前请与用户确认）。tag 为收藏分组（worlds0/worlds1/worlds2/worlds3/worlds4，默认 worlds0）。成功后本地 world_cache 标记 favorited=1（供推荐加权）。API 拒绝（如重复收藏）时返回 favorited:false + error，不抛错。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        worldId: { type: 'string', description: 'VRChat world id (wrld_...)' },
+        tag: { type: 'string', description: '收藏夹分组 tag（worlds0/worlds1/worlds2/worlds3/worlds4，默认 worlds0）' },
+      },
+      required: ['worldId'],
+    },
+  },
+{
+    name: 'search_booth_items',
+    description: '[query·素材] Search BOOTH (booth.pm, pixiv digital-goods marketplace) for VRChat assets (avatars/clothes/3D models/accessories) by keyword. Returns items with name, price, wishlistCount (收藏数=热度), shop/seller, tags, isSoldOut, images (array of {original, resized, caption} objects — use images[0].original as the cover URL), url. NOTE: download/sales counts are NOT publicly visible on BOOTH (always 0 anonymously). Use wishlistCount as the popularity signal. Detail fetch is rate-limited to 400ms/item.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Keyword (supports Japanese/English, e.g. avatar, VRChat, 衣装, 3Dモデル)' },
+        limit: { type: 'number', default: 5, description: 'Max results (default 5, max 10)' },
+        detail: { type: 'boolean', default: true, description: 'Enrich each result with detail JSON (wishlistCount/shop/tags) — rate-limited ~400ms/item; set false for fast list-only mode' },
+      },
+      required: ['query'],
+    },
+  },
+{
+    name: 'get_booth_item',
+    description: '[query·素材] Get a single BOOTH item detail by item id (booth.pm/ja/items/{id}). Returns name, price, description, tags, images (array of {original, resized, caption} objects — use images[0].original as the cover URL), shop/seller, publishedAt, isSoldOut, wishlistCount (收藏数), variations, url. NOTE: purchase/download counts are not publicly visible (0 anonymously). Results are cached locally (booth_items table): cached:true returns the snapshot without hitting BOOTH; forceRefresh:true bypasses the cache.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        itemId: { type: 'string', description: 'BOOTH item id (numeric, from item URL /ja/items/{id})' },
+        forceRefresh: { type: 'boolean', default: false, description: 'Bypass local cache and fetch fresh data from BOOTH' },
+      },
+      required: ['itemId'],
+    },
+  },
+{
+    name: 'get_booth_history',
+    description: '[query·素材] List BOOTH items previously queried (local booth_items snapshot cache). Sorted by wishlistCount (热度) or updatedAt; supports minWishlist filter for trend tracking (which items are gaining popularity).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sortBy: { type: 'string', default: 'wishlist', description: 'wishlist (by wishlistCount desc) | updated (by last queried)' },
+        limit: { type: 'number', default: 20, description: 'Max results (1-100, default 20)' },
+        minWishlist: { type: 'number', default: 0, description: 'Only items with wishlistCount >= this value' },
+      },
+    },
+  },
+{
+    name: 'get_booth_searches',
+    description: '[query·素材] List recent BOOTH search history (query, result item ids, result count, timestamp).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        limit: { type: 'number', default: 10, description: 'Max results (1-50, default 10)' },
+      },
+    },
+  },
+
   // ── X 博主世界推荐（x_world_digest） ──
   {
     name: 'x_world_digest',

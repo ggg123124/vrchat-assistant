@@ -17,15 +17,21 @@ metadata:
 - 服务启动：项目目录下 `node start-monitor.js`（首次需配置 `credentials.json`，见 AGENTS.md）
 - 数据库：本地 SQLite（WebSocket 实时采集事件，含历史上线/位置/同屏记录）
 
-## MCP 工具（55 个）
+## MCP 工具
 
 | 工具 | 说明 |
 |------|------|
 | `get_online_friends` | 当前在线好友列表（含昵称 nickname + 房型解析 locationParsed：worldId/instanceId/type/ownerId/region） |
 | `get_friend_info` | 好友详细信息 |
-| `search_users` | 按名字搜索用户 |
+| `search_users` | 按名字搜索用户（API 优先；API 无匹配时自动回退本地好友库模糊搜索 display_name/备注，结果带 `source: local_friends` 标记） |
 | `search_groups` | 按名字搜索群组（API 用 query 参数，不是 search） |
 | `search_worlds` | 按名字搜索世界（英文/日文走 API；中文自动加本地缓存兜底） |
+| `search_planet_worlds` | **PlanetVRC 地图检索**（planetvrchat.net 日文世界目录）：关键词搜索 → 世界名/wrld_id/平台/分类/收藏数；适合 VRChat API 搜不到的日文/小众图。limit 最大 8（每个结果抓详情页补 wrld_id，约 1-2s/个） |
+| `recommend_planet_worlds` | **PlanetVRC 推荐排行**：sort=popular（访问者数最多）/ new（最新发布）/ updated（最新更新）→ 世界+wrld_id+最大人数+访问量+收藏数+公开日 |
+| `search_booth_items` | **BOOTH 素材检索**（2026-08-13 新增）：booth.pm 关键词搜索 VRChat 素材 → 名称/价格/收藏数（wishlistCount=热度）/卖家/标签。`detail=false` 快速列表；默认补详情（~0.5s/个，max 10）。**下载量/销量 Booth 不公开**（匿名恒 0），收藏数作热度信号 |
+| `get_booth_item` | **BOOTH 单品详情**：按 itemId 查商品 → 名称/价格/描述/标签/图片/卖家/发布时间/收藏数/变体。**本地缓存**：`cached:true` 命中快照，`forceRefresh` 强制实时 |
+| `get_booth_history` | **BOOTH 查询历史**：本地缓存商品快照，按收藏数/更新时间排序 + `minWishlist` 趋势过滤 |
+| `get_booth_searches` | **BOOTH 搜索历史**：最近搜索词 + 结果 + 时间 |
 | `backup_database` | 立即备份数据库（WAL 在线备份，保留最近 2 份到 backups/）；服务启动 + 每 24h 自动备份 |
 | `get_friend_events` | 某好友的事件历史（本地库） |
 | `get_recent_events` | 最新事件流 |
@@ -36,7 +42,11 @@ metadata:
 | `get_world_history` | 世界信息变更历史（name/description/author/image_url/release_status/capacity/tags 字段级记录） |
 | `get_weekly_report` | 一周游戏周报（活跃天数/时长/世界 Top/同屏伙伴带昵称/自己的上线规律/群组活动/圈内活动日历；days 默认 7） |
 | `scan_new_worlds` | 扫描最近 N 天新世界（1-30，默认 7），过滤测试/垃圾图后写入 new_worlds 表，按热度推荐 TOP10；dryRun 只看不写 |
-| `get_new_worlds` | 只读查询已跟踪新世界：onlyUnvisited 只看未逛过、sortBy（favorites/occupants/popularity/created_at）、limit（默认 10 最大 50） |
+| `get_new_worlds` | 只读查询已跟踪新世界：onlyUnvisited 只看未逛过、sortBy（favorites/occupants/popularity/created_at）、excludeTheme 排除主题（按 author_tag_* 逗号分隔，SQL 层排除）、limit（默认 10 最大 50） |
+| `rate_world` | **用户反馈**：给世界打好评/烂图标记（rating: 1=好图加权 / -1=烂图降权 / 0=清除），写入 new_worlds.user_rating，影响 worldScore 推荐排序 |
+| `mark_world_visited` | **显式确认逛过**某世界（事件驱动 visited 会漏记，开图闭环手动确认用） |
+| `recommend_worlds` | **多源融合世界推荐**：local 新世界池 × PlanetVRC × 官方主题搜索 × 用户反馈，评分（热度+新鲜度+主题+作者画像 30 天窗口熟客）+ 可解释 reasons；theme/excludeTheme/sources/excludeVisited 参数 |
+| `favorite_world` | **云端收藏**：加入 VRChat 收藏夹分组（worlds0-4，默认 worlds0），写操作需确认，成功后本地 favorited=1 供推荐加权 |
 | `get_nicknames` / `set_nickname` | 好友昵称映射（查询/写入，本地库） |
 | `get_mutual_friends` | 共同好友列表：你与目标用户（userId 或 displayName 精确匹配）的共同好友，自动带本地昵称 |
 | `get_watchlist` / `add_to_watchlist` / `remove_from_watchlist` | 关注名单 |
@@ -64,6 +74,7 @@ metadata:
 | `get_group_info` | 群组详情（名称/成员数/shortCode/描述/认证状态/joinState(open/request/invite)；`includeAnnouncement: true` 附带公告，非成员为 null） |
 | `get_group_instances` | **群组当前开的房**（group rooms）：instanceId/location/memberCount + 世界信息；空 = 没开房。适合"XX 群今晚有没有活动房"类问题 |
 | `get_group_announcement` | 群组公告（title/text/作者/时间；无公告或非成员返回 null 不报错） |
+| `get_group_heat` | **群组热度**：群组房活动热度榜（活动次数/活跃好友/世界数/成员数/趋势）+ 前 topK 群（星期×小时）热力图；`grp_`/`gmem_` 兼容 |
 | `join_group` | 加入群组（open 群直接加入；已是成员返回 alreadyMember:true；`groupId` 必填） |
 | `leave_group` | 退出群组（`POST /groups/{id}/leave`；必须 `confirm: true`；非成员返回 notMember） |
 | `peek_group_announcement` | **窥探群公告**：一键「加入→读公告→退出」，仅对 open 群生效，需 `confirm: true` |
@@ -149,6 +160,25 @@ curl -s http://127.0.0.1:8799/mcp -X POST -H "Content-Type: application/json" \
 ## 结果格式
 
 建议用昵称代替原始显示名以提高可读性。companion 数据可展示为：`| 排名 | 好友 | 共处时间 | 同屏实例 | 最近一次 |`，并附一行小结总结社交模式。
+
+### 地图/世界展示格式（用户固化要求）
+
+展示地图列表时按此格式（6 列）：
+
+```
+| 序号 | 封面 | 地图名称 | 热度 | 备注 | 地图链接 |
+```
+
+- **序号**：列表最前方，从 1 递增
+- **封面**：`imageUrl`，Markdown 内嵌 `![短名](url)`
+- **热度**：取 `heat` 中**优先级最高的非零字段**（officialFavorites > occupants > planetVisitors，与 recommend_worlds 输出一致），格式 `<icon><数值><单位>`：🔴≥100万 / 🔵≥1万 / ⚪<1万；数值≥1万时缩略为「万」（保留 1 位小数，如 `507万`、`7.4万`），<1万显示原数（如 `5068`）
+- **备注**：`note`（用户备注，无则省略该列）
+- **地图链接**：位于**备注后**，格式 `https://vrchat.com/home/world/{worldId}`（worldId 拼接）
+- **封面列省略规则**：封面无数据 或 QQ Bot 场景（QQ 消息无法渲染外链图片）时省略封面列，其余列不变
+
+完整示例（含封面）：`| 1 | ![超軽量ログインワールド](https://planetvrchat.net/wp-content/uploads/fetch-vrc-world/images/53110-thumb.webp) | 超軽量ログインワールド | 🔴507万 | 登录用轻量图 | https://vrchat.com/home/world/wrld_6a246432-e224-454f-8962-615182276e26 |`
+
+QQ Bot 场景示例（无封面）：`| 1 | 超軽量ログインワールド | 🔴507万 | 登录用轻量图 | https://vrchat.com/home/world/wrld_6a246432-e224-454f-8962-615182276e26 |`
 
 ## 常见陷阱
 

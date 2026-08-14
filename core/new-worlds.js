@@ -33,12 +33,15 @@ export function isJunkWorld(w) {
 }
 
 /**
- * 热度评分：收藏数*2 + 在线人数*10 + 热度分
- * @param {object} w VRChat world 对象
+ * 热度评分：收藏数*2 + 在线人数*10 + 热度分 + 用户反馈加权（Issue #19）
+ * userRating: 1(好图) +50 加权；-1(烂图) -100 降权（推荐排序时实际会被甩到后面）
+ * @param {object} w VRChat world 对象（可含 userRating 字段）
  * @returns {number}
  */
 export function worldScore(w) {
-  return (w.favorites || 0) * 2 + (w.occupants || 0) * 10 + (w.popularity || 0);
+  const rating = (w.userRating !== undefined && w.userRating !== null) ? w.userRating : 0;
+  const ratingBias = rating === 1 ? 50 : (rating === -1 ? -100 : 0);
+  return (w.favorites || 0) * 2 + (w.occupants || 0) * 10 + (w.popularity || 0) + ratingBias;
 }
 
 /**

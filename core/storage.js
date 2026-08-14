@@ -56,6 +56,11 @@ export class Storage {
     if (!worldCols.some(c => c.name === 'note')) {
       this._run(`ALTER TABLE world_cache ADD COLUMN note TEXT`);
     }
+    // 迁移：旧库 world_cache 缺 favorited 列（favorite_world 云端收藏本地标记，幂等）
+    const wcFavCols = this._query(`PRAGMA table_info(world_cache)`);
+    if (!wcFavCols.some(c => c.name === 'favorited')) {
+      this._run(`ALTER TABLE world_cache ADD COLUMN favorited INTEGER DEFAULT 0`);
+    }
     // 迁移：旧库 new_worlds 缺 sleep_ok 列（recommend_join 睡觉图评分用，幂等）
     const nwCols = this._query(`PRAGMA table_info(new_worlds)`);
     if (!nwCols.some(c => c.name === 'sleep_ok')) {
@@ -77,6 +82,18 @@ export class Storage {
     if (!nwCols2.some(c => c.name === 'source')) {
       this._run(`ALTER TABLE new_worlds ADD COLUMN source TEXT DEFAULT 'new'`);
     }
+    // 迁移：旧库 new_worlds 缺 user_rating 列（rate_world 用户反馈，幂等）
+    const nwCols3 = this._query(`PRAGMA table_info(new_worlds)`);
+    if (!nwCols3.some(c => c.name === 'user_rating')) {
+      this._run(`ALTER TABLE new_worlds ADD COLUMN user_rating INTEGER DEFAULT 0`);
+    }
+    // 迁移：旧库 new_worlds 缺 author_id 列（作者维度推荐用，幂等）
+    const nwCols4 = this._query(`PRAGMA table_info(new_worlds)`);
+    if (!nwCols4.some(c => c.name === 'author_id')) {
+      this._run(`ALTER TABLE new_worlds ADD COLUMN author_id TEXT DEFAULT ''`);
+    }
+    // 迁移：历史 tags='' 脏数据统一为 '[]'（json_each 对空串抛 malformed JSON，Review R2）
+    this._run(`UPDATE new_worlds SET tags = '[]' WHERE tags IS NULL OR tags = ''`);
     return this;
   }
 
@@ -371,6 +388,30 @@ export class Storage {
     );
   }
 
+  // ── PlanetVRC TTL 缓存 ──
+
+  /** 读缓存：不存在或超 ttlMs 返回 null，否则 JSON.parse(payload) */
+  getPlanetCache(key, ttlMs) {
+    const rows = this._query(`SELECT payload, fetched_at FROM planet_cache WHERE key = $key`, { $key: key });
+    if (rows.length === 0) return null;
+    const row = rows[0];
+    if (ttlMs && row.fetched_at) {
+      const fetchedMs = Date.parse(row.fetched_at);
+      if (Number.isFinite(fetchedMs) && Date.now() - fetchedMs > ttlMs) return null;
+    }
+    try { return JSON.parse(row.payload); } catch { return null; }
+  }
+
+  /** 写缓存：payload 传对象，内部 JSON.stringify，fetched_at 存 ISO 时间戳 */
+  setPlanetCache(key, payload) {
+    this._run(
+      `INSERT INTO planet_cache (key, payload, fetched_at)
+       VALUES ($key, $payload, $fetchedAt)
+       ON CONFLICT(key) DO UPDATE SET payload = excluded.payload, fetched_at = excluded.fetched_at`,
+      { $key: key, $payload: JSON.stringify(payload), $fetchedAt: new Date().toISOString() }
+    );
+  }
+
   setWorldNote({ worldId, note = '' }) {
     this._run(
       `INSERT INTO world_cache (world_id, name, note)
@@ -381,6 +422,128 @@ export class Storage {
     const rows = this._query(`SELECT world_id, note FROM world_cache WHERE world_id = $worldId`, { $worldId: worldId });
     const r = rows[0];
     return { worldId: r.world_id, note: r.note };
+  }
+
+  /** BOOTH 商品快照 upsert（Issue #28：落库旁路缓存，失败不影响实时返回——调用方 try-catch） */
+  upsertBoothItem(item) {
+    this._run(
+      `INSERT INTO booth_items (id, name, price, wishlist_count, shop_name, description, tags, image_url, url, published_at, is_sold_out, updated_at)
+       VALUES ($id, $name, $price, $wishlist, $shop, $desc, $tags, $img, $url, $published, $soldOut, datetime('now'))
+       ON CONFLICT(id) DO UPDATE SET
+         name = excluded.name, price = excluded.price, wishlist_count = excluded.wishlist_count,
+         shop_name = excluded.shop_name, description = excluded.description, tags = excluded.tags,
+         image_url = excluded.image_url, url = excluded.url, published_at = excluded.published_at,
+         is_sold_out = excluded.is_sold_out, updated_at = datetime('now')`,
+      {
+        $id: String(item.id),
+        $name: item.name || '',
+        $price: item.price || '',
+        $wishlist: item.wishlistCount ?? 0,
+        $shop: (item.shop && item.shop.name) || '',
+        $desc: (item.description || '').slice(0, 2000),
+        $tags: JSON.stringify(item.tags || []),
+        $img: (item.images && item.images[0] && item.images[0].original) || '',
+        $url: item.url || '',
+        $published: item.publishedAt || '',
+        $soldOut: item.isSoldOut ? 1 : 0,
+      }
+    );
+  }
+
+  /** BOOTH 商品快照读取（无缓存返回 null） */
+  getBoothItemCache(id) {
+    const rows = this._query(
+      `SELECT id, name, price, wishlist_count AS wishlistCount, shop_name AS shopName,
+              description, tags, image_url AS imageUrl, url, published_at AS publishedAt,
+              is_sold_out AS isSoldOut, updated_at AS updatedAt
+       FROM booth_items WHERE id = $id`,
+      { $id: String(id) }
+    );
+    const r = rows[0];
+    if (!r) return null;
+    try { r.tags = JSON.parse(r.tags || '[]'); } catch { r.tags = []; }
+    return r;
+  }
+
+  /** 按收藏数排序的商品快照列表（趋势跟踪用） */
+  listBoothItems({ sortBy = 'wishlist', limit = 20, minWishlist = 0 } = {}) {
+    const order = sortBy === 'wishlist' ? 'wishlist_count DESC' : 'updated_at DESC';
+    const rows = this._query(
+      `SELECT id, name, price, wishlist_count AS wishlistCount, shop_name AS shopName,
+              image_url AS imageUrl, url, is_sold_out AS isSoldOut, updated_at AS updatedAt
+       FROM booth_items WHERE wishlist_count >= $minWishlist
+       ORDER BY ${order} LIMIT $limit`,
+      { $minWishlist: minWishlist, $limit: Math.max(1, Math.min(100, limit)) }
+    );
+    return rows;
+  }
+
+  /** 记录一次 BOOTH 搜索（结果 id 列表入历史表） */
+  recordBoothSearch(query, resultIds) {
+    this._run(
+      `INSERT INTO booth_search_history (query, result_ids, result_count, created_at)
+       VALUES ($query, $ids, $count, datetime('now'))`,
+      { $query: query, $ids: JSON.stringify(resultIds || []), $count: (resultIds || []).length }
+    );
+  }
+
+  /** 最近搜索历史（含每次结果的商品快照信息） */
+  getBoothSearches({ limit = 10 } = {}) {
+    const rows = this._query(
+      `SELECT id, query, result_ids AS resultIds, result_count AS resultCount, created_at AS createdAt
+       FROM booth_search_history ORDER BY id DESC LIMIT $limit`,
+      { $limit: Math.max(1, Math.min(50, limit)) }
+    );
+    for (const r of rows) {
+      try { r.resultIds = JSON.parse(r.resultIds || '[]'); } catch { r.resultIds = []; }
+    }
+    return rows;
+  }
+
+  /** 云端收藏标记：favorite_world 成功后写本地 world_cache（Issue #25），世界不存在时插入兜底行 */
+  setWorldFavorited({ worldId, favorited = 1 }) {
+    this._run(
+      `INSERT INTO world_cache (world_id, name, favorited)
+       VALUES ($worldId, '', $favorited)
+       ON CONFLICT(world_id) DO UPDATE SET favorited = $favorited, updated_at = datetime('now')`,
+      { $worldId: worldId, $favorited: favorited ? 1 : 0 }
+    );
+    const rows = this._query(`SELECT world_id, name, favorited FROM world_cache WHERE world_id = $worldId`, { $worldId: worldId });
+    const row = rows[0];
+    return { worldId: row.world_id, name: row.name || '', favorited: row.favorited === 1 };
+  }
+
+  /**
+   * 用户反馈：给世界打好评/差评标记（Issue #19）
+   * rating: -1=烂图(junk) / 0=清除标记 / 1=好图
+   * 若世界不在 new_worlds 表（如手动收藏的世界），自动插入一行兜底。
+   */
+  rateWorld({ worldId, rating = 0 }) {
+    const r = parseInt(rating, 10);
+    const finalRating = r === -1 ? -1 : (r === 1 ? 1 : 0);
+    this._run(
+      `INSERT INTO new_worlds (world_id, world_name, tags, user_rating)
+       VALUES ($worldId, '', '[]', $rating)
+       ON CONFLICT(world_id) DO UPDATE SET user_rating = $rating`,
+      { $worldId: worldId, $rating: finalRating }
+    );
+    const rows = this._query(`SELECT world_id, world_name, user_rating FROM new_worlds WHERE world_id = $worldId`, { $worldId: worldId });
+    const row = rows[0];
+    return { worldId: row.world_id, worldName: row.world_name || '', userRating: row.user_rating };
+  }
+
+  /** 显式确认逛过某个世界（Issue #19 痛点 3：事件驱动 visited 不可靠） */
+  markWorldVisited({ worldId }) {
+    const now = new Date().toISOString();
+    this._run(
+      `INSERT INTO new_worlds (world_id, world_name, tags, visited, visited_at)
+       VALUES ($worldId, '', '[]', 1, $now)
+       ON CONFLICT(world_id) DO UPDATE SET visited = 1, visited_at = $now`,
+      { $worldId: worldId, $now: now }
+    );
+    const rows = this._query(`SELECT world_id, world_name, visited, visited_at FROM new_worlds WHERE world_id = $worldId`, { $worldId: worldId });
+    const row = rows[0];
+    return { worldId: row.world_id, worldName: row.world_name || '', visited: row.visited === 1, visitedAt: row.visited_at };
   }
 
   getWorldHistory(worldId, limit = 50) {
@@ -793,7 +956,9 @@ export class Storage {
 
   getFriendGroupStats(startTime, endTime) {
     const rows = this._query(
-      `SELECT content_json FROM events WHERE type='friend-location' AND content_json LIKE '%~group(grp_%' AND created_at >= $start AND created_at <= $end`,
+      `SELECT content_json FROM events WHERE type='friend-location'
+       AND (content_json LIKE '%~group(grp_%' OR content_json LIKE '%~group(gmem_%')
+       AND created_at >= $start AND created_at <= $end`,
       { $start: startTime, $end: endTime }
     );
     const stats = new Map(); // groupId -> {count, users:Set, worlds:Set}
@@ -801,7 +966,8 @@ export class Storage {
       try {
         const c = JSON.parse(row.content_json);
         const loc = c.location || '';
-        const m = loc.match(/~group\((grp_[a-f0-9-]+)\)/);
+        // VRChat 群组 ID 已从 grp_ 迁移为 gmem_ (2026-08 实测), 两种前缀都匹配
+        const m = loc.match(/~group\((grp_[a-f0-9-]+|gmem_[a-f0-9-]+)\)/);
         if (m && loc.startsWith('wrld_')) {
           const gid = m[1];
           if (!stats.has(gid)) stats.set(gid, { count: 0, users: new Set(), worlds: new Set() });
@@ -811,6 +977,45 @@ export class Storage {
       } catch {}
     }
     return stats;
+  }
+
+  /**
+   * 群组热度聚合: 统计窗口内好友/自己在群组房的活动事件
+   * (type=friend-location|user-location 且 location 含 ~group(gmem_/grp_xxx)).
+   * 返回 Map<groupId, {count, users:Set, worlds:Set, hourly:Map<'dow:hour', count>}>
+   * 时间按北京时区分桶 (dow: 0=周日..6=周六).
+   */
+  getGroupHeat(startIso, endIso) {
+    const rows = this._query(
+      `SELECT type, content_json, created_at FROM events
+       WHERE (type='friend-location' OR type='user-location')
+         AND created_at >= $start AND created_at <= $end
+         AND (content_json LIKE '%~group(grp_%' OR content_json LIKE '%~group(gmem_%')
+       ORDER BY created_at ASC`,
+      { $start: startIso, $end: endIso }
+    );
+    const groups = new Map();
+    for (const row of rows) {
+      try {
+        const c = JSON.parse(row.content_json);
+        const loc = c.location || '';
+        const m = loc.match(/~group\((grp_[a-f0-9-]+|gmem_[a-f0-9-]+)\)/);
+        if (!m || !loc.startsWith('wrld_')) continue;
+        const gid = m[1];
+        if (!groups.has(gid)) groups.set(gid, { count: 0, users: new Set(), worlds: new Set(), hourly: new Map() });
+        const s = groups.get(gid);
+        s.count++;
+        s.users.add(c.userId || '');
+        s.worlds.add(loc.split(':')[0]);
+        const d = new Date(row.created_at);
+        if (!Number.isNaN(d.getTime())) {
+          const bj = new Date(d.getTime() + 8 * 60 * 60 * 1000);
+          const key = `${bj.getUTCDay()}:${bj.getUTCHours()}`;
+          s.hourly.set(key, (s.hourly.get(key) || 0) + 1);
+        }
+      } catch {}
+    }
+    return groups;
   }
 
   getStats() {
@@ -843,6 +1048,16 @@ export class Storage {
          first_seen_at, last_recommended_at, creators, tweet_count)
        VALUES ($worldId, $worldName, $authorName, $description, $imageUrl, $favorites, $visits, $popularity, $capacity, $tags,
          $firstSeenAt, $lastRecommendedAt, $creators, $tweetCount)`,
+// ---- 上游新增 ----
+      `INSERT INTO x_world_recommendations
+        (world_id, world_name, author_name, description, image_url, favorites, visits, popularity, capacity, tags,
+         first_seen_at, last_recommended_at, creators, tweet_count)
+       VALUES ($worldId, $worldName, $authorName, $description, $imageUrl, $favorites, $visits, $popularity, $capacity, $tags,
+         $firstSeenAt, $lastRecommendedAt, $creators, $tweetCount)
+       ON CONFLICT(world_id) DO UPDATE SET
+         world_name = $worldName, author_name = $authorName, description = $description, image_url = $imageUrl,
+         favorites = $favorites, visits = $visits, popularity = $popularity, capacity = $capacity, tags = $tags,
+         last_recommended_at = $lastRecommendedAt, tweet_count = $tweetCount`,
       {
         $worldId: worldId, $worldName: worldName || '', $authorName: authorName || '',
         $description: description || '', $imageUrl: imageUrl || '',

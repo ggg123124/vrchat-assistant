@@ -48,12 +48,31 @@ import {
   handleGetGroupInfo,
   handleGetGroupInstances,
   handleGetGroupAnnouncement,
+  handleGetGroupHeat,
   handleSearchGroups,
   handleSearchWorlds,
   handleJoinGroup,
   handleLeaveGroup,
   handlePeekGroupAnnouncement,
 } from './handlers/groups.js';
+
+import {
+  handleSearchPlanetWorlds,
+  handleRecommendPlanetWorlds,
+} from './handlers/planet.js';
+import {
+  handleSearchBoothItems,
+  handleGetBoothItem,
+  handleGetBoothHistory,
+  handleGetBoothSearches,
+} from './handlers/booth.js';
+
+
+import { handleRecommendWorlds } from './handlers/recommend-worlds.js';
+
+import {
+  handleFavoriteWorld,
+} from './handlers/favorites.js';
 
 import {
   handleGetBoopEmojis,
@@ -73,6 +92,8 @@ import {
   handleGetServerStatus,
   handleScanNewWorlds,
   handleGetNewWorlds,
+  handleRateWorld,
+  handleMarkWorldVisited,
   handleGetWatchlist,
   handleAddToWatchlist,
   handleRemoveFromWatchlist,
@@ -271,6 +292,12 @@ export async function handleRpc(rpc, session, res) {
           case 'get_new_worlds':
             result = handleGetNewWorlds(args);
             break;
+          case 'rate_world':
+            result = handleRateWorld(args);
+            break;
+          case 'mark_world_visited':
+            result = handleMarkWorldVisited(args);
+            break;
           case 'get_watchlist':
             result = handleGetWatchlist();
             break;
@@ -304,11 +331,37 @@ export async function handleRpc(rpc, session, res) {
           case 'get_group_announcement':
             result = await rateLimiter.execute(() => handleGetGroupAnnouncement(args));
             break;
+          case 'get_group_heat':
+            result = await rateLimiter.execute(() => handleGetGroupHeat(args));
+            break;
           case 'search_groups':
             result = await rateLimiter.execute(() => handleSearchGroups(args));
             break;
           case 'search_worlds':
             result = await rateLimiter.execute(() => handleSearchWorlds(args));
+            break;
+          case 'search_planet_worlds':
+            result = await handleSearchPlanetWorlds(args);
+            break;
+          case 'search_booth_items':
+            result = await handleSearchBoothItems(args);
+            break;
+          case 'get_booth_item':
+            result = await handleGetBoothItem(args);
+            break;
+          case 'get_booth_history':
+            result = await handleGetBoothHistory(args);
+            break;
+          case 'get_booth_searches':
+            result = await handleGetBoothSearches(args);
+            break;
+          case 'recommend_planet_worlds':
+            result = await handleRecommendPlanetWorlds(args);
+            break;
+          case 'recommend_worlds':
+            // 不包 rateLimiter：handleRecommendWorlds 内部对官方/planet API 调用已逐请求限流
+            // （再包一层会嵌套死锁：外层占队列时内层 _processQueue 不执行，参照 scan_new_worlds）
+            result = await handleRecommendWorlds(args);
             break;
           case 'backup_database':
             result = await handleBackupDatabase();
@@ -340,6 +393,11 @@ export async function handleRpc(rpc, session, res) {
           case 'get_join_learning':
             result = await handleGetJoinLearning();
             break;
+          case 'favorite_world': {
+            // 写操作（POST /favorites），经限流器
+            result = await rateLimiter.execute(() => handleFavoriteWorld(args));
+            break;
+          }
           // X 博主世界推荐
           case 'x_world_digest':
             result = await handleXWorldDigest(args);
@@ -381,6 +439,8 @@ export async function handleRpc(rpc, session, res) {
             break;
           case 'get_my_favorite_groups':
             result = await handleGetMyFavoriteGroups();
+// ---- 上游新增 ----
+            result = handleXWorlds(args);
             break;
           default:
             throw new Error(`Unknown tool: ${name}`);
