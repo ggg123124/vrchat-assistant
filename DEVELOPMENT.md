@@ -16,6 +16,16 @@
 - **对 Agent 的要求**：Agent 是功能实现的执行者，必须遵守本文档全部约束；遇到超出能力范围的决策（如破坏性接口变更、隐私边界问题），应明确告知使用者而不是擅自决定。
 - **身份表达（以 AI Agent 口吻提交）**：Agent 在 issue / PR / commit / 评论中的所有文字，一律以**自身（AI Agent）的口吻**书写，不以背后使用者（人类）的口吻或人称发言。示例：用"我的使用者提出…"或直接陈述需求/结论，不用"我要…我做了…"这类人类第一人称。**署名与口吻分离**：提交者署名（commit author）可以使用背后使用者的 GitHub 账号 / 邮箱（Agent 使用使用者账号提交是允许的），但所有文字必须以 Agent 自身口吻书写，不得以人类第一人称发言。让作者和审查方（也可能都是 AI Agent）能一眼区分"这是 Agent 提交的内容"与"这是使用者本人的需求"。
 
+### 1.1 贡献模型：功能一律做插件，核心只收 fix 与底座演进
+
+本仓库的**贡献模型**在 PR-3「解冻」后正式切换为**插件优先**：
+
+- **新功能一律做成插件**：功能贡献者先读 [docs/PLUGIN-DEV.md](./docs/PLUGIN-DEV.md)（插件开发指南）与 [docs/PLUGIN-API.md](./docs/PLUGIN-API.md)（契约 v1.1），在 `plugins/official/<name>/`（随主仓发布）或 `plugins/local/<name>/`（用户私有）里新建一个插件文件夹，经 `register(api)` + `api.registerTool` 暴露 MCP 工具。可复制 [docs/plugin-template/](./docs/plugin-template/) 模板起步。**功能代码不得进 `core/`、不得改核心运行时、不得触碰 `ctx`。**
+- **核心（`core/`）只收两类改动**：① bug/缺陷修复；②底盘演进（插件运行所需的基础设施，如 `plugin-loader.js` / `plugin-api.js` / `registry.js` / 核心服务注册表 `registerCoreServices()` 的能力扩展）。核心不收「某个具体业务功能的实现」。
+- **新增工具需登记注册名**：插件经 `api.registerTool` 注册的工具，只有其名字在 `core/tool-order.json` 中才会出现在 `tools/list`（`registry.listTools()` 只按该清单遍历）。新增功能工具时，把工具名补进 `core/tool-order.json` 属于「底座演进」类改动，一并随插件 PR 提交（并同步登记进 `skills/vrc-monitor-agent/SKILL.md`「MCP 工具」权威清单）。
+- **三件套（持续演进）**：核心工具（`core/tools/*`，自声明 `tools` 数组、经 `core/registry.js` 注册）＋ 插件（`plugins/official/*`，默认导出 `register(api)`、经 `api.registerTool` 注册）＋ 核心注册表（`core/registry.js`）统一并入 `listTools()` 输出。核心工具走 `ctx`，插件一律走 `api.*`，两者最终对 Agent 呈现为同一套 MCP 工具。
+- **插件即文档**：每个插件在 [docs/plugin-template/](./docs/plugin-template/) 模板下自带 `plugin.json` + `index.js` + `SKILL.md`（可运行骨架）；新插件照抄模板改名即可。
+
 ## 2. 提交 PR 的要求
 
 PR 由 AI Agent 编写提交（人类只提出需求、不直接编码）。以下要求不满足的 PR 不会被合并：
@@ -142,9 +152,9 @@ PR 由 AI Agent 编写提交（人类只提出需求、不直接编码）。以�
 
 ## 6. 测试与 CI
 
-- **现状**：没有 CI。手动验证脚本：`test-apis.mjs`（REST API）、`test-websocket.mjs` / `test-ws-direct.mjs`（WebSocket）、`analyze-db.mjs`（数据库分析）。合并以作者实际运行为准。
-- **Agent 义务**：涉及 API / WebSocket / 数据库的功能改动，Agent 必须在 PR 描述写明验证方式；能跑现有脚本就跑一遍，不能跑要说明原因。Agent 提交前必须实际运行验证，不能只做静态分析就声称完成。
-- **CI 规划（待建设）**：未来接入 GitHub Actions，覆盖 Node 18/20/22 × Ubuntu + Windows + macOS 的启动与健康检查矩阵。注意：**CI 里不能放真实 VRChat 凭据**——自动化测试只能覆盖「无凭据也能验证」的部分（模块加载、DB 初始化、参数校验），涉及真实登录的验证仍需人工完成（可用 secrets 里的测试账号，但绝不能泄露到日志）。
+- **现状（含 PR-3 起）**：已接入 GitHub Actions（`.github/workflows/ci.yml`），对 Node 18/20/22 × Ubuntu/Windows 跑**无凭据冒烟**：`node test-registry.mjs`（注册表完整性，91 工具、顺序+定义+handler）、`node scripts/dump-tools.mjs`（权威工具清单，应 91 行）、`python scripts/check-doc-drift.py --json`（文档漂移，`has_drift` 必须为 false）。**CI 里一份真实 VRChat 凭据都没有**，自动化只覆盖「无凭据也能验证」的部分（模块加载、插件加载、DB 初始化、注册表完整、文档一致），涉及真实登录的验证仍需作者人工完成（可用 secrets 里的测试账号，但绝不能泄露到日志）。手动验证脚本：`test-apis.mjs`（REST API）、`test-websocket.mjs` / `test-ws-direct.mjs`（WebSocket）、`analyze-db.mjs`（数据库分析）。合并以作者实际运行为准，并参考 CI 冒烟结果。
+- **Agent 义务**：涉及 API / WebSocket / 数据库的功能改动，Agent 必须在 PR 描述写明验证方式；能跑现有脚本就跑一遍（尤其 `test-registry.mjs` / `check-doc-drift.py`），不能跑要说明原因。Agent 提交前必须实际运行验证，不能只做静态分析就声称完成。
+- **CI 里的凭据红线**：workflow 文件及其他自动化路径**严禁**出现任何真实凭据、Cookie、token、密码、IMAP 授权码（`credentials.json` 已被 gitignore 排除）。自动化测试账号如需纳入 CI，一律走 GitHub repo secrets 且绝不回显到日志。
 - 新增测试脚本命名沿用 `test-*.mjs` 风格，方便 CI 统一发现。
 
 ## 7. AI Agent 提交前自检清单

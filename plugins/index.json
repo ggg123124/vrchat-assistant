@@ -1,0 +1,26 @@
+{
+  "_meta": {
+    "note": "社区插件索引（plugins/index.json）。本文件是哪些插件可被社区复用的公开清单，不是运行时的插件列表。运行时插件由 core/plugin-loader.js 扫描 plugins/official/ 与 plugins/local/ 得到（见 docs/PLUGIN-DEV.md）。",
+    "index_pr_spec": {
+      "summary": "索引 PR（仅改本文件 plugins/index.json 的 PR）适用简化审核：1 名审核人即可（见 AGENT-REVIEW.md）。普通代码 PR 维持原 3 人审核。",
+      "required_fields": "每个条目必须含 4 项：name / git(仓库URL) / description(一句话) / maintainer(维护者名)。",
+      "rules": [
+        "新增社区插件：提交一个只改本文件的 PR，在 plugins 数组中新增一条目的 4 项；PR 描述必须注明插件来源仓库 URL、维护者、一句话描述、以及验证方式（该插件在本地 plugins/local/ 可运行且不破坏现有的 91 个 MCP 工具）。",
+        "更新条目：同样提交只改本文件的 PR，说明变更缘由。",
+        "name 必须在 core/tool-order.json 与全仓库工具命名空间中唯一，避免与官方插件工具冲突。",
+        "维护者需保持插件可运行；若插件长期失联或损坏核心，维护者可将其从索引移除。"
+      ]
+    },
+    "updated": "2026-08-23"
+  },
+  "plugins": [
+    { "name": "booth", "git": "", "description": "BOOTH 素材搜索/历史（booth.pm）", "maintainer": "ggg123124（核心维护者·占位）" },
+    { "name": "favorites", "git": "", "description": "VRChat 云端收藏夹：好友/世界分组与收藏", "maintainer": "ggg123124（核心维护者·占位）" },
+    { "name": "groups", "git": "", "description": "VRChat 群组：查询/加入/离开/公告/热度", "maintainer": "ggg123124（核心维护者·占位）" },
+    { "name": "media", "git": "", "description": "VRChat 媒体/打印/画廊导出", "maintainer": "ggg123124（核心维护者·占位）" },
+    { "name": "planet", "git": "", "description": "PlanetVRC 世界排行搜索", "maintainer": "ggg123124（核心维护者·占位）" },
+    { "name": "recommend", "git": "", "description": "推荐引擎：世界/加入偏好/选择学习", "maintainer": "ggg123124（核心维护者·占位）" },
+    { "name": "world-kb", "git": "", "description": "世界知识库：新世界扫描/收藏/待逛/评分", "maintainer": "ggg123124（核心维护者·占位）" },
+    { "name": "x-creators", "git": "", "description": "X(推特) 博主推荐世界追踪", "maintainer": "ggg123124（核心维护者·占位）" }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "name": "my-plugin",
+  "version": "0.1.0",
+  "description": "插件模板：用 api.registerTool 暴露能力。复制到 plugins/local/<name>/ 后改成自己的名字/描述",
+  "author": "your-github-login",
+  "depends": []
+}
