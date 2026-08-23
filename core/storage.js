@@ -693,10 +693,12 @@ export class Storage {
   /** 显式确认逛过某个世界（Issue #19 痛点 3：事件驱动 visited 不可靠） */
   markWorldVisited({ worldId }) {
     const now = new Date().toISOString();
+    // ON CONFLICT 同时清 backlog=0：逛过即从待逛列表移除（与 event-pipeline 事件回写、scan
+    // 回填三处口径一致），避免"已逛但仍标待逛"的矛盾残留。
     this._run(
       `INSERT INTO world_kb (world_id, world_name, tags, visited, visited_at)
        VALUES ($worldId, '', '[]', 1, $now)
-       ON CONFLICT(world_id) DO UPDATE SET visited = 1, visited_at = $now`,
+       ON CONFLICT(world_id) DO UPDATE SET visited = 1, visited_at = $now, backlog = 0`,
       { $worldId: worldId, $now: now }
     );
     const rows = this._query(`SELECT world_id, world_name, visited, visited_at, backlog FROM world_kb WHERE world_id = $worldId`, { $worldId: worldId });

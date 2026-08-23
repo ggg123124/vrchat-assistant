@@ -78,7 +78,7 @@ export async function handleScanNewWorlds({ days = 7, dryRun = false }) {
          description = excluded.description`
     );
     const markVisited = storage.db.prepare(
-      `UPDATE world_kb SET visited = 1, visited_at = @visited_at
+      `UPDATE world_kb SET visited = 1, visited_at = @visited_at, backlog = 0
        WHERE world_id = @world_id AND visited = 0`
     );
 
