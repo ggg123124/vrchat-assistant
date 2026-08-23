@@ -78,8 +78,11 @@ export async function handleScanNewWorlds({ days = 7, dryRun = false }) {
          description = excluded.description`
     );
     const markVisited = storage.db.prepare(
-      `UPDATE world_kb SET visited = 1, visited_at = @visited_at, backlog = 0
-       WHERE world_id = @world_id AND visited = 0`
+      `UPDATE world_kb SET
+         visited = 1,
+         visited_at = CASE WHEN visited = 0 THEN @visited_at ELSE visited_at END,
+         backlog = 0
+       WHERE world_id = @world_id AND (visited = 0 OR backlog = 1)`
     );
 
     const tx = storage.db.transaction(() => {
