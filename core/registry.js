@@ -13,18 +13,11 @@ import * as safeMode from './safe-mode.js';
 
 // 导入所有自声明工具模块
 import { tools as authTools } from './tools/auth.js';
-import { tools as boothTools } from './tools/booth.js';
 import { tools as eventsTools } from './tools/events.js';
-import { tools as favoritesTools } from './tools/favorites.js';
-import { tools as favoriteWorldsTools } from './tools/favorite-worlds.js';
-import { tools as friendFavoritesTools } from './tools/friend-favorites.js';
 import { tools as friendsTools } from './tools/friends.js';
-import { tools as groupsTools } from './tools/groups.js';
 import { tools as instanceTools } from './tools/instance.js';
-import { tools as mediaTools } from './tools/media.js';
 import { tools as miscTools } from './tools/misc.js';
 import { tools as notificationsTools } from './tools/notifications.js';
-import { tools as planetTools } from './tools/planet.js';
 import { tools as recommendTools } from './tools/recommend.js';
 import { tools as recommendWorldsTools } from './tools/recommend-worlds.js';
 import { tools as socialWriteTools } from './tools/social-write.js';
@@ -34,18 +27,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const ALL_TOOLS = [
   ...authTools,
-  ...boothTools,
   ...eventsTools,
-  ...favoritesTools,
-  ...favoriteWorldsTools,
-  ...friendFavoritesTools,
   ...friendsTools,
-  ...groupsTools,
   ...instanceTools,
-  ...mediaTools,
   ...miscTools,
   ...notificationsTools,
-  ...planetTools,
   ...recommendTools,
   ...recommendWorldsTools,
   ...socialWriteTools,
@@ -119,9 +105,9 @@ export function removePluginTools(origin) {
 
 export function listTools() {
   const result = [];
-  // 核心工具按 tool-order.json 顺序
+  // PR-2-2: 整体遍历 ORDER，先核心、再插件，保证输出顺序与 tool-order.json 一致
   for (const name of ORDER) {
-    const def = coreRegistry.get(name);
+    const def = coreRegistry.get(name) || pluginToolMap.get(name);
     if (!def) {
       log(`[registry] tool "${name}" in manifest but not registered`);
       continue;

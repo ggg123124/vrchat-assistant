@@ -54,18 +54,18 @@ def read_text(rel):
         return f.read()
 
 def extract_code_tools():
-    """从 core/registry.js 提取权威工具清单。"""
+    """从 scripts/dump-tools.mjs（加载插件后）提取权威工具清单。"""
     try:
         r = subprocess.run(
-            ["node", "-e", "import('./core/registry.js').then(m => console.log(m.listTools().map(t => t.name).join('\\n')))"],
+            ["node", "scripts/dump-tools.mjs"],
             capture_output=True, text=True, timeout=60, cwd=REPO,
         )
         if r.returncode != 0:
-            print(f"ERROR: registry listTools failed: {r.stderr.strip()}", file=sys.stderr)
+            print(f"ERROR: dump-tools failed: {r.stderr.strip()}", file=sys.stderr)
             return None
         return set(line.strip() for line in r.stdout.splitlines() if line.strip())
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
-        print(f"ERROR: unable to run registry listTools: {e}", file=sys.stderr)
+        print(f"ERROR: unable to run dump-tools: {e}", file=sys.stderr)
         return None
 
 def extract_doc_tools():
@@ -341,7 +341,7 @@ def main():
 
     code_tools = extract_code_tools()
     if code_tools is None:
-        print("ERROR: 无法从 core/registry.js 导出工具清单，无法检测", file=sys.stderr)
+        print("ERROR: 无法从 scripts/dump-tools.mjs 导出工具清单，无法检测", file=sys.stderr)
         return 2
 
     doc_tools = extract_doc_tools()

@@ -121,6 +121,35 @@ function isPortBusy(port, timeoutMs = 800) {
   });
 }
 
+// ── 核心数据服务容器（供官方插件 consume）──
+function registerCoreServices(loader, ctx) {
+  const whitelist = [
+    'getGroupCached',
+    'upsertGroupCache',
+    'getGroupHeat',
+    'setWorldFavorited',
+    'getWorldName',
+    'upsertWorld',
+    'getZhTranslations',
+    'getBoothItemCache',
+    'upsertBoothItem',
+    'listBoothItems',
+    'recordBoothSearch',
+    'getBoothSearches',
+    'getPlanetCache',
+    'setPlanetCache',
+  ];
+  for (const name of whitelist) {
+    if (typeof ctx.storage[name] !== 'function') {
+      log(`⚠️ 核心存储服务 ${name} 不存在，跳过`);
+      continue;
+    }
+    const svc = `storage.${name}`;
+    loader.services.set(svc, (...args) => ctx.storage[name](...args));
+    loader.serviceOwners.set(svc, 'core');
+  }
+}
+
 // ── 启动 ──
 
 async function main() {
@@ -269,6 +298,7 @@ async function main() {
 
   // 5.5 加载插件（失败不阻断核心启动）
   const pluginLoader = new PluginLoader({ registry, ctx, log, notifier });
+  registerCoreServices(pluginLoader, ctx);
   await pluginLoader.loadAll();
   pluginLoader.watch();
   ctx.pluginLoader = pluginLoader;

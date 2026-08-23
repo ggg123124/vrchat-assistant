@@ -13,8 +13,123 @@
 
 import { ctx, log } from './server-context.js';
 import { getThemeRegex } from './theme-config.js';
-import { handleRecommendPlanetWorlds } from './tools/planet.js';
-import { handleSearchWorlds } from './tools/groups.js';
+import { handleSearchWorlds } from './tools/misc.js';
+
+// ── PlanetVRC 抓取（planet 插件迁走后，recommend_worlds 内部保留最小抓取能力）──
+const PLANET_BASE = 'https://planetvrchat.net';
+const PLANET_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36';
+
+const PLANET_ORDERBY = {
+  popular: 'custom-field.visits.desc.NUMERIC',
+  new: 'custom-field.world_published.desc.DATE',
+  updated: 'custom-field.world_updated.desc.DATE',
+};
+
+async function _planetFetchHtml(url) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 15000);
+  try {
+    const res = await fetch(url, {
+      headers: { 'User-Agent': PLANET_UA, 'Accept-Language': 'ja,en;q=0.8' },
+      signal: ctrl.signal,
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.text();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function _planetDecodeEntities(s) {
+  return s
+    .replace(/&#8211;/g, '–').replace(/&#8220;/g, '“').replace(/&#8221;/g, '”')
+    .replace(/&#8217;/g, '’').replace(/&#8216;/g, '‘').replace(/&#8230;/g, '…')
+    .replace(/&#0?39;/g, "'")
+    .replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&');
+}
+
+function _planetParseCards(html) {
+  const cards = [];
+  const articleRe = /<article\s+class="[^"]*post-(\d+)[^"]*"[^>]*>([\s\S]*?)<\/article>/g;
+  let m;
+  while ((m = articleRe.exec(html))) {
+    const postId = m[1];
+    const block = m[2];
+    const link = block.match(/href="https:\/\/planetvrchat\.net\/archives\/\d+"/);
+    const title = block.match(/rel="bookmark"\s+title="([^"]*)"\s+class="post-list__link"/) ||
+      block.match(/class="h2 entry-title">([^<]*)</);
+    if (!link || !title) continue;
+    const platform = block.match(/pvrc-world-platform-badge"[^>]*aria-label="([^"]*)"/);
+    const cats = [...block.matchAll(/archive-taxonomy-chip--category">([^<]*)<\/span>/g)].map((x) => x[1]);
+    const tagsBlock = block.match(/<\/span>\s*([^<]+)\s*<\/small>/);
+    const tags = tagsBlock ? tagsBlock[1].trim().split(/\s+/).filter(Boolean) : [];
+    const img = block.match(/src="([^"]*thumb[^"]*\.(?:webp|png|jpg))"/);
+    cards.push({
+      postId,
+      name: _planetDecodeEntities(title[1] || title[2] || '').trim(),
+      url: link[0].replace(/href="|"$/g, ''),
+      platform: platform ? _planetDecodeEntities(platform[1]) : '',
+      categories: cats.map((c) => _planetDecodeEntities(c)),
+      tags: tags.map((t) => _planetDecodeEntities(t)).slice(0, 8),
+      image: img ? img[1] : '',
+      wrldId: null,
+      maxPlayers: null,
+      visitors: null,
+      favorites: null,
+      publishedAt: null,
+    });
+  }
+  return cards;
+}
+
+function _planetParseDetail(html) {
+  const d = {};
+  const wid = html.match(/wrld_[a-f0-9-]{36}/);
+  if (wid) d.wrldId = wid[0];
+  const maxP = html.match(/最大人数(?:<[^>]+>\s)*([\d,]+)\s*人/);
+  if (maxP) d.maxPlayers = parseInt(maxP[1].replace(/,/g, ''), 10);
+  const vis = html.match(/総訪問者(?:<[^>]+>\s)*([\d,]+)/);
+  if (vis) d.visitors = parseInt(vis[1].replace(/,/g, ''), 10);
+  const fav = html.match(/⭐\s*(?:<[^>]+>\s)*お気に入り(?:<[^>]+>\s)*([\d,]+)/);
+  if (fav) d.favorites = parseInt(fav[1].replace(/,/g, ''), 10);
+  const pub = html.match(/公開日(?:<[^>]+>\s)*(\d{4}-\d{2}-\d{2})/);
+  if (pub) d.publishedAt = pub[1];
+  return d;
+}
+
+async function _planetEnrich(cards, limit) {
+  const n = Math.min(Math.max(parseInt(limit, 10) || 5, 1), 8);
+  for (const c of cards.slice(0, n)) {
+    try {
+      const html = await _planetFetchHtml(c.url);
+      Object.assign(c, _planetParseDetail(html));
+    } catch (e) { /* 单卡失败忽略 */ }
+  }
+  return cards;
+}
+
+async function _planetFetchCards(queryParams, limit) {
+  const n = Math.min(Math.max(parseInt(limit, 10) || 5, 1), 8);
+  const qs = new URLSearchParams({ s: '', vkfs_submitted: '1', ...queryParams }).toString();
+  const html = await _planetFetchHtml(`${PLANET_BASE}/?${qs}`);
+  const cards = _planetParseCards(html);
+  if (!cards.length) throw new Error('PlanetVRC 无结果');
+  await _planetEnrich(cards, n);
+  return cards.slice(0, n);
+}
+
+async function fetchRecommendPlanetWorlds({ sort = 'popular', limit = 5 }) {
+  const key = PLANET_ORDERBY[sort] ? sort : 'popular';
+  const cards = await _planetFetchCards({ vkfs_orderby: PLANET_ORDERBY[key] }, limit);
+  return {
+    source: 'planetvrchat.net',
+    sort: key,
+    count: cards.length,
+    worlds: cards,
+  };
+}
 
 // ── 权重常量（集中便于调参）──
 const W_PLANET = 8;          // PlanetVRC log10(visitors) 系数
@@ -133,7 +248,7 @@ async function collectPlanetCandidates(ctxArg, limit) {
   const key = `planet:popular:${limit}`;
   let result = storage.getPlanetCache(key, PLANET_CACHE_TTL);
   if (!result) {
-    result = await handleRecommendPlanetWorlds({ sort: 'popular', limit });
+    result = await fetchRecommendPlanetWorlds({ sort: 'popular', limit });
     // 空结果不缓存（避免 6h 内永远拿不到数据）
     if (result && Array.isArray(result.worlds) && result.worlds.length > 0) {
       storage.setPlanetCache(key, result);

@@ -173,8 +173,35 @@ function buildVrchatApi({ ctx, log }) {
         if (res.status >= 200 && res.status < 300) {
           return res.data;
         }
-        throw new Error(`VRChat API 请求失败: ${res.status} ${path}`);
+        const err = new Error(`VRChat API 请求失败: ${res.status} ${path}`);
+        err.status = res.status;
+        err.response = res.data;
+        throw err;
       });
+    },
+
+    async uploadImageFile(fileBuffer, filename, params) {
+      if (!ctx.api) throw new Error('VRChat API 客户端尚未初始化');
+      if (!ctx.rateLimiter) throw new Error('限流器尚未初始化');
+      return ctx.rateLimiter.execute(() => ctx.api.uploadImageFile(fileBuffer, filename, params));
+    },
+
+    async uploadPrint(fileBuffer, filename, { note, timestamp } = {}) {
+      if (!ctx.api) throw new Error('VRChat API 客户端尚未初始化');
+      if (!ctx.rateLimiter) throw new Error('限流器尚未初始化');
+      return ctx.rateLimiter.execute(() => ctx.api.uploadPrint(fileBuffer, filename, { note, timestamp }));
+    },
+
+    async uploadGalleryImage(fileBuffer, filename) {
+      if (!ctx.api) throw new Error('VRChat API 客户端尚未初始化');
+      if (!ctx.rateLimiter) throw new Error('限流器尚未初始化');
+      return ctx.rateLimiter.execute(() => ctx.api.uploadGalleryImage(fileBuffer, filename));
+    },
+
+    async download(url) {
+      if (!ctx.api) throw new Error('VRChat API 客户端尚未初始化');
+      if (!ctx.rateLimiter) throw new Error('限流器尚未初始化');
+      return ctx.rateLimiter.execute(() => ctx.api.downloadFile(url));
     },
   };
 }
