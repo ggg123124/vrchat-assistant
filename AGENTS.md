@@ -185,12 +185,12 @@ cp -r skills/review-workflow "$HERMES_HOME/skills/"
 | `vrchat-world-queries` | 世界域工作流：挑新世界/待逛 backlog/推荐/PlanetVRC/X 博主 | 世界推荐与情报挖掘 |
 | `vrchat-group-queries` | 群组域工作流：群组查询/公告 403 分诊/join/leave/peek | 群组查询与操作 |
 | `booth-query-display` | BOOTH 素材检索工具（搜索/详情/热度/汉化/格式化展示） | BOOTH 素材查询 |
-| `vrchat-assistant-development` | **开发规范**：新增 MCP 工具三件套流程、跨平台约束、提交 PR 要求（DEVELOPMENT.md 的 skill 化） | **给本仓库添加/修改功能、提交 PR 时必装** |
+| `vrchat-assistant-development` | **开发规范**：新增 MCP 工具（核心 core/tools/* 自声明 + 插件 plugins/official/* 经 register(api) 注册）流程、跨平台约束、提交 PR 要求（DEVELOPMENT.md 的 skill 化） | **给本仓库添加/修改功能、提交 PR 时必装** |
 | `review-workflow` | **审核工作流**：REST-only 审查、端到端实测、分级反馈、多轮复核、PR/issue 审核、协作审核参与（AGENT-REVIEW） | **审核 PR / issue、判断可合并性/可关闭性、参与协作审核时加载** |
 
 重启 Hermes 会话生效。skill 说明见 `skills/vrc-monitor-agent/SKILL.md`（README「文档导航」有入口）。
 
-> **开发功能前必须加载** `vrchat-assistant-development` skill：它固化了仓库的全部开发约束（三件套模式、DB 迁移、文档同步、跨平台、提交规范），不加载直接开发容易违反 DEVELOPMENT.md 的硬性要求。
+> **开发功能前必须加载** `vrchat-assistant-development` skill：它固化了仓库的全部开发约束（插件化开发模式、DB 迁移、文档同步、跨平台、提交规范），不加载直接开发容易违反 DEVELOPMENT.md 的硬性要求。
 
 ## 常用操作
 
