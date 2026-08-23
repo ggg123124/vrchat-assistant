@@ -17,8 +17,10 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
-const Database = require('D:/workspace/hermes/tmp/vrchat-assistant/node_modules/better-sqlite3');
-const REPO = 'D:/workspace/hermes/tmp/vrchat-assistant';
+
+// 仓库根 = 本文件所在目录（不再硬编码本机绝对路径，满足跨平台/CI 要求）
+const REPO = __dirname;
+const Database = require('better-sqlite3');
 
 const { ctx } = await import(pathToFileURL(path.join(REPO, 'core', 'server-context.js')).href);
 const { Storage } = await import(pathToFileURL(path.join(REPO, 'core', 'storage.js')).href);
@@ -49,7 +51,7 @@ const safeMode = process.env.VRC_MONITOR_SAFE_MODE === 'true';
 const tools = registry.listTools();
 const names = tools.map(t => t.name);
 
-// 1. 数量
+// 1. 数量（tool-order.json 全量 = 92；safe-mode 下过滤 DESTRUCTIVE_TOOLS 10 个）
 const expectedCount = safeMode ? order.length - 10 : order.length;
 assert(tools.length === expectedCount, `listTools() returned ${tools.length}, expected ${expectedCount}`);
 
@@ -98,7 +100,7 @@ if (safeMode) {
 }
 
 if (pass) {
-  console.log('registry integrity: PASS (plugins loaded, 91 tools, order+defs OK)');
+  console.log('registry integrity: PASS (plugins loaded, 92 tools, order+defs OK)');
   process.exit(0);
 } else {
   console.log('registry integrity: FAIL');

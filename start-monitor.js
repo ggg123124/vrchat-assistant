@@ -30,6 +30,7 @@ import {
 } from './core/fetch-x-worlds.js';
 import {
   handleScanNewWorlds, handleGetNewWorlds, handleRateWorld, handleMarkWorldVisited,
+  handleSetWorldSleep,
   handleAddToBacklog, handleGetBacklog, handleRemoveFromBacklog, handleSearchWorlds,
 } from './core/tools/misc.js';
 import {
@@ -204,6 +205,7 @@ function registerCoreServices(loader, ctx) {
     'world.getNewWorlds': (args) => handleGetNewWorlds(args || {}),
     'world.rateWorld': (args) => handleRateWorld(args || {}),
     'world.markWorldVisited': (args) => handleMarkWorldVisited(args || {}),
+    'world.setWorldSleep': (args) => handleSetWorldSleep(args || {}),
     'world.addToBacklog': (args) => handleAddToBacklog(args || {}),
     'world.getBacklog': (args) => handleGetBacklog(args || {}),
     'world.removeFromBacklog': (args) => handleRemoveFromBacklog(args || {}),

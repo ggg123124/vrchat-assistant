@@ -85,7 +85,7 @@ export function registerPluginTool(def, origin) {
     const existing = pluginToolMap.get(def.name);
     throw new Error(`工具名冲突："${def.name}" 已由 ${existing.origin} 注册`);
   }
-  const destructive = def.destructive ?? safeMode.isDestructive(def.name);
+  const destructive = def.destructive ?? safeMode.DESTRUCTIVE_TOOLS.includes(def.name);
   const tool = { ...def, destructive, origin };
   pluginTools.push(tool);
   pluginToolMap.set(def.name, tool);
@@ -103,9 +103,11 @@ export function removePluginTools(origin) {
 
 export function listTools() {
   const result = [];
-  // PR-2-2: 整体遍历 ORDER，先核心、再插件，保证输出顺序与 tool-order.json 一致
+  // 整体遍历 ORDER（tool-order.json 统一涵盖核心+插件工具），保证输出顺序稳定
   for (const name of ORDER) {
-    const def = coreRegistry.get(name) || pluginToolMap.get(name);
+    const coreDef = coreRegistry.get(name);
+    const pluginDef = pluginToolMap.get(name);
+    const def = coreDef || pluginDef;
     if (!def) {
       log(`[registry] tool "${name}" in manifest but not registered`);
       continue;
@@ -116,8 +118,10 @@ export function listTools() {
       inputSchema: def.inputSchema,
     });
   }
-  // 插件工具按注册顺序追加
+  // 插件工具若不在 ORDER（动态加载的本地插件）则按注册顺序追加
+  const inOrder = new Set(ORDER);
   for (const def of pluginTools) {
+    if (inOrder.has(def.name)) continue;
     result.push({
       name: def.name,
       description: def.description,
