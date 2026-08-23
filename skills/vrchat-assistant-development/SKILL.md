@@ -54,13 +54,13 @@ cat DEVELOPMENT.md                  # 或 read_file
 
 ## 仓库导航（在哪里改）
 
-新增一个 MCP 工具的三件套位置（细节规范见 DEVELOPMENT.md §5）：
+新增一个 MCP 工具的注册位置（细节规范见 DEVELOPMENT.md §5）：
 
 | 组件 | 位置 | 说明 |
 |------|------|------|
-| 工具定义 | `core/mcp-definitions.js` | `CUSTOM_TOOLS` 数组追加（name + description + inputSchema） |
-| handler | `core/handlers/<域>.js` | 按功能域放对应文件，复用 `ctx` 共享上下文与主服务登录态 |
-| 路由 | `core/rpc-router.js` | `handleRpc` 加 case 映射到 handler |
+| 核心工具 def | `core/tools/<域>.js` | 文件默认导出 `tools` 数组（自声明 name + description + inputSchema + handler），启动时经 `core/registry.js` 注册 |
+| 插件能力 def | `plugins/official/<域>/index.js` | 默认导出 `register(api)`，经 `api.registerTool` 定义工具；数据/能力经 `api.consume` / `api.vrchat.fetch` 复用核心 |
+| 注册表 | `core/registry.js` | 按 `core/tool-order.json` 混合索引核心 + 插件工具，提供 `listTools` / `dispatch` |
 | 文档登记 | `skills/vrc-monitor-agent/SKILL.md`「MCP 工具」表格 | **权威登记位置**（2026-08-15 起 README 不再平铺工具清单；AGENTS.md §6 采样列举同步补名；BOOTH 域另登记 `skills/booth-query-display/SKILL.md`） |
 
 模块职责速查见 `ARCHITECTURE.md`「core/ 模块职责」表（storage / ws-manager / event-pipeline / rate-limiter / server-context 等）。
@@ -75,7 +75,7 @@ cat DEVELOPMENT.md                  # 或 read_file
 
 ## Pitfalls（仓库实操经验，正文以 DEVELOPMENT.md 为准）
 
-- ⚠️ **不要只写 CLI 脚本**：新功能必须是 MCP 工具三件套（定义 + handler + 路由），否则 Agent 无法调用
+- ⚠️ **不要只写 CLI 脚本**：新功能必须是 MCP 工具（核心工具 `core/tools/*` 自声明，或插件 `plugins/official/*` + `api.registerTool`，统一并入 `core/registry.js`），否则 Agent 无法调用
 - ⚠️ **限流不要嵌套**（2026-08-09 真实死锁）：handler 内已逐请求限流时，RPC case 层不要再包一层 rateLimiter.execute，会整 handler 挂死
 - ⚠️ **工具登记位置已变更（2026-08-15）**：权威登记 = `skills/vrc-monitor-agent/SKILL.md` 工具表格，不是 README
 - ⚠️ **README / skill 不写工具总数**：全仓库禁止"N 个 MCP 工具"表述，只维护工具名清单

@@ -121,10 +121,11 @@ gh api repos/O/R/commits/<merge-sha> --jq '[.files[].filename]'  # 合并内容�
 
 ### 工具数精确核对
 
-`grep -c "name: '"` 数的是行数且含 UI 标签，差集会漏。用 node 动态 import 双端工具定义数组做差集：
+- 以仓库自带的**权威工具清单**为准：`node scripts/dump-tools.mjs`（来自 `core/registry.js` 的 `listTools()`，含核心 + 插件工具）。用它输出双端（main / PR）工具集合做差集：
 
 ```bash
-node -e "Promise.all([import('file:///.../core/mcp-definitions.js'), ...]).then(([a,b]) => { ... 输出仅main有/仅PR有 ... })"
+node scripts/dump-tools.mjs > tools-head.txt   # 当前分支全部工具名（含插件工具）
+# 切到 main 再跑一次 > tools-main.txt，然后 diff 两个文件得差集
 ```
 
 - **工具数基线**：PR head 数 = 分叉点基数 + PR 新增；合并后 main = 当前 main 数 + PR 新增。用 `compare/<base>...<head>` 的 `{ahead_by, behind_by, status}` 判分叉，不能照抄 PR body 数字。

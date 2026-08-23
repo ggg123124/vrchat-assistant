@@ -44,12 +44,14 @@
 | [AGENTS.md](./AGENTS.md) | 部署配置引导：凭据、环境变量、启动、Hermes 插件、Agent Skill 安装、MCP 接口配置 | 部署 / 配置 / 首次上手 |
 | [skills/](./skills/) | 开箱即用的 Agent Skill 合集（含 MCP 工具清单、查询工作流、开发规范等，安装说明见 AGENTS.md） | 查询 / 调用工具 / 开发功能前 |
 | [DEVELOPMENT.md](./DEVELOPMENT.md) | 开发规范：跨平台约束、PR 要求、数据隐私、代码规范 | 修改代码 / 提交 PR |
-| [ARCHITECTURE.md](./ARCHITECTURE.md) | 系统架构：数据流、模块职责、依赖关系 | 理解代码结构 |
+| [ARCHITECTURE.md](./ARCHITECTURE.md) | 系统架构：数据流、模块职责、插件化架构层次 | 理解代码结构 |
+| [docs/PLUGIN-API.md](./docs/PLUGIN-API.md) | 插件契约（v1.1）：插件与核心的唯一契约、6 面 API、安全与命名约束 | 编写插件前必读 |
+| [docs/PLUGIN-DEV.md](./docs/PLUGIN-DEV.md) | 插件开发指南：目录结构、register(api)、6 面 API 用法、核心服务消费 | 编写插件 / 扩展功能 |
 | [docs/history/](./docs/history/INDEX.md) | 项目演进记录：里程碑时间线、每月发布/PR 与演进意义 | 新 Agent 上手先读 |
 | [service-windows/](./service-windows/README.md) | Windows 开机自启 + 崩溃自愈 + 每日修复报告（一键脚本） | Windows 常驻运行 |
 | [service-linux/](./service-linux/README.md) | Linux systemd 用户服务：开机自启 + 崩溃自愈 + journal 日志（一键脚本） | Linux 常驻运行 |
 
-**MCP 工具**：服务通过 MCP 暴露工具，覆盖好友查询、社交互动、媒体管理、群组操作、世界推荐、素材检索等能力域。**完整工具清单（全部工具）统一登记在 [skills/vrc-monitor-agent/SKILL.md](./skills/vrc-monitor-agent/SKILL.md)「MCP 工具」章节**，Agent 照此调用。其余 skill 为各能力域的工作流补充（不重复登记工具）：`vrchat-social-queries`（社交域：在线五要素/同屏/规律/昵称）、`vrchat-world-queries`（世界域：待逛/推荐/情报挖掘）、`vrchat-group-queries`（群组域：查询/公告分诊）、`booth-query-display`（BOOTH 检索/展示格式）、`vrchat-assistant-development`（开发规范）、`review-workflow`（审核工作流：PR/issue 审核、端到端实测、多轮复核、协作审核）。
+**MCP 工具**：服务通过 MCP 暴露工具，覆盖好友查询、社交互动、媒体管理、群组操作、世界推荐、素材检索等能力域。这些工具由**核心域工具 + 官方插件域工具**分层组成（插件域：booth / favorites / groups / media / planet / recommend / world-kb / x-creators），经统一注册表按序输出给客户端。**权威工具清单（全部工具）统一登记在 [skills/vrc-monitor-agent/SKILL.md](./skills/vrc-monitor-agent/SKILL.md)「MCP 工具」章节**，Agent 照此调用；插件结构与开发方式见 [docs/PLUGIN-DEV.md](./docs/PLUGIN-DEV.md)，插件契约见 [docs/PLUGIN-API.md](./docs/PLUGIN-API.md)。其余 skill 为各能力域的工作流补充（不重复登记工具）：`vrchat-social-queries`（社交域：在线五要素/同屏/规律/昵称）、`vrchat-world-queries`（世界域：待逛/推荐/情报挖掘）、`vrchat-group-queries`（群组域：查询/公告分诊）、`booth-query-display`（BOOTH 检索/展示格式）、`vrchat-assistant-development`（开发规范）、`review-workflow`（审核工作流：PR/issue 审核、端到端实测、多轮复核、协作审核）。
 
 ## 🧰 辅助工具（本机可选）
 
