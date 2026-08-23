@@ -12,7 +12,7 @@ import path from 'node:path';
 import net from 'node:net';
 
 import { ctx, log, refreshWatchlistCache } from './core/server-context.js';
-import { CUSTOM_TOOLS } from './core/mcp-definitions.js';
+import * as registry from './core/registry.js';
 import { Storage } from './core/storage.js';
 import { RateLimiter } from './core/rate-limiter.js';
 import { VrchatApiClient } from './vrchat-api.js';
@@ -312,7 +312,7 @@ async function main() {
   server.listen(PORT, '127.0.0.1', () => {
     log(`\n🚀 MCP 服务运行在 http://127.0.0.1:${PORT}/mcp\n`);
     log('可用工具:');
-    for (const t of CUSTOM_TOOLS) {
+    for (const t of registry.listTools()) {
       log(`  ${t.name} — ${t.description}`);
     }
     log(`\n健康检查: http://127.0.0.1:${PORT}/health`);

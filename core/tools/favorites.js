@@ -47,3 +47,28 @@ export async function handleFavoriteWorld({ worldId, tag }) {
   log(`⭐ 云端收藏: ${worldId} → ${tag}`);
   return result;
 }
+
+// ── MCP 自声明工具表 ──
+export const tools = [
+  {
+    "name": "favorite_world",
+    "description": "[action·写操作] 把世界加入你的 VRChat 云端收藏夹（POST /favorites，云端写入，调用前请与用户确认）。tag 为收藏分组（worlds0/worlds1/worlds2/worlds3/worlds4，默认 worlds0）。成功后本地 world_cache 标记 favorited=1（供推荐加权）。API 拒绝（如重复收藏）时返回 favorited:false + error，不抛错。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "worldId": {
+          "type": "string",
+          "description": "VRChat world id (wrld_...)"
+        },
+        "tag": {
+          "type": "string",
+          "description": "收藏夹分组 tag（worlds0/worlds1/worlds2/worlds3/worlds4，默认 worlds0）"
+        }
+      },
+      "required": [
+        "worldId"
+      ]
+    },
+    handler: async (args) => ctx.rateLimiter.execute(() => handleFavoriteWorld(args))
+  }
+];

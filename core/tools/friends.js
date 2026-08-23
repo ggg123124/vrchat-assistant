@@ -268,3 +268,118 @@ export async function handleRemoveFriend({ userId, displayName, confirm }) {
   if (r.status >= 400) throw new Error(`API error ${r.status}`);
   return { userId: target.userId, displayName: target.displayName, ok: true };
 }
+
+// ── MCP 自声明工具表 ──
+export const tools = [
+  {
+    "name": "get_online_friends",
+    "description": "[query] List currently online friends from VRChat API.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {}
+    },
+    handler: async (args) => ctx.rateLimiter.execute(() => handleGetOnlineFriends(args))
+  },
+  {
+    "name": "get_friend_info",
+    "description": "[query] Get detailed info about a specific friend from API.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "VRChat user id (usr_...)"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Or search by display name"
+        }
+      }
+    },
+    handler: async (args) => ctx.rateLimiter.execute(() => handleGetFriendInfo(args))
+  },
+  {
+    "name": "get_mutual_friends",
+    "description": "[query] List mutual friends between you and a user (userId or exact displayName). Includes local nicknames.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "VRChat user id (usr_...)"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Exact display name to search"
+        },
+        "limit": {
+          "type": "number",
+          "default": 100,
+          "description": "Max results (1-100, default 100)"
+        }
+      }
+    },
+    handler: async (args) => ctx.rateLimiter.execute(() => handleGetMutualFriends(args))
+  },
+  {
+    "name": "search_users",
+    "description": "[query] Search VRChat users by display name.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "Search query"
+        },
+        "limit": {
+          "type": "number",
+          "default": 10
+        }
+      },
+      "required": [
+        "query"
+      ]
+    },
+    handler: async (args) => ctx.rateLimiter.execute(() => handleSearchUsers(args))
+  },
+  {
+    "name": "send_friend_request",
+    "description": "[write·vrchat] Send a friend request to a user. Supports userId or exact displayName match.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "VRChat user id (usr_...)"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Exact display name to search and send friend request"
+        }
+      }
+    },
+    handler: async (args) => ctx.rateLimiter.execute(() => handleSendFriendRequest(args))
+  },
+  {
+    "name": "remove_friend",
+    "description": "[write·vrchat] Remove a friend. Requires userId or exact displayName match, plus confirm: true to execute (irreversible).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "VRChat user id (usr_...)"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Exact display name to search and remove friend"
+        },
+        "confirm": {
+          "type": "boolean",
+          "description": "Set true to actually remove the friend (irreversible). Default false returns preview only."
+        }
+      }
+    },
+    handler: async (args) => ctx.rateLimiter.execute(() => handleRemoveFriend(args))
+  }
+];

@@ -3,7 +3,7 @@
 """
 check-doc-drift.py — vrchat-assistant 文档漂移检测 + 自动修复（固定脚本）
 
-权威口径：core/mcp-definitions.js 中 name: '...' 的集合 = 实际 MCP 工具清单。
+权威口径：core/registry.js 的 listTools() 返回的工具集合 = 实际 MCP 工具清单。
 
 检查项（对应 vrchat-assistant-history skill Phase 2）：
   [FAIL] 工具清单完整    代码新增工具必须登记进 skills/vrc-monitor-agent/SKILL.md「MCP 工具」章节（2026-08-15 起权威登记位置；README 仅人类简介）
@@ -12,7 +12,7 @@ check-doc-drift.py — vrchat-assistant 文档漂移检测 + 自动修复（固�
   [FAIL] plugin.yaml 版本同步    hermes-plugin/plugin.yaml version 应 = package.json version
   [WARN] GitHub 仓库描述        描述不应含过时工具数（gh repo view；修复需 owner 权限，失败仅提示）
   [FAIL] 历史记录 PR 状态漂移    docs/history/ 中标注的 PR 状态（OPEN/待评审/已合并等）应与 gh 实际状态一致
-  [FAIL] skill 工具引用死链       各 skill 文件中反引号包裹的工具名必须存在于 core/mcp-definitions.js
+  [FAIL] skill 工具引用死链       各 skill 文件中反引号包裹的工具名必须存在于 core/registry.js 的 listTools()
   [WARN] skills/ 目录一致性       README 提及的 skill 名应与 skills/ 实际子目录一致（新增漏登记/删除残留）
 
 用法：
@@ -54,11 +54,19 @@ def read_text(rel):
         return f.read()
 
 def extract_code_tools():
-    """从 core/mcp-definitions.js 提取权威工具清单。"""
-    src = read_text("core/mcp-definitions.js")
-    if src is None:
+    """从 core/registry.js 提取权威工具清单。"""
+    try:
+        r = subprocess.run(
+            ["node", "-e", "import('./core/registry.js').then(m => console.log(m.listTools().map(t => t.name).join('\\n')))"],
+            capture_output=True, text=True, timeout=60, cwd=REPO,
+        )
+        if r.returncode != 0:
+            print(f"ERROR: registry listTools failed: {r.stderr.strip()}", file=sys.stderr)
+            return None
+        return set(line.strip() for line in r.stdout.splitlines() if line.strip())
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
+        print(f"ERROR: unable to run registry listTools: {e}", file=sys.stderr)
         return None
-    return set(re.findall(r"name:\s*'([a-z_]+)'", src))
 
 def extract_doc_tools():
     """从权威工具登记文档提取已登记工具（反引号包裹的 snake_case 标识符）。
@@ -254,7 +262,7 @@ def check_skills_consistency(code_tools):
     2. README 提及的 skill 名 vs 实际目录：README 里提到的 skill 名称应与目录一致
        （README 漏登记新增 skill / README 提到已删除的 skill = 漂移）
     3. 各 skill 文件中的工具引用死链：skill 里反引号包裹的工具名必须存在于
-       core/mcp-definitions.js（引用了不存在的工具 = 死引用，说明工具被删/改名后 skill 没同步）
+       core/registry.js 的 listTools()（引用了不存在的工具 = 死引用，说明工具被删/改名后 skill 没同步）
 
     返回 {skills_dir, readme_mention_issues, dead_refs}，全部信息级，不置 has_drift。
     """
@@ -333,7 +341,7 @@ def main():
 
     code_tools = extract_code_tools()
     if code_tools is None:
-        print("ERROR: core/mcp-definitions.js 不存在，无法检测", file=sys.stderr)
+        print("ERROR: 无法从 core/registry.js 导出工具清单，无法检测", file=sys.stderr)
         return 2
 
     doc_tools = extract_doc_tools()
@@ -406,7 +414,7 @@ def main():
     print("=" * 60)
     print("vrchat-assistant 文档漂移检测（固定脚本 check-doc-drift.py）")
     print("=" * 60)
-    print(f"权威工具数（core/mcp-definitions.js）: {len(code_tools)}")
+    print(f"权威工具数（core/registry.js）: {len(code_tools)}")
     print(f"skill 工具清单已登记: {len(doc_tools & code_tools)}")
     if missing_readme:
         print(f"\n[FAIL] README 缺失 {len(missing_readme)} 个工具（需补进「🔌 MCP 工具」对应分组）:")

@@ -99,3 +99,100 @@ export async function handleOpenWorld({ worldId, location, type, region, shortNa
     detail: res.detail || null,
   };
 }
+
+// ── MCP 自声明工具表 ──
+export const tools = [
+  {
+    "name": "create_instance",
+    "description": "[write·vrchat] Create a new instance (room) for a world. Returns instance location ready for invite_myself. Region defaults to jp.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "worldId": {
+          "type": "string",
+          "description": "World id (wrld_...)"
+        },
+        "type": {
+          "type": "string",
+          "description": "Instance type: public/hidden/friends/private/group (default hidden)"
+        },
+        "region": {
+          "type": "string",
+          "description": "Region: us/eu/jp (default jp)"
+        },
+        "instanceId": {
+          "type": "string",
+          "description": "Optional: existing instance id (shortName or full) to join instead of creating fresh"
+        },
+        "groupAccessType": {
+          "type": "string",
+          "description": "Required when type=group: members/plus/public"
+        }
+      },
+      "required": [
+        "worldId"
+      ]
+    },
+    handler: async (args) => ctx.rateLimiter.execute(() => handleCreateInstance(args))
+  },
+  {
+    "name": "invite_myself",
+    "description": "[write·vrchat] Open an instance in the running VRChat client (same engine as open_world): named-pipe launch first (Windows, silent in-game join dialog), falls back to API self-invite (client teleports on accept) when pipe unavailable. Accepts location (worldId:instanceId) or worldId+instanceId separately.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "location": {
+          "type": "string",
+          "description": "Full location string, e.g. wrld_x:12345~hidden(usr_x)~region(jp). If provided, worldId/instanceId are ignored."
+        },
+        "worldId": {
+          "type": "string",
+          "description": "World id (wrld_...) — ignored if location is provided"
+        },
+        "instanceId": {
+          "type": "string",
+          "description": "Instance id (full format with ~region etc.) — ignored if location is provided"
+        },
+        "forceApi": {
+          "type": "boolean",
+          "description": "Skip pipe detection and force API self-invite (remote/test scenarios)"
+        }
+      }
+    },
+    handler: async (args) => ctx.rateLimiter.execute(() => handleInviteMyself(args))
+  },
+  {
+    "name": "open_world",
+    "description": "[write·vrchat] Open a world/instance in the running VRChat client. If only worldId given, creates a new instance first (hidden jp default), then: named-pipe launch (VRChatURLLaunchPipe → silent in-game join dialog, Windows, 1 step) with API self-invite fallback (invite notification) when pipe unavailable. Core: core/vrchat-launch.js openInstance.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "worldId": {
+          "type": "string",
+          "description": "World id (wrld_...) — creates a new instance (type/region) then opens it"
+        },
+        "location": {
+          "type": "string",
+          "description": "Full instance location to open directly, e.g. wrld_x:12345~hidden(usr_x)~region(jp). If given, worldId/type/region are ignored."
+        },
+        "type": {
+          "type": "string",
+          "description": "Instance type when creating from worldId: public/hidden/friends/private/group (default hidden)"
+        },
+        "region": {
+          "type": "string",
+          "description": "Region when creating from worldId: us/eu/jp (default jp)"
+        },
+        "shortName": {
+          "type": "string",
+          "description": "Optional room short name shown in the launch menu"
+        },
+        "forceApi": {
+          "type": "boolean",
+          "description": "Skip pipe detection and force API self-invite (remote/test scenarios)"
+        }
+      }
+    },
+    handler: async (args) => ctx.rateLimiter.execute(() => handleOpenWorld(args))
+  }
+];

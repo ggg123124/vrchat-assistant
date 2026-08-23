@@ -2,7 +2,7 @@
  * 共享服务上下文 — 所有模块通过此对象访问运行时状态
  *
  * start-monitor.js main() 初始化后赋值各字段；
- * handler / rpc-router / http-server 模块通过 import { ctx } 使用。
+ * tool handler / registry / http-server 模块通过 import { ctx } 使用。
  */
 
 export const ctx = {

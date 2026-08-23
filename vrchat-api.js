@@ -79,7 +79,7 @@ export class VrchatApiClient {
         }
       } catch (err) {
         if (err.needsTotp) {
-          // 保留 tempAuthCookie，抛 needsTotp 由 rpc-router 层设置 serverState.needsTotp
+          // 保留 tempAuthCookie，抛 needsTotp 由 registry.dispatch 设置 serverState.needsTotp
           err.message = `API 登录已失效，需要 TOTP 验证码：请调用 submit_totp 提交当前验证码（${err.message}）`;
           throw err;
         }

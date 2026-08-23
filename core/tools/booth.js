@@ -198,3 +198,96 @@ export async function handleGetBoothSearches({ limit = 10 } = {}) {
   const rows = ctx.storage.getBoothSearches({ limit });
   return { total: rows.length, searches: rows };
 }
+
+// ── MCP 自声明工具表 ──
+export const tools = [
+  {
+    "name": "search_booth_items",
+    "description": "[query·素材] Search BOOTH (booth.pm, pixiv digital-goods marketplace) for VRChat assets (avatars/clothes/3D models/accessories) by keyword. Returns items with name, price, wishlistCount (收藏数=热度), shop/seller, tags, isSoldOut, images (array of {original, resized, caption} objects — use images[0].original as the cover URL), url. NOTE: download/sales counts are NOT publicly visible on BOOTH (always 0 anonymously). Use wishlistCount as the popularity signal. Detail fetch is rate-limited to 400ms/item.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "Keyword (supports Japanese/English, e.g. avatar, VRChat, 衣装, 3Dモデル)"
+        },
+        "limit": {
+          "type": "number",
+          "default": 5,
+          "description": "Max results (default 5, max 10)"
+        },
+        "detail": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enrich each result with detail JSON (wishlistCount/shop/tags) — rate-limited ~400ms/item; set false for fast list-only mode"
+        }
+      },
+      "required": [
+        "query"
+      ]
+    },
+    handler: async (args) => handleSearchBoothItems(args)
+  },
+  {
+    "name": "get_booth_item",
+    "description": "[query·素材] Get a single BOOTH item detail by item id (booth.pm/ja/items/{id}). Returns name, price, description, tags, images (array of {original, resized, caption} objects — use images[0].original as the cover URL), shop/seller, publishedAt, isSoldOut, wishlistCount (收藏数), variations, url. NOTE: purchase/download counts are not publicly visible (0 anonymously). Results are cached locally (booth_items table): cached:true returns the snapshot without hitting BOOTH; forceRefresh:true bypasses the cache.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "itemId": {
+          "type": "string",
+          "description": "BOOTH item id (numeric, from item URL /ja/items/{id})"
+        },
+        "forceRefresh": {
+          "type": "boolean",
+          "default": false,
+          "description": "Bypass local cache and fetch fresh data from BOOTH"
+        }
+      },
+      "required": [
+        "itemId"
+      ]
+    },
+    handler: async (args) => handleGetBoothItem(args)
+  },
+  {
+    "name": "get_booth_history",
+    "description": "[query·素材] List BOOTH items previously queried (local booth_items snapshot cache). Sorted by wishlistCount (热度) or updatedAt; supports minWishlist filter for trend tracking (which items are gaining popularity).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "sortBy": {
+          "type": "string",
+          "default": "wishlist",
+          "description": "wishlist (by wishlistCount desc) | updated (by last queried)"
+        },
+        "limit": {
+          "type": "number",
+          "default": 20,
+          "description": "Max results (1-100, default 20)"
+        },
+        "minWishlist": {
+          "type": "number",
+          "default": 0,
+          "description": "Only items with wishlistCount >= this value"
+        }
+      }
+    },
+    handler: async (args) => handleGetBoothHistory(args)
+  },
+  {
+    "name": "get_booth_searches",
+    "description": "[query·素材] List recent BOOTH search history (query, result item ids, result count, timestamp).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": "number",
+          "default": 10,
+          "description": "Max results (1-50, default 10)"
+        }
+      }
+    },
+    handler: async (args) => handleGetBoothSearches(args)
+  }
+];

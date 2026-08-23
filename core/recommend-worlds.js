@@ -8,13 +8,13 @@
  *   → excludeVisited 过滤 → 排序 → 取 limit → 组装输出
  *
  * 注意：本模块内部对官方 API 调用逐个走 rateLimiter.execute，
- * 外层（rpc-router）不能再包 rateLimiter（嵌套死锁，见 scan_new_worlds 注释）。
+ * 外层 registry.dispatch 不应再包 rateLimiter（嵌套死锁，见 scan_new_worlds 注释）。
  */
 
 import { ctx, log } from './server-context.js';
 import { getThemeRegex } from './theme-config.js';
-import { handleRecommendPlanetWorlds } from './handlers/planet.js';
-import { handleSearchWorlds } from './handlers/groups.js';
+import { handleRecommendPlanetWorlds } from './tools/planet.js';
+import { handleSearchWorlds } from './tools/groups.js';
 
 // ── 权重常量（集中便于调参）──
 const W_PLANET = 8;          // PlanetVRC log10(visitors) 系数

@@ -361,3 +361,273 @@ export async function handleGetWeeklyReport({ days = 7 }) {
     friendGroupCalendar,
   };
 }
+
+// ── MCP 自声明工具表 ──
+export const tools = [
+  {
+    "name": "get_friend_events",
+    "description": "[query] Query a friend's event history from local database.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Friend ID (usr_...)"
+        },
+        "limit": {
+          "type": "number",
+          "default": 20
+        },
+        "offset": {
+          "type": "number",
+          "default": 0
+        },
+        "types": {
+          "type": "string",
+          "description": "Comma-separated event types to filter"
+        }
+      },
+      "required": [
+        "userId"
+      ]
+    },
+    handler: async (args) => handleGetFriendEvents(args)
+  },
+  {
+    "name": "get_recent_events",
+    "description": "[query] Get the latest event stream from local database.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": "number",
+          "default": 30
+        },
+        "offset": {
+          "type": "number",
+          "default": 0
+        },
+        "typeFilter": {
+          "type": "string",
+          "description": "Comma-separated event types to filter"
+        },
+        "userIdFilter": {
+          "type": "string",
+          "description": "Filter by friend user ID"
+        }
+      }
+    },
+    handler: async (args) => handleGetRecentEvents(args)
+  },
+  {
+    "name": "get_friend_pair_meeting",
+    "description": "[query] 查询两个好友（任意第三方）之间「每次见面」的时段与时长（单次见面分析）。按实例切分：同一实例内所有同屏匹配事件合并为一次见面，返回每次的 start/end/durationMinutes、世界与实例；同时给出 meetingCount（见面次数）与 totalDurationSeconds（总时长）。精确口径：B 的每条可识别实例事件匹配 A 同一实例且时间差 ≤ windowMinutes → 计同屏；排除 offline/traveling/private（private 无房主信息无法判定同房）。startTime/endTime 与 days 二选一，windowMinutes 默认 30。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "userIdA": {
+          "type": "string",
+          "description": "好友 A 的 userId（usr_...），必填"
+        },
+        "userIdB": {
+          "type": "string",
+          "description": "好友 B 的 userId（usr_...），必填"
+        },
+        "startTime": {
+          "type": "string",
+          "description": "起始时间（ISO 8601 UTC），与 endTime 成对"
+        },
+        "endTime": {
+          "type": "string",
+          "description": "结束时间（ISO 8601 UTC），与 startTime 成对"
+        },
+        "days": {
+          "type": "number",
+          "description": "回溯天数（默认 30），未给 startTime/endTime 时生效"
+        },
+        "windowMinutes": {
+          "type": "number",
+          "description": "同屏判定时间窗口（分钟，默认 30）"
+        }
+      },
+      "required": [
+        "userIdA",
+        "userIdB"
+      ]
+    },
+    handler: async (args) => handleGetFriendPairMeetings(args)
+  },
+  {
+    "name": "get_friend_pair_screen",
+    "description": "[query] 查询两个好友（任意第三方）之间的同屏次数与时长（共玩/同房分析）。精确口径：对好友 B 的每条可识别实例事件，找好友 A 在同一实例且时间戳在 ±windowMinutes 内的匹配，计为一次同屏；排除 offline/traveling/private（private 无房主信息无法判定同房）。不同时间去过同一房间不计。返回 matchCount（次数）、totalMinutes/totalSeconds（总同屏时长，段首到段尾累加，含实例内中途断开空档）、worldDuration（按世界拆分时长）、worlds（共现世界）与 matches（匹配事件对，默认全量，可用 limit 限制条数——采样密集时 matches 可能上千条）。startTime/endTime 与 days 二选一，windowMinutes 默认 30。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "userIdA": {
+          "type": "string",
+          "description": "好友 A 的 userId（usr_...），必填"
+        },
+        "userIdB": {
+          "type": "string",
+          "description": "好友 B 的 userId（usr_...），必填"
+        },
+        "startTime": {
+          "type": "string",
+          "description": "起始时间（ISO 8601 UTC），与 endTime 成对"
+        },
+        "endTime": {
+          "type": "string",
+          "description": "结束时间（ISO 8601 UTC），与 startTime 成对"
+        },
+        "days": {
+          "type": "number",
+          "description": "回溯天数（默认 30），未给 startTime/endTime 时生效"
+        },
+        "windowMinutes": {
+          "type": "number",
+          "description": "同屏判定时间窗口（分钟，默认 30）：同一实例内双方事件时间差 ≤ 该值即视为同屏"
+        },
+        "limit": {
+          "type": "number",
+          "description": "仅限制返回的 matches 条数（默认全量），不影响 matchCount/总时长统计"
+        }
+      },
+      "required": [
+        "userIdA",
+        "userIdB"
+      ]
+    },
+    handler: async (args) => handleGetFriendPairScreen(args)
+  },
+  {
+    "name": "get_friend_profile_changes",
+    "description": "[query·资料] 好友资料变更历史（Avatar/Bio/状态/头像图标/代词）：事件管道实时采集 friend-update 的 user 对象 diff 落库，与 VRCX 迁移的 feed_avatar/feed_status/feed_bio 同 type 打通。userId 可选（省略=全部好友）；types 逗号分隔过滤（avatar/status/bio/user_icon/pronouns，默认全部）；limit(1-200)/offset 分页。返回每条 { userId, displayName, changeType, source, createdAt, change:{当前值, 旧值} }。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Friend ID (usr_...). Omit to query all friends"
+        },
+        "limit": {
+          "type": "number",
+          "default": 50,
+          "description": "Max rows (1-200, default 50)"
+        },
+        "offset": {
+          "type": "number",
+          "default": 0
+        },
+        "types": {
+          "type": "string",
+          "description": "Comma-separated change types: avatar/status/bio/user_icon/pronouns (default all)"
+        }
+      }
+    },
+    handler: async (args) => handleGetFriendProfileChanges(args)
+  },
+  {
+    "name": "get_world_name",
+    "description": "[query] Get world name by worldId. Checks local cache first, falls back to API.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "worldId": {
+          "type": "string",
+          "description": "World ID (wrld_...)"
+        },
+        "forceRefresh": {
+          "type": "boolean",
+          "description": "Force refresh from API"
+        }
+      },
+      "required": [
+        "worldId"
+      ]
+    },
+    handler: async (args) => ctx.rateLimiter.execute(() => handleGetWorldName(args))
+  },
+  {
+    "name": "get_worlds_by_author",
+    "description": "[query] List worlds published by a single author, up to limit (default 100, max 500) — 通过作者 ID/作者名列出该作者的世界（最多 limit 张，默认 100，上限 500）. Resolves authorId by authorName via /users?search when authorName given, then lists worlds via GET /worlds?userId=<authorId> with offset pagination until exhausted or limit reached.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "authorId": {
+          "type": "string",
+          "description": "Author user ID (usr_...). Mutually exclusive with authorName."
+        },
+        "authorName": {
+          "type": "string",
+          "description": "Author display name — resolved to authorId via user search. Mutually exclusive with authorId."
+        },
+        "limit": {
+          "type": "number",
+          "default": 100,
+          "description": "Max worlds to return (1-500, default 100)"
+        }
+      },
+      "required": []
+    },
+    handler: async (args) => handleGetWorldsByAuthor(args)
+  },
+  {
+    "name": "set_world_note",
+    "description": "[manage] Set or update a user note for a world (stored locally, never overwritten by API refresh). Empty string clears the note.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "worldId": {
+          "type": "string",
+          "description": "World ID (wrld_...)"
+        },
+        "note": {
+          "type": "string",
+          "description": "User note text; empty string clears"
+        }
+      },
+      "required": [
+        "worldId",
+        "note"
+      ]
+    },
+    handler: async (args) => handleSetWorldNote(args)
+  },
+  {
+    "name": "get_world_history",
+    "description": "[query] Get change history of a world's info (name, description, capacity, etc.).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "worldId": {
+          "type": "string",
+          "description": "World ID (wrld_...)"
+        },
+        "limit": {
+          "type": "number",
+          "default": 50,
+          "description": "Max history entries"
+        }
+      },
+      "required": [
+        "worldId"
+      ]
+    },
+    handler: async (args) => handleGetWorldHistory(args)
+  },
+  {
+    "name": "get_weekly_report",
+    "description": "[query] Generate a weekly gaming report for the authenticated user: active days, play time, worlds visited, companion friends (with nicknames), own online pattern, group activities and friend group calendar. Data from local events DB + cached group info.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "days": {
+          "type": "number",
+          "default": 7,
+          "description": "Report window in days (default 7)"
+        }
+      }
+    },
+    handler: async (args) => ctx.rateLimiter.execute(() => handleGetWeeklyReport(args))
+  }
+];

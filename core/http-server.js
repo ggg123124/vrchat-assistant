@@ -2,13 +2,12 @@
  * HTTP 服务器 — MCP SSE 端点 + 健康检查
  *
  * 提供 McpSession 管理、SSE 响应辅助、HTTP 服务器创建与请求路由。
- * handleRpc 从 rpc-router.js 导入（ESM live binding，运行时调用无循环依赖问题）。
  */
 
 import http from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { ctx, log } from './server-context.js';
-import { handleRpc } from './rpc-router.js';
+import * as registry from './registry.js';
 
 // ── MCP 会话管理 ──
 const sessions = new Map();
@@ -117,6 +116,67 @@ async function handleRequest(req, res) {
   });
 }
 
+// ── MCP JSON-RPC 协议分发 ──
+async function handleRpc(rpc, session, res) {
+  const { id, method, params } = rpc;
+
+  switch (method) {
+    case 'initialize': {
+      session.initialized = true;
+      sendSSE(res, [{
+        jsonrpc: '2.0', id,
+        result: {
+          protocolVersion: '2025-03-26',
+          capabilities: { tools: {} },
+          serverInfo: { name: 'vrc-monitor', version: '1.14.0' },
+        },
+      }], session.id);
+      break;
+    }
+
+    case 'notifications/initialized':
+      sendSSE(res, [], session.id);
+      break;
+
+    case 'ping':
+      // MCP 协议要求：ping 必须返回 JSON-RPC 结果，否则客户端 keepalive 判定连接不健康
+      sendSSE(res, [{ jsonrpc: '2.0', id, result: {} }], session.id);
+      break;
+
+    case 'tools/list': {
+      sendSSE(res, [{
+        jsonrpc: '2.0', id,
+        result: { tools: registry.listTools() },
+      }], session.id);
+      break;
+    }
+
+    case 'tools/call': {
+      const { name, arguments: args } = params;
+      try {
+        const result = await registry.dispatch(name, args);
+        sendSSE(res, [{
+          jsonrpc: '2.0', id,
+          result: { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] },
+        }], session.id);
+      } catch (err) {
+        log(`❌ ${name} failed: ${err.message}`);
+        sendError(res, id, err.message);
+      }
+      break;
+    }
+
+    default:
+      // 未实现的方法：带 id 的请求必须返回 -32601 Method not found，
+      // 空响应会让客户端等不到匹配响应而挂起
+      if (id === undefined) {
+        sendSSE(res, [], session.id);
+      } else {
+        sendSSE(res, [{ jsonrpc: '2.0', id, error: { code: -32601, message: `Method not found: ${method}` } }], session.id);
+      }
+  }
+}
+
 // ── 服务器创建 ──
 export function createServer() {
   const { PORT } = ctx.paths;
@@ -124,7 +184,7 @@ export function createServer() {
     try {
       await handleRequest(req, res);
     } catch (err) {
-      log(`❌ Unhandled: ${err.message}`);
+      log(` Unhandled: ${err.message}`);
       if (!res.headersSent) {
         try { res.writeHead(502); res.end(err.message); } catch {}
       }

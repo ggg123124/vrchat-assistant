@@ -351,3 +351,209 @@ export async function handleGetGroupHeat({ days, startTime, endTime, topK = 5 })
     heatmap,
   };
 }
+
+// ── MCP 自声明工具表 ──
+export const tools = [
+  {
+    "name": "get_user_groups",
+    "description": "[group] List groups a user has joined (default: current account). withDetails=true also fetches descriptions.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "VRChat user id (usr_...); omit to use the authenticated account"
+        },
+        "withDetails": {
+          "type": "boolean",
+          "description": "When true, also fetch each group's description (slower, ~1 req/group; failures skipped)"
+        }
+      }
+    },
+    handler: async (args) => ctx.rateLimiter.execute(() => handleGetUserGroups(args))
+  },
+  {
+    "name": "get_group_info",
+    "description": "[group] Get a VRChat group's details (name, member count, description, verified status). includeAnnouncement=true also fetches the announcement.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "groupId": {
+          "type": "string",
+          "description": "VRChat group id (grp_...)"
+        },
+        "includeAnnouncement": {
+          "type": "boolean",
+          "description": "When true, also fetch the group announcement (null if none / not a member)"
+        }
+      },
+      "required": [
+        "groupId"
+      ]
+    },
+    handler: async (args) => ctx.rateLimiter.execute(() => handleGetGroupInfo(args))
+  },
+  {
+    "name": "get_group_instances",
+    "description": "[group] List a group's currently open group instances (rooms). Empty array = no rooms open.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "groupId": {
+          "type": "string",
+          "description": "VRChat group id (grp_...)"
+        }
+      },
+      "required": [
+        "groupId"
+      ]
+    },
+    handler: async (args) => ctx.rateLimiter.execute(() => handleGetGroupInstances(args))
+  },
+  {
+    "name": "get_group_announcement",
+    "description": "[group] Get a group's announcement post (title/text/author/createdAt). null if none or not a member.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "groupId": {
+          "type": "string",
+          "description": "VRChat group id (grp_...)"
+        }
+      },
+      "required": [
+        "groupId"
+      ]
+    },
+    handler: async (args) => ctx.rateLimiter.execute(() => handleGetGroupAnnouncement(args))
+  },
+  {
+    "name": "get_group_heat",
+    "description": "[query·热度] Group activity heat: rank groups by how much your friends/you were in their group rooms (activityCount, friendCount, worldCount, trendPct vs previous equal window) + day-of-week×hour Beijing-time heatmap for top groups. Data from local event history (supports grp_/gmem_ ids).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "days": {
+          "type": "number",
+          "default": 7,
+          "description": "Analyze last N days (Beijing natural days, default 7, max 30)"
+        },
+        "startTime": {
+          "type": "string",
+          "description": "ISO 8601 start (optional, overrides days)"
+        },
+        "endTime": {
+          "type": "string",
+          "description": "ISO 8601 end (optional, must pair with startTime)"
+        },
+        "topK": {
+          "type": "number",
+          "default": 5,
+          "description": "Number of top groups to include a heatmap for (default 5, max 10)"
+        }
+      }
+    },
+    handler: async (args) => ctx.rateLimiter.execute(() => handleGetGroupHeat(args))
+  },
+  {
+    "name": "search_groups",
+    "description": "[group] Search VRChat groups by name. Returns matching groups (query param; API requires query, NOT search).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "Group name keyword (supports Chinese/Japanese/English)"
+        },
+        "n": {
+          "type": "number",
+          "description": "Max results (default 30, max 100)"
+        }
+      },
+      "required": [
+        "query"
+      ]
+    },
+    handler: async (args) => ctx.rateLimiter.execute(() => handleSearchGroups(args))
+  },
+  {
+    "name": "search_worlds",
+    "description": "[query] Search VRChat worlds by name. English/Japanese search the live API; Chinese keywords fall back to local cache (API CJK search is unreliable).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "World name keyword (Chinese/English/Japanese)"
+        },
+        "n": {
+          "type": "number",
+          "description": "Max API results (default 10, max 30)"
+        }
+      },
+      "required": [
+        "query"
+      ]
+    },
+    handler: async (args) => ctx.rateLimiter.execute(() => handleSearchWorlds(args))
+  },
+  {
+    "name": "join_group",
+    "description": "[group] Join a group. Open groups join instantly; 400 already-member is returned as alreadyMember:true (no error).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "groupId": {
+          "type": "string",
+          "description": "VRChat group id (grp_...)"
+        }
+      },
+      "required": [
+        "groupId"
+      ]
+    },
+    handler: async (args) => ctx.rateLimiter.execute(() => handleJoinGroup(args))
+  },
+  {
+    "name": "leave_group",
+    "description": "[group] Leave a group (removes your membership). Requires confirm: true. 404 non-member returns notMember:true.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "groupId": {
+          "type": "string",
+          "description": "VRChat group id (grp_...)"
+        },
+        "confirm": {
+          "type": "boolean",
+          "description": "Must be true to actually leave; otherwise returns preview only"
+        }
+      },
+      "required": [
+        "groupId"
+      ]
+    },
+    handler: async (args) => ctx.rateLimiter.execute(() => handleLeaveGroup(args))
+  },
+  {
+    "name": "peek_group_announcement",
+    "description": "[group] Peek a group announcement: joins if joinState=open, reads announcement, then leaves. Non-open groups return peekable:false.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "groupId": {
+          "type": "string",
+          "description": "VRChat group id (grp_...)"
+        },
+        "confirm": {
+          "type": "boolean",
+          "description": "Must be true to auto-join (members see the join feed)"
+        }
+      },
+      "required": [
+        "groupId"
+      ]
+    },
+    handler: async (args) => ctx.rateLimiter.execute(() => handlePeekGroupAnnouncement(args))
+  }
+];

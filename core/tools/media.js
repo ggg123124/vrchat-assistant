@@ -280,3 +280,198 @@ export async function handleDownloadGalleryImage({ fileId, outputDir }) {
 
   return { ok: true, fileId, path: filePath, sizeBytes: buffer.length, url };
 }
+
+// ── MCP 自声明工具表 ──
+export const tools = [
+  {
+    "name": "get_boop_emojis",
+    "description": "[query] List built-in boop emojis and their emojiId format.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {}
+    },
+    handler: async (args) => ctx.rateLimiter.execute(() => handleGetBoopEmojis(args))
+  },
+  {
+    "name": "upload_emoji",
+    "description": "[write·vrchat] Upload a custom boop emoji (requires VRChat Plus). Returns fileId to use as emojiId in send_boop.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "imagePath": {
+          "type": "string",
+          "description": "Absolute path to the image file (e.g. D:/path/emoji.png)"
+        },
+        "animated": {
+          "type": "boolean",
+          "description": "Upload as animated emoji",
+          "default": false
+        },
+        "animationStyle": {
+          "type": "string",
+          "description": "Animation style (e.g. bounce/spin), only used when animated=true"
+        }
+      },
+      "required": [
+        "imagePath"
+      ]
+    },
+    handler: async (args) => ctx.rateLimiter.execute(() => handleUploadEmoji(args))
+  },
+  {
+    "name": "upload_print",
+    "description": "[write·vrchat] Upload a photo to your VRChat prints album (requires VRChat Plus).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "imagePath": {
+          "type": "string",
+          "description": "Absolute path to the image file"
+        },
+        "note": {
+          "type": "string",
+          "description": "Optional photo note"
+        }
+      },
+      "required": [
+        "imagePath"
+      ]
+    },
+    handler: async (args) => ctx.rateLimiter.execute(() => handleUploadPrint(args))
+  },
+  {
+    "name": "upload_gallery_image",
+    "description": "[write·vrchat] Upload an image to your VRC+ gallery (requires VRChat Plus).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "imagePath": {
+          "type": "string",
+          "description": "Absolute path to the image file"
+        }
+      },
+      "required": [
+        "imagePath"
+      ]
+    },
+    handler: async (args) => ctx.rateLimiter.execute(() => handleUploadGalleryImage(args))
+  },
+  {
+    "name": "get_prints",
+    "description": "[query] List your VRChat prints (VRChat Plus photo album).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": "number",
+          "default": 100,
+          "description": "Max results (1-100, default 100)"
+        },
+        "userId": {
+          "type": "string",
+          "description": "VRChat user id (usr_...). Defaults to current user."
+        }
+      }
+    },
+    handler: async (args) => ctx.rateLimiter.execute(() => handleGetPrints(args))
+  },
+  {
+    "name": "remove_print",
+    "description": "[write·vrchat] Remove a print from your VRChat prints album. Requires printId and confirm: true to execute (irreversible).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "printId": {
+          "type": "string",
+          "description": "Print ID (prnt_...)"
+        },
+        "confirm": {
+          "type": "boolean",
+          "description": "Set true to actually remove the print (irreversible). Default false returns preview only."
+        }
+      },
+      "required": [
+        "printId"
+      ]
+    },
+    handler: async (args) => ctx.rateLimiter.execute(() => handleRemovePrint(args))
+  },
+  {
+    "name": "get_gallery_images",
+    "description": "[query] List your VRChat gallery images (VRChat Plus).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": "number",
+          "default": 100,
+          "description": "Max results (1-100, default 100)"
+        }
+      }
+    },
+    handler: async (args) => ctx.rateLimiter.execute(() => handleGetGalleryImages(args))
+  },
+  {
+    "name": "remove_gallery_image",
+    "description": "[write·vrchat] Remove an image from your VRChat gallery. Requires fileId and confirm: true to execute (irreversible).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "fileId": {
+          "type": "string",
+          "description": "File ID (file_...)"
+        },
+        "confirm": {
+          "type": "boolean",
+          "description": "Set true to actually remove the gallery image (irreversible). Default false returns preview only."
+        }
+      },
+      "required": [
+        "fileId"
+      ]
+    },
+    handler: async (args) => ctx.rateLimiter.execute(() => handleRemoveGalleryImage(args))
+  },
+  {
+    "name": "download_print",
+    "description": "[query] Download a photo from your VRChat prints album to local disk. Returns local file path.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "printId": {
+          "type": "string",
+          "description": "Print ID (prnt_...)"
+        },
+        "outputDir": {
+          "type": "string",
+          "description": "Optional output directory. Defaults to <service>/downloads/"
+        }
+      },
+      "required": [
+        "printId"
+      ]
+    },
+    handler: async (args) => ctx.rateLimiter.execute(() => handleDownloadPrint(args))
+  },
+  {
+    "name": "download_gallery_image",
+    "description": "[query] Download an image from your VRC+ gallery to local disk. Returns local file path.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "fileId": {
+          "type": "string",
+          "description": "File ID (file_...)"
+        },
+        "outputDir": {
+          "type": "string",
+          "description": "Optional output directory. Defaults to <service>/downloads/"
+        }
+      },
+      "required": [
+        "fileId"
+      ]
+    },
+    handler: async (args) => ctx.rateLimiter.execute(() => handleDownloadGalleryImage(args))
+  }
+];

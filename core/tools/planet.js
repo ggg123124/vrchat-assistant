@@ -154,3 +154,49 @@ export async function handleRecommendPlanetWorlds({ sort = 'popular', limit = 5 
 
 // 保留引用, 便于将来复用
 void ctx;
+
+// ── MCP 自声明工具表 ──
+export const tools = [
+  {
+    "name": "search_planet_worlds",
+    "description": "[query·地图] Search VRChat worlds on PlanetVRC (planetvrchat.net, Japanese world directory) by keyword. Returns world name, wrld_id (when enriched), platform, categories, favorites/visitors counts. Useful for finding worlds by Japanese/English keywords that the VRChat API search may miss.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "Keyword (supports Japanese/English)"
+        },
+        "limit": {
+          "type": "number",
+          "default": 5,
+          "description": "Max results (default 5, max 8; each result fetches its detail page for wrld_id/stats)"
+        }
+      },
+      "required": [
+        "query"
+      ]
+    },
+    handler: async (args) => handleSearchPlanetWorlds(args)
+  },
+  {
+    "name": "recommend_planet_worlds",
+    "description": "[query·推荐] PlanetVRC world rankings (planetvrchat.net): popular (most visited), new (recently published), or updated. Returns worlds with wrld_id, maxPlayers, visitors, favorites, publishedAt.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "sort": {
+          "type": "string",
+          "default": "popular",
+          "description": "popular | new | updated"
+        },
+        "limit": {
+          "type": "number",
+          "default": 5,
+          "description": "Max results (default 5, max 8)"
+        }
+      }
+    },
+    handler: async (args) => handleRecommendPlanetWorlds(args)
+  }
+];
