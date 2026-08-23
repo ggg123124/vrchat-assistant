@@ -1,8 +1,8 @@
 name: CI
 
 # 无真实 VRChat 凭据的冒烟测试（解冻 PR-3）：
-#   - test-registry.mjs  （注册表完整性：91 工具、顺序+定义+handler，无凭据可跑）
-#   - dump-tools.mjs     （权威工具清单 = 91 行）
+#   - test-registry.mjs  （注册表完整性：工具数、顺序+定义+handler，无凭据可跑）
+#   - dump-tools.mjs     （权威工具清单，行数须与 core/tool-order.json 一致——动态推导，不写死）
 #   - check-doc-drift.py （文档漂移：skill 工具清单/数字残留/版本同步/死引用，has_drift=false）
 #
 # 刻意不接入任何真实凭据：本仓库所有自动化测试只能覆盖「无凭据也能验证」的部分，
@@ -42,17 +42,18 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Registry integrity (91 tools, no credentials)
+      - name: Registry integrity (tools, no credentials)
         run: node test-registry.mjs
 
-      - name: Dump tools and assert count = 91
+      - name: Dump tools and assert count = tool-order.json
         shell: bash
         run: |
           node scripts/dump-tools.mjs > "$RUNNER_TEMP/tools.txt"
           count=$(wc -l < "$RUNNER_TEMP/tools.txt")
-          echo "dump-tools lines: $count"
-          if [ "$count" -ne 91 ]; then
-            echo "::error::expected 91 tools, got $count"
+          expected=$(node -e "const fs=require('fs');const j=JSON.parse(fs.readFileSync('./core/tool-order.json','utf8'));console.log(j.tool_order.length)")
+          echo "dump-tools lines: $count (expected $expected)"
+          if [ "$count" -ne "$expected" ]; then
+            echo "::error::expected $expected tools, got $count"
             exit 1
           fi
 
