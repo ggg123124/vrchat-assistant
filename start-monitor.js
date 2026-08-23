@@ -22,6 +22,7 @@ import { EventPipeline } from './core/event-pipeline.js';
 import { backupDatabase } from './core/backup.js';
 import { FriendStateManager } from './core/friend-state.js';
 import { createServer } from './core/http-server.js';
+import { PluginLoader } from './core/plugin-loader.js';
 import { fetchOtpFromEmail } from './core/otp-fetcher.js';
 import { parseTotpSecret, generateTotp } from './core/totp.js';
 import { notifier } from './core/notifier.js';
@@ -265,6 +266,13 @@ async function main() {
 
   // 5. 初始化事件处理管道
   ctx.eventPipeline = new EventPipeline(ctx.storage, null);
+
+  // 5.5 加载插件（失败不阻断核心启动）
+  const pluginLoader = new PluginLoader({ registry, ctx, log, notifier });
+  await pluginLoader.loadAll();
+  pluginLoader.watch();
+  ctx.pluginLoader = pluginLoader;
+  log(` 插件系统就绪`);
   log(`📨 事件处理管道就绪`);
 
   // 6. 启动 WebSocket

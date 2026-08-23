@@ -20,6 +20,10 @@ service-logs/
 .hermes/
 workspace/
 
+# ── 插件本地文件（用户私有插件，不入库）──
+plugins/local/*
+!plugins/local/.gitkeep
+
 # ── Qoder 工具缓存（repowiki/knowledge 为生成物，已发布到 GitHub wiki，不入库）──
 .qoder/
 

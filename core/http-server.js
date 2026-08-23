@@ -72,6 +72,7 @@ async function handleRequest(req, res) {
       ws: wsManager?.getState(),
       friendState: friendState?.getStats(),
       eventPipeline: eventPipeline?.getStats(),
+      plugins: ctx.pluginLoader?.getStatus() || [],
       uptime,
     };
     const body = JSON.stringify(status, null, 2);
