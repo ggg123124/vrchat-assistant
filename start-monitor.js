@@ -28,6 +28,10 @@ import {
   getCreators, addCreator, removeCreator,
   scanCreatorWorlds, getWorldDigest,
 } from './core/fetch-x-worlds.js';
+import {
+  handleScanNewWorlds, handleGetNewWorlds, handleRateWorld, handleMarkWorldVisited,
+  handleAddToBacklog, handleGetBacklog, handleRemoveFromBacklog, handleSearchWorlds,
+} from './core/tools/misc.js';
 import { parseTotpSecret, generateTotp } from './core/totp.js';
 import { notifier } from './core/notifier.js';
 import { buildChannels } from './core/notify-channels.js';
@@ -184,6 +188,23 @@ function registerCoreServices(loader, ctx) {
     },
   };
   for (const [name, fn] of Object.entries(xSvcs)) {
+    loader.services.set(name, fn);
+    loader.serviceOwners.set(name, 'core');
+  }
+
+  // world-kb 服务（供插件 consume；handler 绑定 core/tools/misc.js，owner='core'）
+  // searchWorlds 保留原 rateLimiter 包裹（工具条目层原有行为）
+  const worldSvcs = {
+    'world.scanNewWorlds': (args) => handleScanNewWorlds(args || {}),
+    'world.getNewWorlds': (args) => handleGetNewWorlds(args || {}),
+    'world.rateWorld': (args) => handleRateWorld(args || {}),
+    'world.markWorldVisited': (args) => handleMarkWorldVisited(args || {}),
+    'world.addToBacklog': (args) => handleAddToBacklog(args || {}),
+    'world.getBacklog': (args) => handleGetBacklog(args || {}),
+    'world.removeFromBacklog': (args) => handleRemoveFromBacklog(args || {}),
+    'world.searchWorlds': (args) => ctx.rateLimiter.execute(() => handleSearchWorlds(args || {})),
+  };
+  for (const [name, fn] of Object.entries(worldSvcs)) {
     loader.services.set(name, fn);
     loader.serviceOwners.set(name, 'core');
   }

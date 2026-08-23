@@ -17,62 +17,6 @@ export function handleGetDatabaseStats() {
   };
 }
 
-/**
- * 确保 world_kb 某行的信息字段不为空（#76：兜底插入只写标记位，信息字段恒空）。
- * 优先从本地 world_cache 读 name/author_name；world_cache 也没有或需 created_at 时，
- * 串行调 API /worlds/{id}（限流）回填 world_cache 并取 created_at，再幂等回填 world_kb。
- * 幂等：world_kb 对应列已非空时不覆盖；world_cache 命中即省一次 API。
- * @param {{storage, api, rateLimiter}} c 上下文
- * @param {string} worldId
- * @returns {Promise<{worldId, worldName, authorName, authorId, createdAt}>}
- */
-export async function ensureWorldKbInfo({ storage, api, rateLimiter }, worldId) {
-  try {
-    // 预检：读 world_kb 现有信息字段。created_at 已填 → 早退省 API；
-    // 未填则即使 world_cache 命中 name/author，也须调一次 API 取 created_at（#77 阻断项修复）。
-    const existing = storage.getWorldKbInfo(worldId);
-    const info = {
-      worldId,
-      name: existing.worldName,
-      authorName: existing.authorName,
-      authorId: existing.authorId,
-      createdAt: existing.createdAt,
-    };
-    const needApi = !info.createdAt;
-    if (needApi && api && rateLimiter) {
-      const cached = storage.getWorldName(worldId);
-      if (cached && cached.name) {
-        info.name = cached.name || '';
-        info.authorName = cached.author_name || '';
-        info.authorId = cached.author_id || '';
-      }
-      const r = await rateLimiter.execute(() => api._request('GET', `/worlds/${encodeURIComponent(worldId)}`));
-      if (r.status === 200 && r.data && r.data.name) {
-        info.name = info.name || r.data.name || '';
-        info.authorName = info.authorName || r.data.authorName || '';
-        info.authorId = info.authorId || r.data.authorId || '';
-        info.createdAt = r.data.created_at || '';
-        try { storage.upsertWorld({ worldId, name: info.name, authorId: info.authorId, authorName: info.authorName }); } catch (e) { /* 缓存写失败不阻断 */ }
-      }
-    } else if (!needApi && !info.name) {
-      // created_at 已填但缺 name（罕见），补 world_cache / API
-      const cached = storage.getWorldName(worldId);
-      if (cached && cached.name) {
-        info.name = cached.name || '';
-        info.authorName = cached.author_name || '';
-        info.authorId = cached.author_id || '';
-      }
-    }
-    return storage.backfillWorldKbInfo({
-      worldId,
-      name: info.name, authorName: info.authorName, authorId: info.authorId, createdAt: info.createdAt,
-    });
-  } catch (e) {
-    // 回填失败不阻断主操作（标记本身已成功）
-    try { return storage.backfillWorldKbInfo({ worldId }); } catch (e2) { return { worldId, worldName: '', authorName: '', authorId: '', createdAt: '' }; }
-  }
-}
-
 export function handleGetServerStatus() {
   const { storage, wsManager, friendState, eventPipeline, serverState } = ctx;
   return {
@@ -280,7 +224,7 @@ export function handleGetNewWorlds({ onlyUnvisited = false, limit = 10, sortBy =
 }
 
 /** 用户反馈：好图/烂图标记（Issue #19） */
-export async function handleRateWorld({ worldId, rating = 0 }) {
+export function handleRateWorld({ worldId, rating = 0 }) {
   const { storage } = ctx;
   if (!worldId) throw new Error('worldId is required');
   const r = parseInt(rating, 10);
@@ -288,39 +232,26 @@ export async function handleRateWorld({ worldId, rating = 0 }) {
     throw new Error('rating must be -1 (junk), 0 (clear), or 1 (good)');
   }
   const result = storage.rateWorld({ worldId, rating: r });
-  const info = await ensureWorldKbInfo(ctx, worldId);
-  log(`⭐ 用户反馈: ${worldId} → rating=${result.userRating}${info.worldName ? ` (${info.worldName})` : ''}`);
-  return { ...result, worldName: info.worldName };
+  log(`⭐ 用户反馈: ${worldId} → rating=${result.userRating}${result.worldName ? ` (${result.worldName})` : ''}`);
+  return result;
 }
 
 /** 显式确认逛过某世界（Issue #19 痛点 3） */
-export async function handleMarkWorldVisited({ worldId }) {
+export function handleMarkWorldVisited({ worldId }) {
   const { storage } = ctx;
   if (!worldId) throw new Error('worldId is required');
   const result = storage.markWorldVisited({ worldId });
-  const info = await ensureWorldKbInfo(ctx, worldId);
-  log(`✅ 手动标记 visited: ${worldId}${info.worldName ? ` (${info.worldName})` : ''}`);
-  return { ...result, worldName: info.worldName };
-}
-
-/** 手动标记某世界为适合睡觉的地图（recommend 用 sleep_ok 强信号） */
-export async function handleSetWorldSleep({ worldId, isSleep = true }) {
-  const { storage } = ctx;
-  if (!worldId) throw new Error('worldId is required');
-  const result = storage.setWorldSleep({ worldId, isSleep: !!isSleep });
-  const info = await ensureWorldKbInfo(ctx, worldId);
-  log(`${result.isSleep ? '🛏' : '✖️'} 标记睡觉图: ${worldId}${info.worldName ? ` (${info.worldName})` : ''} → sleep_ok=${result.isSleep ? 1 : 0}`);
-  return { ...result, worldName: info.worldName };
+  log(`✅ 手动标记 visited: ${worldId}${result.worldName ? ` (${result.worldName})` : ''}`);
+  return result;
 }
 
 /** 待逛列表：加入/更新（幂等） */
-export async function handleAddToBacklog({ worldId, reason = '', priority = 0 }) {
+export function handleAddToBacklog({ worldId, reason = '', priority = 0 }) {
   const { storage } = ctx;
   if (!worldId) throw new Error('worldId is required');
   const result = storage.addToBacklog({ worldId, reason, priority });
-  const info = await ensureWorldKbInfo(ctx, worldId);
-  log(`📌 加入待逛: ${worldId}${info.worldName ? ` (${info.worldName})` : ''} priority=${result.priority}`);
-  return { ...result, worldName: info.worldName };
+  log(`📌 加入待逛: ${worldId}${result.worldName ? ` (${result.worldName})` : ''} priority=${result.priority}`);
+  return result;
 }
 
 /** 待逛列表：查询 */
@@ -454,210 +385,6 @@ export const tools = [
       "properties": {}
     },
     handler: async (args) => handleGetServerStatus(args)
-  },
-  {
-    "name": "scan_new_worlds",
-    "description": "[action] Scan VRChat for worlds created in the last N days, filter junk, write to the world_kb table, and return a recommended list. dryRun=true only reports without writing.",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "days": {
-          "type": "number",
-          "default": 7,
-          "description": "Lookback window in days (1-30, default 7)"
-        },
-        "dryRun": {
-          "type": "boolean",
-          "default": false,
-          "description": "Report only, do not write to DB"
-        }
-      }
-    },
-    handler: async (args) => handleScanNewWorlds(args)
-  },
-  {
-    "name": "get_new_worlds",
-    "description": "[query] Query tracked new worlds from the world_kb table (read-only). Filter by visited, sort by heat, limit count.",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "onlyUnvisited": {
-          "type": "boolean",
-          "default": false,
-          "description": "Only return worlds the user has not visited"
-        },
-        "limit": {
-          "type": "number",
-          "default": 10,
-          "description": "Max rows (1-50, default 10)"
-        },
-        "sortBy": {
-          "type": "string",
-          "enum": [
-            "favorites",
-            "occupants",
-            "popularity",
-            "created_at"
-          ],
-          "default": "favorites",
-          "description": "Sort field (descending)"
-        },
-        "excludeTheme": {
-          "type": "string",
-          "description": "Comma-separated theme keywords to exclude (matched against author tags, e.g. \"game,horror,dance\")"
-        }
-      }
-    },
-    handler: async (args) => handleGetNewWorlds(args)
-  },
-  {
-    "name": "rate_world",
-    "description": "[action] Rate a world as good/junk for recommendation feedback (Issue #19). rating=1 good (weighted up), -1 junk (weighted down/excluded), 0 clear.",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "worldId": {
-          "type": "string",
-          "description": "VRChat world ID (wrld_...)"
-        },
-        "rating": {
-          "type": "number",
-          "enum": [
-            -1,
-            0,
-            1
-          ],
-          "description": "-1=junk, 0=clear, 1=good"
-        }
-      },
-      "required": [
-        "worldId",
-        "rating"
-      ]
-    },
-    handler: async (args) => handleRateWorld(args)
-  },
-  {
-    "name": "mark_world_visited",
-    "description": "[action] Explicitly mark a world as visited (Issue #19: event-driven visited can miss). Useful to close the recommend-open-browse loop.",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "worldId": {
-          "type": "string",
-          "description": "VRChat world ID (wrld_...)"
-        }
-      },
-      "required": [
-        "worldId"
-      ]
-    },
-    handler: async (args) => handleMarkWorldVisited(args)
-  },
-  {
-    "name": "set_world_sleep",
-    "description": "[action] Manually mark a world as a sleep-friendly map (sets sleep_ok=1, a strong signal in recommend_join/recommend_worlds). isSleep=false clears the marker. Local-only.",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "worldId": {
-          "type": "string",
-          "description": "VRChat world ID (wrld_...)"
-        },
-        "isSleep": {
-          "type": "boolean",
-          "default": true,
-          "description": "true=mark as sleep map, false=clear"
-        }
-      },
-      "required": [
-        "worldId"
-      ]
-    },
-    handler: async (args) => handleSetWorldSleep(args)
-  },
-  {
-    "name": "add_to_backlog",
-    "description": "[action] Add a world to your local to-visit backlog (待逛列表). Worlds stay pending until visited (auto-cleared by location events) or manually removed. Idempotent: re-adding updates reason/priority. Local-only, does not touch VRChat cloud favorites.",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "worldId": {
-          "type": "string",
-          "description": "VRChat world ID (wrld_...)"
-        },
-        "reason": {
-          "type": "string",
-          "description": "Why you want to visit (e.g. 氛围图/解谜/温泉/带人逛)"
-        },
-        "priority": {
-          "type": "number",
-          "enum": [
-            0,
-            1,
-            2
-          ],
-          "default": 0,
-          "description": "0=normal, 1=high, 2=must visit"
-        }
-      },
-      "required": [
-        "worldId"
-      ]
-    },
-    handler: async (args) => handleAddToBacklog(args)
-  },
-  {
-    "name": "get_backlog",
-    "description": "[query] List worlds in your local to-visit backlog (待逛列表). status=pending (default) shows unvisited to-visit worlds; visited shows the ones already visited (they leave the pending view automatically once visited); all shows both. Each item carries snapshot details (favorites/tags/description) from the local world knowledge table.",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "status": {
-          "type": "string",
-          "enum": [
-            "pending",
-            "visited",
-            "all"
-          ],
-          "default": "pending",
-          "description": "pending=未逛, visited=逛完历史, all=全部"
-        },
-        "sortBy": {
-          "type": "string",
-          "enum": [
-            "added_at",
-            "priority",
-            "favorites"
-          ],
-          "default": "added_at",
-          "description": "Sort field (descending)"
-        },
-        "limit": {
-          "type": "number",
-          "default": 20,
-          "description": "Max rows (1-50, default 20)"
-        }
-      }
-    },
-    handler: async (args) => handleGetBacklog(args)
-  },
-  {
-    "name": "remove_from_backlog",
-    "description": "[action] Remove a world from the to-visit backlog (待逛列表). Local-only, does not affect cloud favorites. Idempotent.",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "worldId": {
-          "type": "string",
-          "description": "VRChat world ID (wrld_...)"
-        }
-      },
-      "required": [
-        "worldId"
-      ]
-    },
-    handler: async (args) => handleRemoveFromBacklog(args)
   },
   {
     "name": "get_watchlist",
@@ -823,26 +550,5 @@ export const tools = [
       "properties": {}
     },
     handler: async (args) => handleBackupDatabase(args)
-  },
-  {
-    "name": "search_worlds",
-    "description": "[query] Search VRChat worlds by name. English/Japanese search the live API; Chinese keywords fall back to local cache (API CJK search is unreliable).",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "query": {
-          "type": "string",
-          "description": "World name keyword (Chinese/English/Japanese)"
-        },
-        "n": {
-          "type": "number",
-          "description": "Max API results (default 10, max 30)"
-        }
-      },
-      "required": [
-        "query"
-      ]
-    },
-    handler: async (args) => ctx.rateLimiter.execute(() => handleSearchWorlds(args))
   }
 ];
