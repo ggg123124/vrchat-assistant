@@ -21,7 +21,6 @@ import { tools as notificationsTools } from './tools/notifications.js';
 import { tools as recommendTools } from './tools/recommend.js';
 import { tools as recommendWorldsTools } from './tools/recommend-worlds.js';
 import { tools as socialWriteTools } from './tools/social-write.js';
-import { tools as xWorldsTools } from './tools/x-worlds.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -35,7 +34,6 @@ const ALL_TOOLS = [
   ...recommendTools,
   ...recommendWorldsTools,
   ...socialWriteTools,
-  ...xWorldsTools,
 ];
 
 const MANIFEST = JSON.parse(readFileSync(path.join(__dirname, 'tool-order.json'), 'utf-8'));

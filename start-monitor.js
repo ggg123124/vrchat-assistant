@@ -24,6 +24,10 @@ import { FriendStateManager } from './core/friend-state.js';
 import { createServer } from './core/http-server.js';
 import { PluginLoader } from './core/plugin-loader.js';
 import { fetchOtpFromEmail } from './core/otp-fetcher.js';
+import {
+  getCreators, addCreator, removeCreator,
+  scanCreatorWorlds, getWorldDigest,
+} from './core/fetch-x-worlds.js';
 import { parseTotpSecret, generateTotp } from './core/totp.js';
 import { notifier } from './core/notifier.js';
 import { buildChannels } from './core/notify-channels.js';
@@ -147,6 +151,41 @@ function registerCoreServices(loader, ctx) {
     const svc = `storage.${name}`;
     loader.services.set(svc, (...args) => ctx.storage[name](...args));
     loader.serviceOwners.set(svc, 'core');
+  }
+
+  // x-creators 服务（供插件 consume）
+  const xSvcs = {
+    'x.creators': () => ({ creators: getCreators(ctx.storage) }),
+    'x.addCreator': ({ screen_name, name } = {}) => addCreator(ctx.storage, { screen_name, name }),
+    'x.removeCreator': ({ screen_name } = {}) => removeCreator(ctx.storage, screen_name || ''),
+    'x.worlds': ({ limit = 50 } = {}) => {
+      const rows = ctx.storage.getAllXWorlds(limit);
+      return {
+        total: rows.length,
+        worlds: rows.map(r => ({
+          worldId: r.world_id,
+          worldName: r.world_name,
+          authorName: r.author_name,
+          favorites: r.favorites,
+          visits: r.visits,
+          popularity: r.popularity,
+          lastRecommendedAt: r.last_recommended_at,
+          tweetCount: r.tweet_count,
+        })),
+      };
+    },
+    'x.scanCreators': () => scanCreatorWorlds(),
+    'x.worldDigest': (args) => {
+      const refArgs = args || {};
+      if (refArgs.refresh) {
+        return scanCreatorWorlds().then(() => getWorldDigest(args || {}));
+      }
+      return getWorldDigest(args || {});
+    },
+  };
+  for (const [name, fn] of Object.entries(xSvcs)) {
+    loader.services.set(name, fn);
+    loader.serviceOwners.set(name, 'core');
   }
 }
 
