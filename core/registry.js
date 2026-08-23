@@ -64,7 +64,7 @@ export function registerTool(def) {
     log(`[registry] duplicate tool "${def.name}" — keeping first`);
     return;
   }
-  const destructive = def.destructive ?? safeMode.isDestructive(def.name);
+  const destructive = def.destructive ?? safeMode.DESTRUCTIVE_TOOLS.includes(def.name);
   registry.set(def.name, { ...def, destructive });
 }
 
@@ -87,7 +87,7 @@ export function listTools() {
       inputSchema: def.inputSchema,
     });
   }
-  return safeMode.applySafeMode(result);
+  return safeMode.filterTools(result);
 }
 
 export async function dispatch(name, args) {

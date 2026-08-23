@@ -32,6 +32,32 @@ const RESOLVE_CACHE_TTL = 86400000; // 名称反查缓存 24h
 const THEMES = ['sleep', 'chat', 'onsen', 'game', 'default'];
 
 /**
+ * 世界主题/排除匹配的文本来源：名称 + 简介 + 标签（tags）。
+ * #73：原先只拼 name/description，漏掉 author_tag_* 标签，导致名不副实的世界（如中文名/
+ * 简称/翻译名）无法被主题正则命中。tags 统一纳入后，关键词与人工 sleep_ok 语义互补。
+ * @param {{name?: string, description?: string, tags?: string[]}} c 候选对象（可能无 tags）
+ * @returns {string} 用于正则匹配的合并文本
+ */
+function buildMatchText(c) {
+  const tags = Array.isArray(c.tags) ? c.tags.join(' ') : '';
+  return `${c.name || ''} ${c.description || ''} ${tags}`;
+}
+
+/**
+ * sleep 主题命中判定（#73 补充）：除了 sleep_ok 强信号与 sleep 关键词正则，
+ * 还直接认作者标签 author_tag_sleep —— 使名字/简介不含 sleep 词但作者已打
+ * sleep 标签的世界（常见于英文/翻译名）也能进入 sleep 主题，避免漏判。
+ * @param {object} c 候选结构（含 tags/sleep_ok/name/description）
+ * @returns {boolean} 是否命中 sleep 主题
+ */
+function isSleepTheme(c) {
+  if (c.sleep_ok === true || c.sleep_ok === 1) return true;
+  const tags = Array.isArray(c.tags) ? c.tags : [];
+  if (tags.some(t => String(t).toLowerCase() === 'author_tag_sleep')) return true;
+  return getThemeRegex('sleep').some(re => re.test(buildMatchText(c)));
+}
+
+/**
  * 作者画像（动态统计，不建表）：
  * - self:   自己逛过的世界（events type='user-location'）→ world_cache.author_id 聚合
  * - friends: 好友圈（events type='friend-location'）同理聚合
@@ -222,7 +248,7 @@ function isExcludedByTheme(c, excludedThemes, storage) {
       if (Array.isArray(wcTags)) wcTags.forEach(t => tagSet.add(String(t).toLowerCase()));
     } catch (e) { /* world_cache tags 脏数据忽略 */ }
   }
-  const text = `${c.name || ''} ${c.description || ''}`;
+  const text = buildMatchText(c);
   for (const t of excludedThemes) {
     if (tagSet.has(`author_tag_${t}`)) return true;
     if (tagSet.has(t)) return true;
@@ -327,11 +353,14 @@ export function scoreCandidate(c, { theme = 'default', profile } = {}) {
 
   if (theme && theme !== 'default') {
     const sleepOk = c.sleep_ok === true || c.sleep_ok === 1;
-    if (theme === 'sleep' && sleepOk) {
-      score += W_SLEEP_OK;
-      reasons.push(`人工筛选睡觉图+${W_SLEEP_OK}`);
+    if (theme === 'sleep') {
+      // 认 sleep_ok 强信号 / author_tag_sleep 标签 / sleep 关键词（#73）
+      if (isSleepTheme(c)) {
+        score += sleepOk ? W_SLEEP_OK : W_THEME;
+        reasons.push(sleepOk ? `人工筛选睡觉图+${W_SLEEP_OK}` : `主题匹配[sleep]+${W_THEME}`);
+      }
     } else {
-      const text = `${c.name || ''} ${c.description || ''}`;
+      const text = buildMatchText(c);
       if (getThemeRegex(theme).some(re => re.test(text))) {
         score += W_THEME;
         reasons.push(`主题匹配[${theme}]+${W_THEME}`);
@@ -467,8 +496,8 @@ export async function recommendWorlds(ctxArg, args = {}) {
   let themeFiltered = 0;
   if (theme !== 'default') {
     const hit = scored.filter(c => {
-      if (c.sleep_ok === true || c.sleep_ok === 1) return theme === 'sleep';
-      const text = `${c.name || ''} ${c.description || ''}`;
+      if (theme === 'sleep') return isSleepTheme(c);
+      const text = buildMatchText(c);
       return getThemeRegex(theme).some(re => re.test(text));
     });
     if (hit.length > 0) {

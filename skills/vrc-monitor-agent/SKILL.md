@@ -50,6 +50,7 @@ metadata:
 | `get_new_worlds` | 只读查询已跟踪新世界：onlyUnvisited 只看未逛过、sortBy（favorites/occupants/popularity/created_at）、excludeTheme 排除主题（按 author_tag_* 逗号分隔，SQL 层排除）、limit（默认 10 最大 50） |
 | `rate_world` | **用户反馈**：给世界打好评/烂图标记（rating: 1=好图加权 / -1=烂图降权 / 0=清除），写入 world_kb.user_rating，影响 worldScore 推荐排序 |
 | `mark_world_visited` | **显式确认逛过**某世界（事件驱动 visited 会漏记，开图闭环手动确认用） |
+| `set_world_sleep` | **手动标记睡觉图**（worldId 必填，isSleep 默认 true，false=取消），写入 world_kb.sleep_ok=1，recommend_join / recommend_worlds（sleep 主题）的强信号。本地数据，不动云端 |
 | `add_to_backlog` | **加入待逛列表**（本地待办，不动云端收藏）：worldId 必填，reason/priority（0-2，默认 0）可选。幂等：重复加入更新备注/优先级，加入时间保持首次。状态存 world_kb.backlog（合表方案） |
 | `get_backlog` | **查看待逛列表**：status（pending 默认=未逛 / visited=逛完历史 / all）、sortBy（added_at 默认 / priority / favorites）、limit（1-50）。**逛完自动从未逛区消失**（pending 按 visited 过滤），记录保留在 visited 历史 |
 | `remove_from_backlog` | **移出待逛列表**：worldId 必填。只清 backlog 标记（保留行/世界知识），幂等 |
@@ -118,6 +119,16 @@ curl -s http://127.0.0.1:8799/mcp -X POST \
 ```
 
 响应是 SSE 格式，取 `data:` 行，解析 `result.content[0].text` 为 JSON。
+
+## 安全模式（VRC_MONITOR_SAFE_MODE，2026-08-22 新增）
+
+> 在仓库根 `.env` 或环境变量设置 `VRC_MONITOR_SAFE_MODE=true` 并重启服务后，**全部破坏性工具会被自动移除**（`tools/list` 不再暴露 + `tools/call` 直接拦截），防止 Agent 误执行删除/移除类操作。默认关闭。
+
+被移除的破坏性工具（删除/移除/退出/清除类，完整清单见 `core/safe-mode.js` 的 `DESTRUCTIVE_TOOLS`）：
+
+`remove_friend`（删好友）、`remove_print`（删相册照片）、`remove_gallery_image`（删画廊图片）、`unfavorite_friend`（移除好友收藏）、`leave_group`（退群）、`decline_friend_request`（拒好友请求）、`hide_notification`（清除通知）、`remove_from_backlog`（移出待逛）、`remove_from_watchlist`（移出关注）、`x_remove_creator`（移除 X 博主）。
+
+安全模式下这些工具**在 tools/list 中根本不存在**——Agent 不要尝试调用（会收到拦截报错）。查询/推荐/加好友/加收藏/开房等非破坏性写工具不受影响。关闭安全模式：`.env` 中改回 `VRC_MONITOR_SAFE_MODE=false`（或删掉该行）并重启服务。
 
 ## 核心查询工作流 → 已按对象域拆分
 

@@ -133,12 +133,32 @@ def _health_check(timeout: float = 3.0) -> Dict[str, Any]:
 
 
 def _find_monitor_pid() -> Optional[int]:
-    """Locate the node.exe running start-monitor.js via wmic.
+    """Locate the process running start-monitor.js.
 
-    Used when .active.json has no pid (inferred state: the service was
-    started manually, so the plugin never recorded its pid). Returns
-    None when the process cannot be found. Defensive: never raises.
+    Tries two methods:
+    1. ``netstat -ano`` — find the pid LISTENING on 127.0.0.1:8799.
+       Most reliable: works even when the state file has no pid, wmic
+       is unavailable, or the command line doesn't mention the script.
+    2. ``wmic process where name='node.exe' get processid,commandline``
+       — match by command line containing start-monitor.js.
+
+    Returns None when the process cannot be found. Defensive: never raises.
     """
+    # Method 1: port listener (netstat).
+    try:
+        out = subprocess.run(
+            ["netstat", "-ano"], capture_output=True, text=True, timeout=10
+        )
+        if out.returncode == 0:
+            for line in out.stdout.splitlines():
+                if "127.0.0.1:8799" in line and "LISTENING" in line.upper():
+                    tail = line.strip().split()[-1]
+                    if tail.isdigit():
+                        return int(tail)
+    except Exception:
+        pass
+
+    # Method 2: wmic command-line match.
     try:
         out = subprocess.run(
             [
@@ -381,9 +401,22 @@ def stop() -> Dict[str, Any]:
         return {"ok": False, "error": f"failed to read state: {e}"}
 
     if not active:
-        return {"ok": False, "error": "no active process (state file missing)"}
+        # State file missing, but the service may still be running
+        # (e.g. started manually). Try to locate the real pid.
+        try:
+            pid = _find_monitor_pid()
+        except Exception:
+            pid = None
+        if not pid:
+            health = _health_check()
+            if health is not None and "error" not in health:
+                return {
+                    "ok": False,
+                    "error": "服务在运行但无法定位 pid, 请手动 taskkill 或重启 Hermes",
+                }
+            return {"ok": True, "reason": "no active process (state missing)"}
 
-    pid = active.get("pid")
+    pid = active.get("pid") if active else pid
 
     # pid may be null (inferred state: service started manually, plugin
     # never learned its pid). Try to locate the real pid before giving up.
@@ -425,6 +458,17 @@ def stop() -> Dict[str, Any]:
             break
         time.sleep(0.3)
 
+    # Verify the process actually died. If it is still alive after the
+    # wait, report failure instead of a false "terminated" — otherwise
+    # restart() would believe stop succeeded, health probe still answers,
+    # and start() would return already_running with the old process intact.
+    if _pid_alive(pid):
+        _clear_state()
+        return {
+            "ok": False,
+            "error": f"进程 {pid} 在 taskkill 后仍然存活（3 秒等待超时），无法停止",
+        }
+
     _clear_state()
     return {
         "ok": True,
@@ -436,10 +480,45 @@ def stop() -> Dict[str, Any]:
 def restart() -> Dict[str, Any]:
     """Stop the current process (if any) and start a new one.
 
+    True restart semantics: the old process must actually be gone
+    before a new one is spawned. If the old process cannot be stopped
+    (e.g. pid could not be located and the service is still alive),
+    returns an error instead of silently no-op'ing — previously a
+    failed stop() was swallowed and start() then returned
+    ``already_running`` because the health probe still answered, so
+    code changes never took effect.
+
     All exceptions are caught — this function never raises.
     """
     try:
-        stop()
-    except Exception:
-        pass
+        st = stop()
+    except Exception as e:
+        return {"ok": False, "error": f"stop failed during restart: {e}"}
+
+    if not st.get("ok"):
+        # stop() failed — check whether the service is actually gone.
+        if st.get("error") and "无法定位 pid" in str(st.get("error")):
+            return {"ok": False, "error": st["error"]}
+        # Any other stop failure: verify by health probe.
+        health = _health_check()
+        if health is not None and "error" not in health:
+            return {"ok": False, "error": f"旧进程未能停止: {st.get('error') or 'unknown'}"}
+        # Service is actually down — proceed to start.
+
+    # Give the port a moment to fully release before spawning.
+    for _ in range(20):
+        health = _health_check(timeout=1.0)
+        if health is None or "error" in health:
+            break
+        time.sleep(0.3)
+    else:
+        # The loop completed without the health probe failing — the old
+        # process is still answering. Do NOT start() a new one (start()
+        # would see the running service and return already_running,
+        # making the restart a silent no-op).
+        return {
+            "ok": False,
+            "error": "旧进程未能在 6 秒内停止（health probe 持续响应），重启中止",
+        }
+
     return start()

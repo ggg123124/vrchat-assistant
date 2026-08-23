@@ -36,6 +36,7 @@
     "get_new_worlds",
     "rate_world",
     "mark_world_visited",
+    "set_world_sleep",
     "add_to_backlog",
     "get_backlog",
     "remove_from_backlog",

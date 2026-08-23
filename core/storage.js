@@ -65,16 +65,13 @@ export class Storage {
     if (!jcCols.some(c => c.name === 'world_tags')) {
       this._run(`ALTER TABLE join_choices ADD COLUMN world_tags TEXT DEFAULT ''`);
     }
-    // 迁移：旧库 world_kb 缺 tags/description/source 列（scan_new_worlds upsert 依赖，幂等）
+    // 迁移：旧库 world_kb 缺 tags/description 列（scan_new_worlds upsert 依赖，幂等）
     const nwCols2 = this._query(`PRAGMA table_info(world_kb)`);
     if (!nwCols2.some(c => c.name === 'tags')) {
       this._run(`ALTER TABLE world_kb ADD COLUMN tags TEXT DEFAULT ''`);
     }
     if (!nwCols2.some(c => c.name === 'description')) {
       this._run(`ALTER TABLE world_kb ADD COLUMN description TEXT DEFAULT ''`);
-    }
-    if (!nwCols2.some(c => c.name === 'source')) {
-      this._run(`ALTER TABLE world_kb ADD COLUMN source TEXT DEFAULT 'new'`);
     }
     // 迁移：旧库 world_kb 缺 user_rating 列（rate_world 用户反馈，幂等）
     const nwCols3 = this._query(`PRAGMA table_info(world_kb)`);
@@ -99,6 +96,13 @@ export class Storage {
     }
     if (!nwCols5.some(c => c.name === 'backlog_priority')) {
       this._run(`ALTER TABLE world_kb ADD COLUMN backlog_priority INTEGER DEFAULT 0`);
+    }
+    // 迁移：world_kb.source 是死列（issue #78）——从未被写入/读取，仅靠误导性注释自我解释，
+    // 与 events.source 同名易混淆，且 DDL 声称的「scan_new_worlds upsert 依赖」实际不存在。
+    // 幂等删除：PRAGMA 判列存在再 DROP（SQLite ≥3.35 支持；better-sqlite3 已满足）。
+    const nwCols6 = this._query(`PRAGMA table_info(world_kb)`);
+    if (nwCols6.some(c => c.name === 'source')) {
+      this._run(`ALTER TABLE world_kb DROP COLUMN source`);
     }
     // 迁移：历史 tags='' 脏数据统一为 '[]'（json_each 对空串抛 malformed JSON，Review R2）
     this._run(`UPDATE world_kb SET tags = '[]' WHERE tags IS NULL OR tags = ''`);
@@ -700,6 +704,23 @@ export class Storage {
     return { worldId: row.world_id, worldName: row.world_name || '', visited: row.visited === 1, visitedAt: row.visited_at, backlog: row.backlog === 1 };
   }
 
+  /**
+   * 手动标记某世界是否为适合睡觉的地图（recommend_join / recommend_worlds 用 sleep_ok 强信号）。
+   * isSleep: true=标为睡觉图 / false=取消标记。世界不在表里插兜底行（复用 rateWorld 模式）。
+   */
+  setWorldSleep({ worldId, isSleep = true }) {
+    const flag = isSleep ? 1 : 0;
+    this._run(
+      `INSERT INTO world_kb (world_id, world_name, tags, sleep_ok)
+       VALUES ($worldId, '', '[]', $flag)
+       ON CONFLICT(world_id) DO UPDATE SET sleep_ok = $flag`,
+      { $worldId: worldId, $flag: flag }
+    );
+    const rows = this._query(`SELECT world_id, world_name, sleep_ok FROM world_kb WHERE world_id = $worldId`, { $worldId: worldId });
+    const row = rows[0];
+    return { worldId: row.world_id, worldName: row.world_name || '', isSleep: row.sleep_ok === 1 };
+  }
+
   /** 待逛列表：加入/更新（幂等，重复加入 = 更新备注/优先级；世界不在表里插兜底行） */
   addToBacklog({ worldId, reason = '', priority = 0 }) {
     const now = new Date().toISOString();
@@ -733,6 +754,57 @@ export class Storage {
     this._run(`UPDATE world_kb SET backlog = 0 WHERE world_id = $worldId`, { $worldId: worldId });
     const rows = this._query(`SELECT world_id, backlog FROM world_kb WHERE world_id = $worldId`, { $worldId: worldId });
     return { worldId, removed: rows.length === 0 || rows[0].backlog === 0 };
+  }
+
+  /**
+   * 读取 world_kb 某行的信息字段（world_name / author_name / author_id / created_at）。
+   * 用于 #77 的 created_at 预检：已填则 ensureWorldKbInfo 早退省一次 API。
+   * @returns {{worldId, worldName, authorName, authorId, createdAt}}
+   */
+  getWorldKbInfo(worldId) {
+    const rows = this._query(
+      `SELECT world_id, world_name, author_name, author_id, created_at FROM world_kb WHERE world_id = $worldId`,
+      { $worldId: worldId }
+    );
+    const row = rows[0];
+    if (!row) return { worldId, worldName: '', authorName: '', authorId: '', createdAt: '' };
+    return {
+      worldId: row.world_id, worldName: row.world_name || '',
+      authorName: row.author_name || '', authorId: row.author_id || '',
+      createdAt: row.created_at || '',
+    };
+  }
+
+  /**
+   * 幂等回填 world_kb 的信息字段（#76：兜底插入只写标记位，信息字段恒空）。
+   * 仅当对应列当前为空/NULL 时才回填，已存在的值不回写（幂等）。
+   * ⚠️ 注意：本方法是 UPDATE 非 INSERT，隐含「world_kb 行已存在」前提——生产路径由
+   * rateWorld / markWorldVisited / addToBacklog / set_world_sleep 先兜底插入保证成立，
+   * 若独立复用于不存在的行会静默 0 行且后续查询回 undefined，调用方需先确保行存在。
+   * @param {object} p {worldId, name?, authorName?, authorId?, createdAt?}
+   * @returns {{worldId, worldName, authorName, authorId, createdAt}}
+   */
+  backfillWorldKbInfo({ worldId, name, authorName, authorId, createdAt }) {
+    const sets = [];
+    const params = { $worldId: worldId };
+    // 仅在「该列值为空」时回填，避免覆盖扫描/其他来源已写入的真实值
+    if (name !== undefined && name !== '') { sets.push(`world_name = CASE WHEN COALESCE(world_name,'') = '' THEN $name ELSE world_name END`); params.$name = name; }
+    if (authorName !== undefined && authorName !== '') { sets.push(`author_name = CASE WHEN COALESCE(author_name,'') = '' THEN $authorName ELSE author_name END`); params.$authorName = authorName; }
+    if (authorId !== undefined && authorId !== '') { sets.push(`author_id = CASE WHEN COALESCE(author_id,'') = '' THEN $authorId ELSE author_id END`); params.$authorId = authorId; }
+    if (createdAt !== undefined && createdAt !== '') { sets.push(`created_at = CASE WHEN COALESCE(created_at,'') = '' THEN $createdAt ELSE created_at END`); params.$createdAt = createdAt; }
+    if (sets.length > 0) {
+      this._run(`UPDATE world_kb SET ${sets.join(', ')} WHERE world_id = $worldId`, params);
+    }
+    const rows = this._query(
+      `SELECT world_id, world_name, author_name, author_id, created_at FROM world_kb WHERE world_id = $worldId`,
+      { $worldId: worldId }
+    );
+    const row = rows[0];
+    return {
+      worldId: row.world_id, worldName: row.world_name || '',
+      authorName: row.author_name || '', authorId: row.author_id || '',
+      createdAt: row.created_at || '',
+    };
   }
 
   /** 待逛列表：查询（pending = backlog=1 AND visited=0；visited=1 的逛完历史也可见） */

@@ -59,15 +59,15 @@ try {
   assert(!err.message.startsWith('Unknown tool'), `dispatch('get_server_status') did not reach handler: ${err.message}`);
 }
 
-// 6. safe-mode 破坏性过滤与拦截
+// 6. safe-mode 破坏性过滤与拦截（清单与 core/safe-mode.js 的 DESTRUCTIVE_TOOLS 同步）
 if (safeMode) {
-  const destructive = ['remove_print','remove_gallery_image','remove_friend','remove_from_backlog','remove_from_watchlist','leave_group','unfavorite_friend','move_friend_group','hide_notification','decline_friend_request'];
+  const destructive = ['remove_friend','remove_print','remove_gallery_image','unfavorite_friend','leave_group','decline_friend_request','hide_notification','remove_from_backlog','remove_from_watchlist','x_remove_creator'];
   assert(JSON.stringify(names) === JSON.stringify(order.filter(n => !destructive.includes(n))), 'safe mode should filter exactly the 10 destructive tools');
   let blocked = false;
   try {
     await registry.dispatch('remove_print', { printId: 'test' });
   } catch (err) {
-    blocked = err.message.includes('blocked in safe mode');
+    blocked = err.message.includes('安全模式已启用');
   }
   assert(blocked, 'remove_print should be blocked in safe mode');
 }

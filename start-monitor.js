@@ -13,6 +13,7 @@ import net from 'node:net';
 
 import { ctx, log, refreshWatchlistCache } from './core/server-context.js';
 import * as registry from './core/registry.js';
+import { isSafeModeEnabled, DESTRUCTIVE_TOOLS } from './core/safe-mode.js';
 import { Storage } from './core/storage.js';
 import { RateLimiter } from './core/rate-limiter.js';
 import { VrchatApiClient } from './vrchat-api.js';
@@ -146,6 +147,14 @@ async function main() {
   }
 
   ctx.serverState.started = new Date().toISOString();
+
+  // 0b. 安全模式（VRC_MONITOR_SAFE_MODE=true）：启动即剔除破坏性工具，tools/list 不暴露、tools/call 拦截
+  if (isSafeModeEnabled()) {
+    log('\n🔒 安全模式已启用（VRC_MONITOR_SAFE_MODE=true）');
+    log(`   已移除 ${DESTRUCTIVE_TOOLS.length} 个破坏性工具: ${DESTRUCTIVE_TOOLS.join(', ')}`);
+  } else {
+    log('\n🔓 安全模式未启用（VRC_MONITOR_SAFE_MODE 未设置或非 true）');
+  }
 
   // 1. 初始化数据库
   log('📦 初始化数据库...');

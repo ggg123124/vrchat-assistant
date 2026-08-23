@@ -17,6 +17,62 @@ export function handleGetDatabaseStats() {
   };
 }
 
+/**
+ * 确保 world_kb 某行的信息字段不为空（#76：兜底插入只写标记位，信息字段恒空）。
+ * 优先从本地 world_cache 读 name/author_name；world_cache 也没有或需 created_at 时，
+ * 串行调 API /worlds/{id}（限流）回填 world_cache 并取 created_at，再幂等回填 world_kb。
+ * 幂等：world_kb 对应列已非空时不覆盖；world_cache 命中即省一次 API。
+ * @param {{storage, api, rateLimiter}} c 上下文
+ * @param {string} worldId
+ * @returns {Promise<{worldId, worldName, authorName, authorId, createdAt}>}
+ */
+export async function ensureWorldKbInfo({ storage, api, rateLimiter }, worldId) {
+  try {
+    // 预检：读 world_kb 现有信息字段。created_at 已填 → 早退省 API；
+    // 未填则即使 world_cache 命中 name/author，也须调一次 API 取 created_at（#77 阻断项修复）。
+    const existing = storage.getWorldKbInfo(worldId);
+    const info = {
+      worldId,
+      name: existing.worldName,
+      authorName: existing.authorName,
+      authorId: existing.authorId,
+      createdAt: existing.createdAt,
+    };
+    const needApi = !info.createdAt;
+    if (needApi && api && rateLimiter) {
+      const cached = storage.getWorldName(worldId);
+      if (cached && cached.name) {
+        info.name = cached.name || '';
+        info.authorName = cached.author_name || '';
+        info.authorId = cached.author_id || '';
+      }
+      const r = await rateLimiter.execute(() => api._request('GET', `/worlds/${encodeURIComponent(worldId)}`));
+      if (r.status === 200 && r.data && r.data.name) {
+        info.name = info.name || r.data.name || '';
+        info.authorName = info.authorName || r.data.authorName || '';
+        info.authorId = info.authorId || r.data.authorId || '';
+        info.createdAt = r.data.created_at || '';
+        try { storage.upsertWorld({ worldId, name: info.name, authorId: info.authorId, authorName: info.authorName }); } catch (e) { /* 缓存写失败不阻断 */ }
+      }
+    } else if (!needApi && !info.name) {
+      // created_at 已填但缺 name（罕见），补 world_cache / API
+      const cached = storage.getWorldName(worldId);
+      if (cached && cached.name) {
+        info.name = cached.name || '';
+        info.authorName = cached.author_name || '';
+        info.authorId = cached.author_id || '';
+      }
+    }
+    return storage.backfillWorldKbInfo({
+      worldId,
+      name: info.name, authorName: info.authorName, authorId: info.authorId, createdAt: info.createdAt,
+    });
+  } catch (e) {
+    // 回填失败不阻断主操作（标记本身已成功）
+    try { return storage.backfillWorldKbInfo({ worldId }); } catch (e2) { return { worldId, worldName: '', authorName: '', authorId: '', createdAt: '' }; }
+  }
+}
+
 export function handleGetServerStatus() {
   const { storage, wsManager, friendState, eventPipeline, serverState } = ctx;
   return {
@@ -224,7 +280,7 @@ export function handleGetNewWorlds({ onlyUnvisited = false, limit = 10, sortBy =
 }
 
 /** 用户反馈：好图/烂图标记（Issue #19） */
-export function handleRateWorld({ worldId, rating = 0 }) {
+export async function handleRateWorld({ worldId, rating = 0 }) {
   const { storage } = ctx;
   if (!worldId) throw new Error('worldId is required');
   const r = parseInt(rating, 10);
@@ -232,26 +288,39 @@ export function handleRateWorld({ worldId, rating = 0 }) {
     throw new Error('rating must be -1 (junk), 0 (clear), or 1 (good)');
   }
   const result = storage.rateWorld({ worldId, rating: r });
-  log(`⭐ 用户反馈: ${worldId} → rating=${result.userRating}${result.worldName ? ` (${result.worldName})` : ''}`);
-  return result;
+  const info = await ensureWorldKbInfo(ctx, worldId);
+  log(`⭐ 用户反馈: ${worldId} → rating=${result.userRating}${info.worldName ? ` (${info.worldName})` : ''}`);
+  return { ...result, worldName: info.worldName };
 }
 
 /** 显式确认逛过某世界（Issue #19 痛点 3） */
-export function handleMarkWorldVisited({ worldId }) {
+export async function handleMarkWorldVisited({ worldId }) {
   const { storage } = ctx;
   if (!worldId) throw new Error('worldId is required');
   const result = storage.markWorldVisited({ worldId });
-  log(`✅ 手动标记 visited: ${worldId}${result.worldName ? ` (${result.worldName})` : ''}`);
-  return result;
+  const info = await ensureWorldKbInfo(ctx, worldId);
+  log(`✅ 手动标记 visited: ${worldId}${info.worldName ? ` (${info.worldName})` : ''}`);
+  return { ...result, worldName: info.worldName };
+}
+
+/** 手动标记某世界为适合睡觉的地图（recommend 用 sleep_ok 强信号） */
+export async function handleSetWorldSleep({ worldId, isSleep = true }) {
+  const { storage } = ctx;
+  if (!worldId) throw new Error('worldId is required');
+  const result = storage.setWorldSleep({ worldId, isSleep: !!isSleep });
+  const info = await ensureWorldKbInfo(ctx, worldId);
+  log(`${result.isSleep ? '🛏' : '✖️'} 标记睡觉图: ${worldId}${info.worldName ? ` (${info.worldName})` : ''} → sleep_ok=${result.isSleep ? 1 : 0}`);
+  return { ...result, worldName: info.worldName };
 }
 
 /** 待逛列表：加入/更新（幂等） */
-export function handleAddToBacklog({ worldId, reason = '', priority = 0 }) {
+export async function handleAddToBacklog({ worldId, reason = '', priority = 0 }) {
   const { storage } = ctx;
   if (!worldId) throw new Error('worldId is required');
   const result = storage.addToBacklog({ worldId, reason, priority });
-  log(`📌 加入待逛: ${worldId}${result.worldName ? ` (${result.worldName})` : ''} priority=${result.priority}`);
-  return result;
+  const info = await ensureWorldKbInfo(ctx, worldId);
+  log(`📌 加入待逛: ${worldId}${info.worldName ? ` (${info.worldName})` : ''} priority=${result.priority}`);
+  return { ...result, worldName: info.worldName };
 }
 
 /** 待逛列表：查询 */
@@ -449,6 +518,28 @@ export const tools = [
       ]
     },
     handler: async (args) => handleMarkWorldVisited(args)
+  },
+  {
+    "name": "set_world_sleep",
+    "description": "[action] Manually mark a world as a sleep-friendly map (sets sleep_ok=1, a strong signal in recommend_join/recommend_worlds). isSleep=false clears the marker. Local-only.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "worldId": {
+          "type": "string",
+          "description": "VRChat world ID (wrld_...)"
+        },
+        "isSleep": {
+          "type": "boolean",
+          "default": true,
+          "description": "true=mark as sleep map, false=clear"
+        }
+      },
+      "required": [
+        "worldId"
+      ]
+    },
+    handler: async (args) => handleSetWorldSleep(args)
   },
   {
     "name": "add_to_backlog",
