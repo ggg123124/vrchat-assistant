@@ -32,6 +32,11 @@ import {
   handleScanNewWorlds, handleGetNewWorlds, handleRateWorld, handleMarkWorldVisited,
   handleAddToBacklog, handleGetBacklog, handleRemoveFromBacklog, handleSearchWorlds,
 } from './core/tools/misc.js';
+import {
+  handleGetFavoriteFriendsLocations, handleSetJoinPreference, handleGetJoinPreference,
+  handleRecordJoinChoice, handleGetJoinLearning, handleRecommendJoin,
+} from './core/tools/recommend.js';
+import { handleRecommendWorlds } from './core/tools/recommend-worlds.js';
 import { parseTotpSecret, generateTotp } from './core/totp.js';
 import { notifier } from './core/notifier.js';
 import { buildChannels } from './core/notify-channels.js';
@@ -205,6 +210,22 @@ function registerCoreServices(loader, ctx) {
     'world.searchWorlds': (args) => ctx.rateLimiter.execute(() => handleSearchWorlds(args || {})),
   };
   for (const [name, fn] of Object.entries(worldSvcs)) {
+    loader.services.set(name, fn);
+    loader.serviceOwners.set(name, 'core');
+  }
+
+  // 推荐域服务（供插件 consume；handler 绑定 core/tools/recommend.js / recommend-worlds.js，owner='core'）
+  // 注意：recommend.js 的 handler 内部用 ctx + _query/_run/rateLimiter，完整保留实现，不加额外包裹。
+  const recommendSvcs = {
+    'recommend.favoriteFriendsLocations': (args) => handleGetFavoriteFriendsLocations(args || {}),
+    'recommend.setJoinPreference': (args) => handleSetJoinPreference(args || {}),
+    'recommend.getJoinPreference': (args) => handleGetJoinPreference(args || {}),
+    'recommend.recordJoinChoice': (args) => handleRecordJoinChoice(args || {}),
+    'recommend.getJoinLearning': (args) => handleGetJoinLearning(args || {}),
+    'recommend.recommendJoin': (args) => handleRecommendJoin(args || {}),
+    'recommend.recommendWorlds': (args) => handleRecommendWorlds(args || {}),
+  };
+  for (const [name, fn] of Object.entries(recommendSvcs)) {
     loader.services.set(name, fn);
     loader.serviceOwners.set(name, 'core');
   }
