@@ -135,7 +135,7 @@ PR 由 AI Agent 编写提交（人类只提出需求、不直接编码）。以�
 ## 5. 代码规范
 
 - **语言**：JavaScript，ESM（`package.json` 中 `"type": "module"`）。
-- **Node 版本**：≥ 18（better-sqlite3 v12 的要求；本地开发推荐 22.x）。`package.json` 已声明 `engines` 字段约束。
+- **Node 版本**：≥ 22（better-sqlite3 v12 要求 Node ≥ 20，且其 Windows 预编译二进制仅覆盖 Node 22+，为统一 CI 测试面与跨平台可装性，对齐到 ≥ 22；本地开发推荐 22.x）。`package.json` 已声明 `engines` 字段约束。
 - **风格**：跟随现有代码风格（`start-monitor.js` 薄入口与 `core/` 下的模块 + `core/tools/` 下的核心工具 + `plugins/official/` 下的插件）。
 - **模块划分**：`start-monitor.js` 约 360 行薄入口，新增核心逻辑放 `core/` 下独立模块（参考 `storage.js` / `ws-manager.js` / `server-context.js` / `registry.js` / `plugin-loader.js` 的拆分方式）。MCP 工具分两层：核心工具放 `core/tools/`（每个文件默认导出 `tools` 数组、自声明 def，经 `core/registry.js` 注册）；插件能力放 `plugins/official/<域>/index.js`（默认导出 `register(api)`，经 `api.registerTool` 注册）。核心工具经 `ctx` 共享上下文访问运行时状态；**插件一律走 `api.*`，不触碰 `ctx`**（见 [docs/PLUGIN-DEV.md](./docs/PLUGIN-DEV.md)）。工具分发在 `core/registry.js`，HTTP 服务在 `core/http-server.js`。
 - **平台专属逻辑**：Windows 专属增强（命名管道等）一律封装进 `core/` 独立模块，运行时探测 + 静默回退（见 §3.1），禁止散落在 CLI 脚本或 MCP handler 里。
@@ -152,7 +152,7 @@ PR 由 AI Agent 编写提交（人类只提出需求、不直接编码）。以�
 
 ## 6. 测试与 CI
 
-- **现状（含 PR-3 起）**：已接入 GitHub Actions（`.github/workflows/ci.yml`），对 Node 18/20/22 × Ubuntu/Windows 跑**无凭据冒烟**：`node test-registry.mjs`（注册表完整性，91 工具、顺序+定义+handler）、`node scripts/dump-tools.mjs`（权威工具清单，应 91 行）、`python scripts/check-doc-drift.py --json`（文档漂移，`has_drift` 必须为 false）。**CI 里一份真实 VRChat 凭据都没有**，自动化只覆盖「无凭据也能验证」的部分（模块加载、插件加载、DB 初始化、注册表完整、文档一致），涉及真实登录的验证仍需作者人工完成（可用 secrets 里的测试账号，但绝不能泄露到日志）。手动验证脚本：`test-apis.mjs`（REST API）、`test-websocket.mjs` / `test-ws-direct.mjs`（WebSocket）、`analyze-db.mjs`（数据库分析）。合并以作者实际运行为准，并参考 CI 冒烟结果。
+- **现状（含 PR-3 起）**：已接入 GitHub Actions（`.github/workflows/ci.yml`），对 Node 22 × Ubuntu/Windows 跑**无凭据冒烟**：`node test-registry.mjs`（注册表完整性，工具数、顺序+定义+handler）、`node scripts/dump-tools.mjs`（权威工具清单，行数与 core/tool-order.json 动态对齐）、`python scripts/check-doc-drift.py --json`（文档漂移，`has_drift` 必须为 false）。**CI 里一份真实 VRChat 凭据都没有**，自动化只覆盖「无凭据也能验证」的部分（模块加载、插件加载、DB 初始化、注册表完整、文档一致），涉及真实登录的验证仍需作者人工完成（可用 secrets 里的测试账号，但绝不能泄露到日志）。手动验证脚本：`test-apis.mjs`（REST API）、`test-websocket.mjs` / `test-ws-direct.mjs`（WebSocket）、`analyze-db.mjs`（数据库分析）。合并以作者实际运行为准，并参考 CI 冒烟结果。
 - **Agent 义务**：涉及 API / WebSocket / 数据库的功能改动，Agent 必须在 PR 描述写明验证方式；能跑现有脚本就跑一遍（尤其 `test-registry.mjs` / `check-doc-drift.py`），不能跑要说明原因。Agent 提交前必须实际运行验证，不能只做静态分析就声称完成。
 - **CI 里的凭据红线**：workflow 文件及其他自动化路径**严禁**出现任何真实凭据、Cookie、token、密码、IMAP 授权码（`credentials.json` 已被 gitignore 排除）。自动化测试账号如需纳入 CI，一律走 GitHub repo secrets 且绝不回显到日志。
 - 新增测试脚本命名沿用 `test-*.mjs` 风格，方便 CI 统一发现。
