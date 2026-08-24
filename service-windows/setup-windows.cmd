@@ -1,4 +1,5 @@
 @echo off
+chcp 65001 >nul 2>&1
 rem ============================================================
 rem  vrc-monitor 常驻服务一键设置（Windows）
 rem  用法: setup-windows.cmd [python解释器路径]
