@@ -642,25 +642,54 @@ function mapWorld(w) {
 // ── 扫描主流程 ─────────────────────────────────────────────
 
 /**
- * 统一抓取入口：先 Nitter RSS（主源），失败/空回退 X SearchTimeline（兜底）。
- * 返回 { tweets, source }，source ∈ 'nitter' | 'search_timeline'。
- * 两者都失败时抛 X_FETCH_ALL_FAILED（含诊断）。
+ * 统一抓取入口：先 Nitter RSS（主源），失败/空/数据不足回退 X SearchTimeline（兜底）。
+ * 返回 { tweets, source }，source ∈ 'nitter' | 'search_timeline' | 'nitter+search_timeline'。
+ *
+ * 降级语义（明确）：
+ *  - fetchCreatorRss 内部已把「空 RSS / 0 条推文」视为该实例失败（continue 下一个），
+ *    全部实例失败时抛 NITTER_UNREACHABLE → 触发 SearchTimeline 回退（"空数组算失败"已覆盖）。
+ *  - 若 Nitter 返回非空但推文数 < minTweets（高频博主 Nitter RSS 仅 ~20 条可能覆盖不全 3 天窗口），
+ *    也尝试 SearchTimeline 补充并合并去重（minTweets 默认 0 = 仅失败才回退，保持向后兼容；
+ *    可通过 env VRC_MONITOR_X_MIN_TWEETS 配置为 >0，让"数据不足"也触发补充）。
+ *  - 双源均失败/均空时抛 X_FETCH_ALL_FAILED（含诊断、可读错误提示）。
  */
-export async function fetchCreatorTweets(screenName) {
+export async function fetchCreatorTweets(screenName, { minTweets = 0 } = {}) {
+  const minTweetsEffective = parseInt(process.env.VRC_MONITOR_X_MIN_TWEETS, 10) || minTweets || 0;
+  let tweets = [];
+  let source = '';
   try {
-    const tweets = await fetchCreatorRss(screenName);
-    return { tweets, source: 'nitter' };
+    tweets = await fetchCreatorRss(screenName);
+    source = 'nitter';
+    if (minTweetsEffective > 0 && tweets.length < minTweetsEffective) {
+      log(`⚠️ x-world @${screenName} Nitter 仅 ${tweets.length} 条(< minTweets=${minTweetsEffective})，尝试 SearchTimeline 补充`);
+      try {
+        const extra = await fetchCreatorViaSearchTimeline(screenName);
+        const seen = new Set(tweets.map(t => t.id));
+        for (const t of extra) {
+          if (t.id && !seen.has(t.id)) { tweets.push(t); seen.add(t.id); }
+        }
+        source = 'nitter+search_timeline';
+      } catch (e2) {
+        log(`  （SearchTimeline 补充失败，保留 Nitter 数据：${e2.message.slice(0, 60)}）`);
+      }
+    }
   } catch (e) {
     log(`⚠️ x-world @${screenName} Nitter 不可达，回退 X SearchTimeline：${e.message}`);
+    try {
+      tweets = await fetchCreatorViaSearchTimeline(screenName);
+      source = 'search_timeline';
+    } catch (e2) {
+      const err = new Error(`@${screenName} 双数据源均失败（Nitter + X SearchTimeline）：${e2.message}。建议检查网络或设置 HTTPS_PROXY。`);
+      err.code = 'X_FETCH_ALL_FAILED';
+      throw err;
+    }
   }
-  try {
-    const tweets = await fetchCreatorViaSearchTimeline(screenName);
-    return { tweets, source: 'search_timeline' };
-  } catch (e2) {
-    const err = new Error(`@${screenName} 双数据源均失败（Nitter + X SearchTimeline）：${e2.message}。建议检查网络或设置 HTTPS_PROXY。`);
+  if (tweets.length === 0) {
+    const err = new Error(`@${screenName} 双数据源均未返回推文。建议检查网络或设置 HTTPS_PROXY。`);
     err.code = 'X_FETCH_ALL_FAILED';
     throw err;
   }
+  return { tweets, source };
 }
 
 /**
