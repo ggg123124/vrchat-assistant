@@ -114,32 +114,42 @@ function httpRequest(url, { headers = {}, timeoutMs = NITTER_TIMEOUT_MS, agent =
   });
 }
 
-/** 尝试一次请求：有代理先走代理，失败（ECONNREFUSED/超时等）则回退直连 */
-async function tryFetchOnce(url) {
+/**
+ * 带代理回退的通用请求：配置代理 → 先走代理（失败回退直连）。
+ * 支持 headers/method/body/timeoutMs。与 Nitter 的 tryFetchOnce 共用同一
+ * "先代理后直连"逻辑，避免新增网络路径（如 SearchTimeline）绕过代理。
+ * 返回 { status, headers, body }；全部失败抛 FETCH_FAILED。
+ */
+async function tryFetchWithProxy(url, { headers = {}, method = 'GET', body = null, timeoutMs = NITTER_TIMEOUT_MS } = {}) {
   const proxy = resolveProxy();
   const errors = [];
-  const headers = {
-    'User-Agent': UA,
-    'Accept': 'application/rss+xml, application/xml, text/xml, */*',
-    'Accept-Encoding': 'gzip, deflate',
-  };
   if (proxy) {
     try {
       const agent = new HttpsProxyAgent(proxy);
-      return await httpRequest(url, { headers, agent });
+      return await httpRequest(url, { headers, agent, method, body, timeoutMs });
     } catch (e) {
       errors.push(`代理(${proxy})失败: ${e.code || e.message}`);
     }
   }
   // 直连（无代理配置，或代理失败回退）
   try {
-    return await httpRequest(url, { headers });
+    return await httpRequest(url, { headers, method, body, timeoutMs });
   } catch (e) {
     errors.push(`直连失败: ${e.code || e.message}`);
   }
   const err = new Error(errors.join('；'));
   err.code = 'FETCH_FAILED';
   throw err;
+}
+
+/** Nitter RSS 用：先代理后直连（RSS UA + XML Accept 头），薄封装 tryFetchWithProxy */
+async function tryFetchOnce(url) {
+  const headers = {
+    'User-Agent': UA,
+    'Accept': 'application/rss+xml, application/xml, text/xml, */*',
+    'Accept-Encoding': 'gzip, deflate',
+  };
+  return tryFetchWithProxy(url, { headers });
 }
 
 /**
@@ -191,11 +201,11 @@ export async function fetchCreatorRss(screenName) {
 async function getXGuestToken() {
   const now = Date.now();
   if (_xGuestToken && now - _xGuestTokenAt < X_GUEST_TOKEN_TTL_MS) return _xGuestToken;
-  const resp = await httpRequest('https://api.twitter.com/1.1/guest/activate.json', {
-    headers: { 'User-Agent': UA, 'Authorization': `Bearer ${X_BEARER_TOKEN}`, 'Content-Type': 'application/json' },
-    timeoutMs: 15000,
-    method: 'POST',
-  });
+  const resp = await tryFetchWithProxy('https://api.twitter.com/1.1/guest/activate.json', {
+      headers: { 'User-Agent': UA, 'Authorization': `Bearer ${X_BEARER_TOKEN}`, 'Content-Type': 'application/json' },
+      timeoutMs: 15000,
+      method: 'POST',
+    });
   if (resp.status !== 200) {
     const e = new Error(`X guest token 激活失败：HTTP ${resp.status}`);
     e.code = 'X_GUEST_ACTIVATE_FAILED';
@@ -269,19 +279,19 @@ export async function fetchCreatorViaSearchTimeline(screenName, { maxTweets = 50
     if (cursor) variables.cursor = cursor;
     const body = JSON.stringify({ queryId: X_SEARCH_QUERY_ID, variables, features: X_SEARCH_FEATURES });
     const url = `https://x.com/i/api/graphql/${X_SEARCH_QUERY_ID}/SearchTimeline`;
-    const resp = await httpRequest(url, {
-      headers: {
-        'User-Agent': UA,
-        'Authorization': `Bearer ${X_BEARER_TOKEN}`,
-        'x-guest-token': guestToken,
-        'Content-Type': 'application/json',
-        'X-Twitter-Active-User': 'yes',
-        'X-Twitter-Client-Language': 'en',
-      },
-      timeoutMs: 20000,
-      body,
-      method: 'POST',
-    });
+        const resp = await tryFetchWithProxy(url, {
+          headers: {
+            'User-Agent': UA,
+            'Authorization': `Bearer ${X_BEARER_TOKEN}`,
+            'x-guest-token': guestToken,
+            'Content-Type': 'application/json',
+            'X-Twitter-Active-User': 'yes',
+            'X-Twitter-Client-Language': 'en',
+          },
+          timeoutMs: 20000,
+          body,
+          method: 'POST',
+        });
     if (resp.status !== 200) {
       const err = new Error(`X SearchTimeline 请求失败（@${screenName}）：HTTP ${resp.status}`);
       err.code = 'X_SEARCH_UNREACHABLE';
