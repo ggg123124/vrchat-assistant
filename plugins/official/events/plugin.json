@@ -1,0 +1,5 @@
+{
+  "name": "events",
+  "version": "1.0.0",
+  "description": "VRChat 社区活动聚合插件：多源采集(VRC Search/RLVRC/VRCEve/VRCEvent-KR) → 群组深度挖掘(短码/活动名/世界名反查) → 音乐∪虚拟主播筛选 → 结构化 JSON（含双列时区/规范图片URL/中文参加方式），供 MCP 消费或渲染 PDF"
+}

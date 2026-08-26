@@ -26,7 +26,7 @@ plugins/local/hello/
 └── schema.sql      # 私有表 DDL（可选，幂等写法，加载时自动执行）
 ```
 
-仓库 `plugins/official/` 现有 8 个官方插件（booth / favorites / groups / media / planet / recommend / world-kb / x-creators），每个都是 `plugin.json + index.js` 两件套，是契约合规的**参考实现**。
+仓库 `plugins/official/` 现有 9 个官方插件（events / booth / favorites / groups / media / planet / recommend / world-kb / x-creators），每个都是 `plugin.json + index.js` 两件套，是契约合规的**参考实现**。
 
 ---
 
