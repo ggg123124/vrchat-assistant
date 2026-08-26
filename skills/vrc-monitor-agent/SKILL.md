@@ -57,7 +57,7 @@ metadata:
 | `recommend_worlds` | **多源融合世界推荐**：local 新世界池 × PlanetVRC × 官方主题搜索 × 用户反馈，评分（热度+新鲜度+主题+作者画像 30 天窗口熟客）+ 可解释 reasons；theme/excludeTheme/sources/excludeVisited 参数 |
 | `favorite_world` | **云端收藏**：加入 VRChat 收藏夹分组（tag 为 `worldsN` / `vrcPlusWorldsN` **动态发现**，含 VRC+ 专属收藏夹，默认 worlds0，支持传 displayName），写操作需确认，成功后本地 favorited=1 供推荐加权 |
 | `unfavorite_world` | **移除世界收藏**：DELETE /favorites/{记录id}（先查记录 id 再删，可逆）。worldId 必填；tag 可选（省略=从全部所在分组移除，**含 VRC+ 专属收藏夹**）。写操作，confirm: true 才执行 |
-| `move_world_group` | **移动世界收藏分组**（2026-08-26 新增）：删旧建新，与 `move_friend_group` 同模式（官方客户端 2026.1.1 同款能力）。worldId + toGroup（tag 或 displayName，含 VRC+ 收藏夹）。写操作，confirm: true 才执行 |
+| `move_world_group` | **移动世界收藏分组**（2026-08-26 新增）：删旧建新，与 `move_friend_group` 同模式（官方客户端 2026.1.1 同款能力）。worldId + toGroup（tag 或 displayName，含 VRC+ 收藏夹）。写操作，destructive（删旧建新非原子），confirm: true 才执行 |
 | `update_favorite_group` | **重命名/改可见性**（2026-08-26 新增）：PUT /favorite/group/{type}/{name}/{userId}。group（tag 或 displayName）必填；displayName（新名）/ visibility（friends/private/public）至少一个。⚠️ 设为 public 分组对他人可见，隐私敏感，须显式 confirm |
 | `clear_favorite_group` | **清空收藏分组**（2026-08-26 新增）：DELETE /favorite/group/{type}/{name}/{userId}，清空组内全部收藏（分组本身保留，重新收藏可加回）。group 必填；批量删除，destructive，confirm: true 才执行 |
 | `get_nicknames` / `set_nickname` | 好友昵称映射（查询/写入，本地库） |
@@ -107,7 +107,7 @@ metadata:
 | `get_friend_favorite_groups` | **好友收藏分组列表**（2026-08-19 新增）：GET /favorite/groups?type=friend + /favorites?type=friend → 分组名/显示名/成员数。与 get_favorite_friends_locations 互补（后者看组内好友实时位置） |
 | `favorite_friend` | **添加好友到收藏分组**（2026-08-19 新增）：POST /favorites type=friend。userId/displayName 二选一；groupName 必填（显示名或分组名）；须已是好友（403 返回 not friends）；重复收藏返回 already favorited（不抛错）。写操作，confirm: true 才执行 |
 | `unfavorite_friend` | **从收藏分组移除好友**（2026-08-19 新增）：DELETE /favorites/{记录id}（先查记录 id 再删，可逆）。groupName 可选（省略=从全部分组移除）。写操作，confirm: true 才执行 |
-| `move_friend_group` | **移动好友到另一分组**（2026-08-19 新增）：删旧建新（API 无原地更新 tags 端点，与 VRCX 行为一致）。toGroup 必填。写操作，confirm: true 才执行 |
+| `move_friend_group` | **移动好友到另一分组**（2026-08-19 新增）：删旧建新（API 无原地更新 tags 端点，与 VRCX 行为一致）。toGroup 必填。写操作，destructive（删旧建新非原子），confirm: true 才执行 |
 | `get_friend_profile_changes` | **好友资料变更历史**（2026-08-19 新增）：Avatar/Bio/状态/头像图标/代词变更记录。事件管道实时采集 friend-update 的 user 对象 diff 落库，与 VRCX 迁移数据（feed_avatar/feed_status/feed_bio）同 type 打通。userId 可选（省略=全部好友）；types 逗号分隔过滤（avatar/status/bio/user_icon/pronouns）；limit(1-200)/offset 分页。每次变更返回 change 含当前值+旧值 |
 | `get_notifications` | **通知收件箱**（2026-08-19 新增）：读取当前账号未读通知（旧 v1 系统）。limit/offset 分页；types 过滤（friendRequest/invite/message/boop/requestInvite/votetokick/inviteResponse/requestInviteResponse）；hidden=true 查已隐藏。返回字段：returned（本页返回条数）、shown（过滤后条数）、hasMore（本页取满 limit 时可能还有下一页）。注意：API 的 type 查询参数已废弃不生效（本地过滤）；seen/receiverUserId 仅 WS 推送有，REST 不返回 |
 | `see_notification` / `hide_notification` | **通知已读/隐藏**：标记已读 PUT .../see；隐藏清除 PUT .../hide（旧 v1 hide 即删除）。notificationId 必填 |

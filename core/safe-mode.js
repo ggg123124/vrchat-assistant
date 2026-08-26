@@ -20,6 +20,8 @@ export const DESTRUCTIVE_TOOLS = [
   'remove_gallery_image',     // 删除画廊图片（不可逆）
   'unfavorite_friend',        // 从收藏分组移除好友
   'unfavorite_world',         // 从收藏分组移除世界
+  'move_world_group',         // 世界分组间移动（删旧建新，非原子：删旧后若新建失败，旧收藏从云端丢失）
+  'move_friend_group',        // 好友分组间移动（同上：删旧建新非原子）
   'clear_favorite_group',     // 清空收藏分组内全部收藏（批量删除）
   'leave_group',              // 退出群组（移除成员身份）
   'decline_friend_request',   // 拒绝好友请求（清除通知，不可逆）
