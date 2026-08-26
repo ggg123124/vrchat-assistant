@@ -32,8 +32,8 @@ metadata:
 | `get_booth_item` | **BOOTH 单品详情**：按 itemId 查商品 → 名称/价格/描述/标签/图片/卖家/发布时间/收藏数/变体。**本地缓存**：`cached:true` 命中快照，`forceRefresh` 强制实时 |
 | `get_booth_history` | **BOOTH 查询历史**：本地缓存商品快照，按收藏数/更新时间排序 + `minWishlist` 趋势过滤 |
 | `get_booth_searches` | **BOOTH 搜索历史**：最近搜索词 + 结果 + 时间 |
-| `get_my_favorite_worlds` | **我的收藏世界**（2026-08-14 新增）：拉取全部收藏世界，按标签分类（🎮游戏/👻恐怖/🎵音乐体验/🌄风景观光/🧍Avatar模型/🍻社交聚会/😴休闲睡觉/📷拍照/其他），返回世界名/作者/收藏/浏览/简介/分类。数据经 `GET /worlds/favorites` 分页一次拉全（含实时 `occupants`），**秒级返回**，无需逐个查详情。`sortBy` 支持 `favorites`/`visits`/`name`/`added`（**added=按收藏时间倒序，最新添加在前**，基于 `/favorites` 返回顺序，与客户端 "Date Added" 一致）；配套 `favorites-pdf.py` 一键生成中文 PDF |
-| `get_my_favorite_groups` | **我的收藏分组**：世界收藏夹名 + 容量上限 `capacity` |
+| `get_my_favorite_worlds` | **我的收藏世界**（2026-08-14 新增）：拉取全部收藏世界（**含 VRC+ 专属收藏夹**），按标签分类（🎮游戏/👻恐怖/🎵音乐体验/🌄风景观光/🧍Avatar模型/🍻社交聚会/😴休闲睡觉/📷拍照/其他），返回世界名/作者/收藏/浏览/简介/分类。数据经 `GET /worlds/favorites` 分页一次拉全（含实时 `occupants`），**秒级返回**，无需逐个查详情。`sortBy` 支持 `favorites`/`visits`/`name`/`added`（**added=按收藏时间倒序，最新添加在前**，基于 `/favorites` 返回顺序，与客户端 "Date Added" 一致）；`group` 参数可按收藏夹过滤（tag 或 displayName，如 `vrcPlusWorlds1`）；配套 `favorites-pdf.py` 一键生成中文 PDF |
+| `get_my_favorite_groups` | **我的收藏分组**：世界收藏分组（`world` + `vrcPlusWorld` 两种类型，**含 VRC+ 专属收藏夹**），返回 tag/显示名/类型/可见性/容量 `capacity`（来自 `/auth/user/favoritelimits`）/已用数/分组 id；`type` 参数可按类型过滤 |
 | `backup_database` | 立即备份数据库（WAL 在线备份，保留最近 2 份到 data/backups/）；服务启动 + 每 24h 自动备份 |
 | `get_friend_events` | 某好友的事件历史（本地库） |
 | `get_recent_events` | 最新事件流 |
@@ -55,8 +55,11 @@ metadata:
 | `get_backlog` | **查看待逛列表**：status（pending 默认=未逛 / visited=逛完历史 / all）、sortBy（added_at 默认 / priority / favorites）、limit（1-50）。**逛完自动从待逛列表移除**（location 事件 / mark_world_visited / 扫描在首次置 visited=1 时同步清 backlog=0），pending 只显示仍待逛的世界 |
 | `remove_from_backlog` | **移出待逛列表**：worldId 必填。只清 backlog 标记（保留行/世界知识），幂等 |
 | `recommend_worlds` | **多源融合世界推荐**：local 新世界池 × PlanetVRC × 官方主题搜索 × 用户反馈，评分（热度+新鲜度+主题+作者画像 30 天窗口熟客）+ 可解释 reasons；theme/excludeTheme/sources/excludeVisited 参数 |
-| `favorite_world` | **云端收藏**：加入 VRChat 收藏夹分组（worlds0-4，默认 worlds0），写操作需确认，成功后本地 favorited=1 供推荐加权 |
-| `unfavorite_world` | **移除世界收藏**：DELETE /favorites/{记录id}（先查记录 id 再删，可逆）。worldId 必填；tag 可选（省略=从全部所在分组移除）。写操作，confirm: true 才执行 |
+| `favorite_world` | **云端收藏**：加入 VRChat 收藏夹分组（tag 为 `worldsN` / `vrcPlusWorldsN` **动态发现**，含 VRC+ 专属收藏夹，默认 worlds0，支持传 displayName），写操作需确认，成功后本地 favorited=1 供推荐加权 |
+| `unfavorite_world` | **移除世界收藏**：DELETE /favorites/{记录id}（先查记录 id 再删，可逆）。worldId 必填；tag 可选（省略=从全部所在分组移除，**含 VRC+ 专属收藏夹**）。写操作，confirm: true 才执行 |
+| `move_world_group` | **移动世界收藏分组**（2026-08-26 新增）：删旧建新，与 `move_friend_group` 同模式（官方客户端 2026.1.1 同款能力）。worldId + toGroup（tag 或 displayName，含 VRC+ 收藏夹）。写操作，confirm: true 才执行 |
+| `update_favorite_group` | **重命名/改可见性**（2026-08-26 新增）：PUT /favorite/group/{type}/{name}/{userId}。group（tag 或 displayName）必填；displayName（新名）/ visibility（friends/private/public）至少一个。⚠️ 设为 public 分组对他人可见，隐私敏感，须显式 confirm |
+| `clear_favorite_group` | **清空收藏分组**（2026-08-26 新增）：DELETE /favorite/group/{type}/{name}/{userId}，清空组内全部收藏（分组本身保留，重新收藏可加回）。group 必填；批量删除，destructive，confirm: true 才执行 |
 | `get_nicknames` / `set_nickname` | 好友昵称映射（查询/写入，本地库） |
 | `get_mutual_friends` | 共同好友列表：你与目标用户（userId 或 displayName 精确匹配）的共同好友，自动带本地昵称 |
 | `get_watchlist` / `add_to_watchlist` / `remove_from_watchlist` | 关注名单 |

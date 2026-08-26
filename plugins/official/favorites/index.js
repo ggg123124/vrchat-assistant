@@ -1,7 +1,60 @@
 export default function register(api) {
-  const FAVORITE_TAGS = ['worlds0', 'worlds1', 'worlds2', 'worlds3', 'worlds4'];
-  const DEFAULT_TAG = 'worlds0';
   const PAGE = 100;
+  const WORLD_TYPES = ['world', 'vrcPlusWorld'];
+
+  // 世界收藏类型推断：vrcPlusWorlds* → vrcPlusWorld，worlds* → world
+  function worldTypeByTag(tag) {
+    return (typeof tag === 'string' && tag.startsWith('vrcPlusWorld')) ? 'vrcPlusWorld' : 'world';
+  }
+
+  // 动态发现世界收藏分组（world + vrcPlusWorld）。withLimits=true 时合并 /auth/user/favoritelimits 的每分组容量。
+  async function discoverWorldGroups(withLimits = false) {
+    const groupsRaw = await api.vrchat.fetch('/favorite/groups?n=100');
+    const groups = Array.isArray(groupsRaw) ? groupsRaw : [];
+    let maxPerGroup = null;
+    if (withLimits) {
+      const limits = await api.vrchat.fetch('/auth/user/favoritelimits');
+      maxPerGroup = (limits && limits.maxFavoritesPerGroup && typeof limits.maxFavoritesPerGroup === 'object') ? limits.maxFavoritesPerGroup : null;
+    }
+    return groups
+      .filter(g => WORLD_TYPES.includes(g.type))
+      .map(g => ({
+        tag: g.name || '',
+        displayName: g.displayName || g.name || '',
+        type: g.type,
+        visibility: g.visibility || 'private',
+        ownerId: g.ownerId || '',
+        id: g.id || '',
+        capacity: maxPerGroup && typeof maxPerGroup[g.type] === 'number' ? maxPerGroup[g.type] : null,
+      }))
+      .sort((a, b) => a.tag.localeCompare(b.tag));
+  }
+
+  // 按 tag（worlds2）或 displayName（chill）匹配分组
+  function matchGroup(groups, query) {
+    if (!query) return null;
+    const q = String(query).toLowerCase();
+    return groups.find(g => g.tag.toLowerCase() === q)
+        || groups.find(g => g.displayName.toLowerCase() === q)
+        || null;
+  }
+
+  // 分页拉全当前账号全部世界收藏记录（world + vrcPlusWorld 两种类型）
+  async function fetchAllWorldFavoriteRecords() {
+    const all = [];
+    for (const type of WORLD_TYPES) {
+      let offset = 0;
+      while (true) {
+        const data = await api.vrchat.fetch(`/favorites?type=${type}&n=${PAGE}&offset=${offset}`);
+        if (!Array.isArray(data) || data.length === 0) break;
+        all.push(...data);
+        offset += PAGE;
+        if (data.length < PAGE) break;
+        if (offset >= 3000) break;
+      }
+    }
+    return all;
+  }
 
   // 从 display名精确匹配解析 userId
   async function resolveUserId({ userId, displayName }) {
@@ -62,22 +115,30 @@ export default function register(api) {
     if (!worldId || typeof worldId !== 'string' || !worldId.startsWith('wrld_')) {
       throw new Error('worldId is required and must start with wrld_');
     }
-    if (tag == null || tag === '') tag = DEFAULT_TAG;
-    if (!FAVORITE_TAGS.includes(tag)) {
-      throw new Error(`tag must be one of ${FAVORITE_TAGS.join('/')} (got "${tag}")`);
+    const groups = await discoverWorldGroups();
+    if (tag == null || tag === '') {
+      const def = groups.find(g => g.tag === 'worlds0') || groups[0];
+      if (!def) throw new Error('未找到可用的世界收藏分组');
+      tag = def.tag;
     }
+    const group = matchGroup(groups, tag);
+    if (!group) {
+      const available = groups.map(g => `${g.tag}${g.displayName && g.displayName !== g.tag ? `（${g.displayName}）` : ''}`).join(' / ');
+      throw new Error(`收藏分组未找到：${tag}。可用分组: ${available}`);
+    }
+    const type = worldTypeByTag(group.tag);
 
     try {
       const data = await api.vrchat.fetch('/favorites', {
         method: 'POST',
-        body: { type: 'world', favoriteId: worldId, tags: [tag] },
+        body: { type, favoriteId: worldId, tags: [group.tag] },
       });
       await api.consume('storage.setWorldFavorited', { worldId, favorited: 1 });
-      const result = { worldId, favorited: true, tag };
+      const result = { worldId, favorited: true, tag: group.tag, groupName: group.displayName, type };
       const cached = await api.consume('storage.getWorldName', worldId);
       const name = cached?.name || data?.name || data?.displayName;
       if (name) result.displayName = name;
-      api.log(`⭐ 云端收藏: ${worldId} → ${tag}`);
+      api.log(`⭐ 云端收藏: ${worldId} → ${group.tag} (${type})`);
       return result;
     } catch (e) {
       if (e.status >= 400) {
@@ -87,7 +148,9 @@ export default function register(api) {
         return {
           worldId,
           favorited: false,
-          tag,
+          tag: group.tag,
+          groupName: group.displayName,
+          type,
           error: { status: e.status, message: msg || `API error ${e.status}` },
         };
       }
@@ -99,24 +162,20 @@ export default function register(api) {
     if (!worldId || typeof worldId !== 'string' || !worldId.startsWith('wrld_')) {
       throw new Error('worldId is required and must start with wrld_');
     }
-    if (tag != null && tag !== '' && !FAVORITE_TAGS.includes(tag)) {
-      throw new Error(`tag must be one of ${FAVORITE_TAGS.join('/')} (got "${tag}")`);
+    // 解析目标分组（world + vrcPlusWorld 动态发现）
+    let targetTag = null;
+    if (tag != null && tag !== '') {
+      const groups = await discoverWorldGroups();
+      const group = matchGroup(groups, tag);
+      if (!group) throw new Error(`收藏分组未找到：${tag}（可用 get_my_favorite_groups 查看现有分组）`);
+      targetTag = group.tag;
     }
 
-    // 拉全收藏记录，找该世界（可按 tag 过滤）
-    const all = [];
-    let offset = 0;
-    while (true) {
-      const data = await api.vrchat.fetch(`/favorites?type=world&n=${PAGE}&offset=${offset}`);
-      if (!Array.isArray(data) || data.length === 0) break;
-      all.push(...data);
-      offset += PAGE;
-      if (data.length < PAGE) break;
-      if (offset >= 3000) break;
-    }
-    const records = all.filter(f => f.favoriteId === worldId && (!tag || (f.tags || [])[0] === tag));
+    // 拉全两种类型的世界收藏记录（含 VRC+ 专属），按 worldId + tag 过滤
+    const all = await fetchAllWorldFavoriteRecords();
+    const records = all.filter(f => f.favoriteId === worldId && (!targetTag || (f.tags || []).includes(targetTag)));
     if (records.length === 0) {
-      return { ok: false, worldId, removed: false, error: tag ? `该世界不在收藏分组「${tag}」中` : '该世界不在任何收藏分组中' };
+      return { ok: false, worldId, removed: false, error: targetTag ? `该世界不在收藏分组「${targetTag}」中` : '该世界不在任何收藏分组中' };
     }
 
     if (!confirm) {
@@ -138,9 +197,16 @@ export default function register(api) {
     return { ok: true, worldId, removed: true, removedGroups: records.map(r => (r.tags || [])[0]) };
   }
 
-  async function handleGetMyFavoriteWorlds({ limit = 500, sortBy = 'favorites' } = {}) {
+  async function handleGetMyFavoriteWorlds({ limit = 500, sortBy = 'favorites', group } = {}) {
     try {
-      const favs = await fetchAllFavoriteWorldsFull();
+      let favs = await fetchAllFavoriteWorldsFull();
+      if (group) {
+        const groups = await discoverWorldGroups();
+        const g = matchGroup(groups, group);
+        if (!g) throw new Error(`收藏分组未找到：${group}（可用 get_my_favorite_groups 查看现有分组）`);
+        favs = favs.filter(f => f.favoriteGroupName === g.tag);
+        api.log(`[favorite-worlds] 按分组过滤: ${g.tag}（${g.displayName}）`);
+      }
       if (favs.length === 0) {
         return { ok: true, total: 0, categories: [], worlds: [], message: '没有收藏的世界' };
       }
@@ -203,15 +269,34 @@ export default function register(api) {
     }
   }
 
-  async function handleGetMyFavoriteGroups() {
+  async function handleGetMyFavoriteGroups({ type } = {}) {
     try {
-      const data = await api.vrchat.fetch('/favorite/groups');
-      const groups = Array.isArray(data) ? data : [];
-      const worldGroups = groups.filter(g => g.type === 'world').map(g => ({
-        name: g.displayName || g.name || '',
-        capacity: g.visibility === 'private' ? null : (g?.capacity || 0),
-      }));
-      return { ok: true, groups: worldGroups };
+      const groups = await discoverWorldGroups(true);
+      const filtered = type && WORLD_TYPES.includes(type) ? groups.filter(g => g.type === type) : groups;
+
+      // 统计每组已用数（复用 /worlds/favorites 一次拉全）
+      let usedCounts = {};
+      try {
+        const favs = await fetchAllFavoriteWorldsFull();
+        usedCounts = {};
+        for (const f of favs) {
+          const tag = f.favoriteGroupName || '';
+          usedCounts[tag] = (usedCounts[tag] || 0) + 1;
+        }
+      } catch { /* 统计失败不影响分组列表 */ }
+
+      return {
+        ok: true,
+        groups: filtered.map(g => ({
+          tag: g.tag,
+          name: g.displayName,
+          type: g.type,
+          visibility: g.visibility,
+          capacity: g.capacity,
+          usedCount: usedCounts[g.tag] || 0,
+          id: g.id,
+        })),
+      };
     } catch (e) {
       return { ok: false, message: `拉取收藏分组失败: ${e.message}` };
     }
@@ -343,14 +428,96 @@ export default function register(api) {
     return { ok: true, userId: targetId, displayName: targetName, moved: true, fromGroups: oldRecords.map(r => (r.tags || [])[0]), toGroup: targetGroup.displayName || targetGroup.name };
   }
 
+  async function handleMoveWorldGroup({ worldId, toGroup, confirm }) {
+    if (!worldId || typeof worldId !== 'string' || !worldId.startsWith('wrld_')) {
+      throw new Error('worldId is required and must start with wrld_');
+    }
+    if (!toGroup) throw new Error('toGroup is required');
+    const groups = await discoverWorldGroups();
+    const target = matchGroup(groups, toGroup);
+    if (!target) throw new Error(`目标分组未找到：${toGroup}（可用 get_my_favorite_groups 查看现有分组）`);
+    const all = await fetchAllWorldFavoriteRecords();
+    const records = all.filter(f => f.favoriteId === worldId);
+    if (records.some(r => (r.tags || []).includes(target.tag))) {
+      return { ok: false, worldId, moved: false, error: `该世界已在目标分组「${target.displayName}」中` };
+    }
+    if (!confirm) {
+      const from = records.length > 0 ? records.map(r => (r.tags || [])[0]).join(', ') : '无分组';
+      return { worldId, toGroup: target.displayName, toTag: target.tag, fromGroups: records.map(r => (r.tags || [])[0]), confirmRequired: true, message: `将把该世界从「${from}」移动到「${target.displayName}」（删旧建新），请传 confirm: true 确认执行` };
+    }
+    for (const rec of records) {
+      try {
+        await api.vrchat.fetch(`/favorites/${rec.id}`, { method: 'DELETE' });
+      } catch (e) {
+        if (e.status !== 404 && e.status !== 400) throw e;
+      }
+    }
+    await api.vrchat.fetch('/favorites', {
+      method: 'POST',
+      body: { favoriteId: worldId, tags: [target.tag], type: worldTypeByTag(target.tag) },
+    });
+    try {
+      await api.consume('storage.setWorldFavorited', { worldId, favorited: 1 });
+    } catch { /* 本地标记失败不影响 */ }
+    api.log(`✅ move_world_group: ${worldId} → ${target.displayName} (${target.type})`);
+    return { ok: true, worldId, moved: true, fromGroups: records.map(r => (r.tags || [])[0]), toGroup: target.displayName, toTag: target.tag };
+  }
+
+  async function handleUpdateFavoriteGroup({ group, displayName, visibility, confirm }) {
+    if (!group) throw new Error('group is required（收藏夹 tag 或 displayName）');
+    if (displayName == null && visibility == null) throw new Error('displayName 或 visibility 至少填一个');
+    const groups = await discoverWorldGroups(true);
+    const g = matchGroup(groups, group);
+    if (!g) throw new Error(`收藏分组未找到：${group}（可用 get_my_favorite_groups 查看现有分组）`);
+    if (visibility != null && !['friends', 'private', 'public'].includes(visibility)) {
+      throw new Error(`visibility 必须是 friends/private/public（当前: ${visibility}）`);
+    }
+    const body = {};
+    if (displayName != null) body.displayName = displayName;
+    if (visibility != null) body.visibility = visibility;
+    if (!confirm) {
+      const parts = [];
+      if (displayName != null) parts.push(`displayName → ${displayName}`);
+      if (visibility != null) parts.push(`visibility → ${visibility}`);
+      const privacyNote = visibility === 'public' ? ' ⚠️ 设为 public 后收藏分组对他人可见' : '';
+      return { group: g.displayName, tag: g.tag, type: g.type, changes: { displayName, visibility }, confirmRequired: true, message: `将更新收藏分组「${g.displayName}」：${parts.join('；')}${privacyNote}，请传 confirm: true 确认执行` };
+    }
+    await api.vrchat.fetch(`/favorite/group/${g.type}/${encodeURIComponent(g.tag)}/${g.ownerId}`, {
+      method: 'PUT',
+      body,
+    });
+    api.log(`✅ update_favorite_group: ${g.tag} ${JSON.stringify(body)}`);
+    return { ok: true, group: g.displayName, tag: g.tag, type: g.type, updated: body };
+  }
+
+  async function handleClearFavoriteGroup({ group, confirm }) {
+    if (!group) throw new Error('group is required（收藏夹 tag 或 displayName）');
+    const groups = await discoverWorldGroups(true);
+    const g = matchGroup(groups, group);
+    if (!g) throw new Error(`收藏分组未找到：${group}（可用 get_my_favorite_groups 查看现有分组）`);
+    const all = await fetchAllWorldFavoriteRecords();
+    const count = all.filter(r => (r.tags || []).includes(g.tag)).length;
+    if (!confirm) {
+      return { group: g.displayName, tag: g.tag, type: g.type, count, confirmRequired: true, message: `将清空收藏分组「${g.displayName}」内的 ${count} 个收藏（重新收藏可加回），请传 confirm: true 确认执行` };
+    }
+    if (count === 0) {
+      // 空分组无内容可清，直接返回成功（DELETE 端点对空分组报 404 "favorites not found"）
+      api.log(`✅ clear_favorite_group: ${g.displayName}（空分组，无需清空）`);
+      return { ok: true, group: g.displayName, tag: g.tag, type: g.type, cleared: 0 };
+    }
+    await api.vrchat.fetch(`/favorite/group/${g.type}/${encodeURIComponent(g.tag)}/${g.ownerId}`, { method: 'DELETE' });
+    api.log(`✅ clear_favorite_group: ${g.displayName}（清空 ${count} 条）`);
+    return { ok: true, group: g.displayName, tag: g.tag, type: g.type, cleared: count };
+  }
+
   api.registerTool({
     name: 'favorite_world',
-    description: '[action·写操作] 把世界加入你的 VRChat 云端收藏夹（POST /favorites，云端写入，调用前请与用户确认）。tag 为收藏分组（worlds0/worlds1/worlds2/worlds3/worlds4，默认 worlds0）。成功后本地 world_cache 标记 favorited=1（供推荐加权）。API 拒绝（如重复收藏）时返回 favorited:false + error，不抛错。',
+    description: '[action·写操作] 把世界加入你的 VRChat 云端收藏夹（POST /favorites，云端写入，调用前请与用户确认）。tag 为收藏分组（worldsN / vrcPlusWorldsN 动态发现，含 VRC+ 专属收藏夹，默认 worlds0；支持传 displayName）。成功后本地 world_cache 标记 favorited=1（供推荐加权）。API 拒绝（如重复收藏）时返回 favorited:false + error，不抛错。',
     inputSchema: {
       type: 'object',
       properties: {
         worldId: { type: 'string', description: 'VRChat world id (wrld_...)' },
-        tag: { type: 'string', description: '收藏夹分组 tag（worlds0/worlds1/worlds2/worlds3/worlds4，默认 worlds0）' },
+        tag: { type: 'string', description: '收藏夹分组 tag 或 displayName（worlds0/worlds2/vrcPlusWorlds1 等动态发现，默认 worlds0）' },
       },
       required: ['worldId'],
     },
@@ -359,12 +526,12 @@ export default function register(api) {
 
   api.registerTool({
     name: 'unfavorite_world',
-    description: '[write·收藏] 从收藏分组移除世界（DELETE /favorites/{记录id}，可逆，重新 favorite_world 即可加回）。worldId 必填；tag 可选（省略 = 从全部所在分组移除）。写操作，confirm: true 才执行，否则只返回预览。',
+    description: '[write·收藏] 从收藏分组移除世界（DELETE /favorites/{记录id}，可逆，重新 favorite_world 即可加回）。worldId 必填；tag 可选（省略 = 从全部所在分组移除，含 VRC+ 专属收藏夹）。写操作，confirm: true 才执行，否则只返回预览。',
     inputSchema: {
       type: 'object',
       properties: {
         worldId: { type: 'string', description: 'VRChat world id (wrld_...)' },
-        tag: { type: 'string', description: '收藏夹分组 tag（worlds0/worlds1/worlds2/worlds3/worlds4，省略 = 从全部所在分组移除）' },
+        tag: { type: 'string', description: '收藏夹分组 tag 或 displayName（worldsN / vrcPlusWorldsN，省略 = 从全部所在分组移除）' },
         confirm: { type: 'boolean', description: 'Must be true to actually unfavorite. Default false returns preview only.' },
       },
       required: ['worldId'],
@@ -374,13 +541,61 @@ export default function register(api) {
   });
 
   api.registerTool({
+    name: 'move_world_group',
+    description: '[write·收藏] 把世界移动到另一收藏分组（删旧建新，与 move_friend_group 同模式；官方客户端 2026.1.1 同款能力）。worldId 必填；toGroup 为分组 tag 或 displayName（含 VRC+ 专属收藏夹）。写操作，confirm: true 才执行。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        worldId: { type: 'string', description: 'VRChat world id (wrld_...)' },
+        toGroup: { type: 'string', description: '目标收藏分组 tag 或 displayName（worldsN / vrcPlusWorldsN）' },
+        confirm: { type: 'boolean', description: 'Must be true to actually move. Default false returns preview only.' },
+      },
+      required: ['worldId', 'toGroup'],
+    },
+    destructive: true,
+    handler: async (args) => handleMoveWorldGroup(args),
+  });
+
+  api.registerTool({
+    name: 'update_favorite_group',
+    description: '[write·收藏] 重命名收藏分组或修改可见性（PUT /favorite/group/{type}/{name}/{userId}）。group 为分组 tag 或 displayName；displayName（新名）/ visibility（friends/private/public）至少填一个。⚠️ 设为 public 会使收藏分组公开可见，隐私敏感，须显式 confirm。写操作，confirm: true 才执行。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        group: { type: 'string', description: '收藏分组 tag 或 displayName（worldsN / vrcPlusWorldsN）' },
+        displayName: { type: 'string', description: '新的分组显示名（重命名）' },
+        visibility: { type: 'string', enum: ['friends', 'private', 'public'], description: '可见性：private=仅自己 / friends=好友可见 / public=公开（隐私敏感）' },
+        confirm: { type: 'boolean', description: 'Must be true to actually update. Default false returns preview only.' },
+      },
+      required: ['group'],
+    },
+    handler: async (args) => handleUpdateFavoriteGroup(args),
+  });
+
+  api.registerTool({
+    name: 'clear_favorite_group',
+    description: '[write·收藏] 清空某收藏分组内全部收藏（DELETE /favorite/group/{type}/{name}/{userId}，语义=清空组内收藏，分组本身保留；重新收藏可加回）。group 为分组 tag 或 displayName。批量删除，destructive，confirm: true 才执行。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        group: { type: 'string', description: '收藏分组 tag 或 displayName（worldsN / vrcPlusWorldsN）' },
+        confirm: { type: 'boolean', description: 'Must be true to actually clear. Default false returns preview only.' },
+      },
+      required: ['group'],
+    },
+    destructive: true,
+    handler: async (args) => handleClearFavoriteGroup(args),
+  });
+
+  api.registerTool({
     name: 'get_my_favorite_worlds',
-    description: '[查询·收藏] 拉取当前账号收藏的全部世界，按标签分类（🎮游戏/👻恐怖/🎵音乐体验/🌄风景观光/🧍Avatar模型/🍻社交聚会/😴休闲睡觉/📷拍照/其他），返回世界名/作者/收藏/浏览/简介/分类。数据经 GET /worlds/favorites 分页一次拉全（含实时 occupants），秒级返回，无需逐个查详情。',
+    description: '[查询·收藏] 拉取当前账号收藏的全部世界（含 VRC+ 专属收藏夹），按标签分类（🎮游戏/👻恐怖/🎵音乐体验/🌄风景观光/🧍Avatar模型/🍻社交聚会/😴休闲睡觉/📷拍照/其他），返回世界名/作者/收藏/浏览/简介/分类。数据经 GET /worlds/favorites 分页一次拉全（含实时 occupants），秒级返回，无需逐个查详情。group 参数可按收藏夹过滤。',
     inputSchema: {
       type: 'object',
       properties: {
         limit: { type: 'number', description: '每类返回条数上限，默认 500' },
         sortBy: { type: 'string', enum: ['favorites', 'visits', 'name', 'added'], description: '排序方式（added=按收藏时间倒序，最新添加在前，基于 /favorites 返回顺序；默认 favorites）' },
+        group: { type: 'string', description: '按收藏夹过滤（tag 或 displayName，如 vrcPlusWorlds1 / chill，默认全部）' },
       },
     },
     handler: async (args) => handleGetMyFavoriteWorlds(args),
@@ -388,8 +603,13 @@ export default function register(api) {
 
   api.registerTool({
     name: 'get_my_favorite_groups',
-    description: '[查询·收藏] 列出当前账号的世界收藏分组（收藏夹名，含容量上限 capacity）。',
-    inputSchema: { type: 'object', properties: {} },
+    description: '[查询·收藏] 列出当前账号的世界收藏分组（world + vrcPlusWorld 两种类型，含 VRC+ 专属收藏夹），返回 tag/显示名/类型/可见性/容量 capacity（来自 /auth/user/favoritelimits）/已用数/分组 id。type 可选过滤。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        type: { type: 'string', enum: ['world', 'vrcPlusWorld'], description: '按类型过滤（默认返回全部）' },
+      },
+    },
     handler: async (args) => handleGetMyFavoriteGroups(args),
   });
 

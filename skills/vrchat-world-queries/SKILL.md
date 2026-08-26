@@ -46,7 +46,7 @@ metadata:
 - 参数：`theme` / `excludeTheme` / `sources` / `excludeVisited`
 - 评分模型：热度 + 新鲜度 + 主题 + 作者画像（30 天窗口熟客）
 - 输出带 `reasons`（如 `熟悉度39 + 黄金区63% + group+3` 粒度）
-- 用户反馈工具：`rate_world {worldId, rating: 1|-1|0}`（好图加权/烂图降权）、`mark_world_visited {worldId}`（事件驱动 visited 会漏记，开图闭环手动确认）、`favorite_world {worldId, group?}`（云端收藏，tags 必须映射 worldsN 分组，写操作需确认）
+- 用户反馈工具：`rate_world {worldId, rating: 1|-1|0}`（好图加权/烂图降权）、`mark_world_visited {worldId}`（事件驱动 visited 会漏记，开图闭环手动确认）、`favorite_world {worldId, tag?}`（云端收藏，tag 为 `worldsN` / `vrcPlusWorldsN` 动态分组，含 VRC+ 专属收藏夹，写操作需确认）、`move_world_group {worldId, toGroup}`（世界在收藏分组间移动）、`update_favorite_group {group, displayName?}`（重命名分组）、`clear_favorite_group {group}`（清空分组内收藏，destructive 需 confirm）
 
 **作者维度**：作者画像按 `author_id` 聚合（个人偏好 > 圈层热度 > 纯热度，3:1:1 起步），⚠️ **必须用 author_id 匹配不用 author_name**（作者可改名）。
 
