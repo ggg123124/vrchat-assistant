@@ -75,34 +75,37 @@ export default function register(api) {
   }
 
   // ════════════ 数据源 1：VRC Search（SSR HTML）════════════
-  // 类别 × 时间窗 矩阵抓取。返回卡片数组。
-  async function collectVrcSearch(opts) {
-    const CATEGORIES = ['music', 'dance', 'hangout', 'gaming', 'roleplaying', 'performance', 'education'];
-    const WINDOWS = ['next-week', 'next-month'];
-    const opened = [];
-    for (const cat of CATEGORIES) {
-      for (const win of WINDOWS) {
-        const url = `https://search.vrcwwt.com/events/${cat}/${win}/`;
-        try {
-          const page = await httpGet(url);
-          opened.push(...parseVrcSearchCards(page, cat, win, 'multi'));
-        } catch (e) { /* 单页失败跳过 */ }
-      }
-    }
-    // 语言码 × 类别（zh/ja/ko 细分，中文/韩文主来源）
-    for (const langCode of ['zh', 'ja', 'ko']) {
+    // 类别 × 时间窗 矩阵抓取。返回 { events[], okCount, failCount }（okCount/failCount 供 sourceBreakdown 区分「源不可达」与「无活动」）。
+    async function collectVrcSearch(opts) {
+      const CATEGORIES = ['music', 'dance', 'hangout', 'gaming', 'roleplaying', 'performance', 'education'];
+      const WINDOWS = ['next-week', 'next-month'];
+      const opened = [];
+      let okCount = 0, failCount = 0; // 单页请求成功/失败数（403/超时 = 不可达）
       for (const cat of CATEGORIES) {
         for (const win of WINDOWS) {
-          const url = `https://search.vrcwwt.com/${langCode}/events/${cat}/${win}/`;
+          const url = `https://search.vrcwwt.com/events/${cat}/${win}/`;
           try {
             const page = await httpGet(url);
-            opened.push(...parseVrcSearchCards(page, cat, win, langCode));
-          } catch (e) { /* skip */ }
+            okCount++;
+            opened.push(...parseVrcSearchCards(page, cat, win, 'multi'));
+          } catch (e) { failCount++; }
         }
       }
+      // 语言码 × 类别（zh/ja/ko 细分，中文/韩文主来源）
+      for (const langCode of ['zh', 'ja', 'ko']) {
+        for (const cat of CATEGORIES) {
+          for (const win of WINDOWS) {
+            const url = `https://search.vrcwwt.com/${langCode}/events/${cat}/${win}/`;
+            try {
+              const page = await httpGet(url);
+              okCount++;
+              opened.push(...parseVrcSearchCards(page, cat, win, langCode));
+            } catch (e) { failCount++; }
+          }
+        }
+      }
+      return { events: opened, okCount, failCount };
     }
-    return opened;
-  }
 
   function parseVrcSearchCards(page, category, win, lang) {
     const cards = page.split('<article class="list-group-item result-row result-row-event">').slice(1);
@@ -591,12 +594,26 @@ export default function register(api) {
 
     api.log(`🔍 采集活动 window=${opts.window} focus=${opts.focus} sources=${opts.sources.join(',')}`);
 
-    // 采集（限流友好：串行，逐源）
-    let collected = [];
-    if (wantVrcSearch) { const r = await collectVrcSearch(opts); collected = collected.concat(r); }
-    if (wantRlvrc) { const r = await collectRlvrc(); collected = collected.concat(r); }
-    if (wantVrceve) { const r = await collectGoogleCalendar(GOOGLE_CAL_VRCEVE, 'VRCEve', 'ja', minD, maxD); collected = collected.concat(r); }
-    if (wantKr) { const r = await collectGoogleCalendar(GOOGLE_CAL_KR, 'VRCEvent KR', 'ko', minD, maxD); collected = collected.concat(r); }
+    // 采集（限流友好：串行，逐源）。记录每源 ok/fail 供 sourceBreakdown 区分「源不可达」与「无活动」。
+        let collected = [];
+        const srcStatus = {};
+        if (wantVrcSearch) {
+          const r = await collectVrcSearch(opts);
+          collected = collected.concat(r.events);
+          srcStatus.vrcsearch = { ok: r.okCount, fail: r.failCount };
+        }
+        if (wantRlvrc) {
+          try { collected = collected.concat(await collectRlvrc()); srcStatus.rlvrc = { ok: 1, fail: 0 }; }
+          catch (e) { srcStatus.rlvrc = { ok: 0, fail: 1 }; }
+        }
+        if (wantVrceve) {
+          try { collected = collected.concat(await collectGoogleCalendar(GOOGLE_CAL_VRCEVE, 'VRCEve', 'ja', minD, maxD)); srcStatus.vrceve = { ok: 1, fail: 0 }; }
+          catch (e) { srcStatus.vrceve = { ok: 0, fail: 1 }; }
+        }
+        if (wantKr) {
+          try { collected = collected.concat(await collectGoogleCalendar(GOOGLE_CAL_KR, 'VRCEvent KR', 'ko', minD, maxD)); srcStatus.vrckr = { ok: 1, fail: 0 }; }
+          catch (e) { srcStatus.vrckr = { ok: 0, fail: 1 }; }
+        }
 
     // 去重（name 规范化 + 日期）
     const seen = new Set();
@@ -636,10 +653,15 @@ export default function register(api) {
     }
 
     // 语言过滤
-    let events = dedup;
-    if (!opts.languages.includes('all')) {
-      events = events.filter(e => opts.languages.includes(e.lang));
-    }
+        let events = dedup;
+        if (!opts.languages.includes('all')) {
+          // multi/空/all 视为通配：任意语言筛选都保留（VRC Search 源的所有活动 lang 标 multi）
+          events = events.filter(e => {
+            const L = (e.lang || '').toLowerCase();
+            if (L === '' || L === 'multi' || L === 'all') return true;
+            return opts.languages.includes(e.lang);
+          });
+        }
 
     // 筛选 focus
     if (opts.focus === 'music') {
@@ -698,11 +720,13 @@ export default function register(api) {
         },
       },
       sourceBreakdown: {
-        vrcsearch: collected.filter(e => e.src === 'VRC Search').length,
-        rlvrc: collected.filter(e => e.src === 'RLVRC').length,
-        vrceve: collected.filter(e => e.src === 'VRCEve').length,
-        vrckr: collected.filter(e => e.src === 'VRCEvent KR').length,
-      },
+              // 每源 { count, ok, fail }：count=采集条数；ok/fail=请求成功/失败数。
+              // 判读：ok>0 且 count=0 → 「源可访问但无活动」；ok=0 且 fail>0 → 「源不可达(403/超时/地域限制)」。
+              vrcsearch: { count: collected.filter(e => e.src === 'VRC Search').length, ...(srcStatus.vrcsearch || {}) },
+              rlvrc: { count: collected.filter(e => e.src === 'RLVRC').length, ...(srcStatus.rlvrc || {}) },
+              vrceve: { count: collected.filter(e => e.src === 'VRCEve').length, ...(srcStatus.vrceve || {}) },
+              vrckr: { count: collected.filter(e => e.src === 'VRCEvent KR').length, ...(srcStatus.vrckr || {}) },
+            },
       counts: { collected: collected.length, deduped: dedup.length, output: events.length },
       groupsMined: toMine.filter(e => e.group_id).length,
       events: events.map(enrichEvent).slice(0, Math.min(Math.max(parseInt(args.limit, 10) || 200, 1), 500)),
@@ -761,12 +785,12 @@ export default function register(api) {
         window: { type: 'string', enum: ['week', 'month', 'tonight'], default: 'week', description: '时间窗：week(近8天)/month(近31天)/tonight(今晚到明早)' },
         focus: { type: 'string', enum: ['all', 'music', 'vtuber'], default: 'all', description: 'focus=music 时筛音乐∪虚拟主播活动' },
         sources: { type: 'string', default: 'all', description: '逗号分隔数据源: vrcsearch,rlvrc,vrceve,vrckr (默认 all)' },
-        languages: { type: 'string', default: 'all', description: '逗号分隔语言筛: zh,ja,ko,en (默认 all)' },
-        minMembers: { type: 'number', default: 0, description: '只保留群组人数 ≥ 该值的活动' },
-        maxMine: { type: 'number', default: 60, description: '群组深度挖掘的活动数上限(0~300，受 API 限流约 2.6s/个，短码优先)' },
-        peekGroups: { type: 'boolean', default: false, description: '窥探已挖掘群组的公告作为侧面补充源（有副作用：会加入→读公告→退出，成员可见加入通知）' },
-        startDate: { type: 'string', description: '自定义开始日期 YYYY-MM-DD（与 endDate 成对，覆盖 window）' },
-        endDate: { type: 'string', description: '自定义结束日期 YYYY-MM-DD' },
+        languages: { type: 'string', default: 'all', description: '逗号分隔语言筛: zh,ja,ko,en (默认 all)。注：VRC Search 源活动 lang 标 multi（多语言），视为通配在任何语言筛下都保留' },
+                minMembers: { type: 'number', default: 0, description: '只保留群组人数 ≥ 该值的活动' },
+                maxMine: { type: 'number', default: 60, description: '群组深度挖掘的活动数上限(0~300，受 API 限流约 2.6s/个，短码优先)' },
+                peekGroups: { type: 'boolean', default: false, description: '窥探已挖掘群组的公告作为侧面补充源（有副作用：会加入→读公告→退出，成员可见加入通知）' },
+                startDate: { type: 'string', description: '自定义开始日期 YYYY-MM-DD（与 endDate 成对）。仅作用于 Google Calendar 源(VRCEve/VRCEvent-KR)；VRC Search 固定抓 next-week/month、RLVRC 固定抓全量，不受此 参数约束' },
+                endDate: { type: 'string', description: '自定义结束日期 YYYY-MM-DD（同 startDate，仅作用于 Google Calendar 源）' },
         limit: { type: 'number', default: 200, description: '返回的活动条数上限(≤500)' },
       },
     },

@@ -42,7 +42,8 @@ description: VRChat 社区活动聚合插件：多源采集、群组深度挖掘
 - `minMembers`：只保留群组人数 ≥ 该值
 - `maxMine`：群组深挖的活动数上限（0~300，受 API 限流约 2.6s/个，短码优先）
 - `peekGroups`：窥探已挖掘群组公告做侧补充源（有副作用：加入→读→退出）
-- `startDate` / `endDate`：自定义日期（覆盖 window）
+- `startDate` / `endDate`：自定义日期（成对，**仅作用于 Google Calendar 源** VRCEve/VRCEvent-KR；VRC Search 固定抓 next-week/month、RLVRC 固定抓全量，不受此参数约束）
+- `languages`：逗号分隔语言筛 zh/ja/ko/en（默认 all）。注：VRC Search 源活动 lang 标 `multi`（多语言），**视为通配**——任何语言筛下都保留，不会被 languages=zh/ja/en 筛掉
 - `limit`：返回条数上限(≤500)
 
 ## Google Calendar API Key 配置
