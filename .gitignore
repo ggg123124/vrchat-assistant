@@ -8,6 +8,9 @@ notify-config.json
 *.sqlite3-journal
 monitor.log
 data/
+# events 插件 config.json（可存 Google API key 兜底，防 git add . 泄 key，走 DB/env 优先）
+plugins/**/config.json
+api_calendar_config.json
 
 # ── 环境与运行时 ──
 .env

@@ -48,12 +48,21 @@ description: VRChat 社区活动聚合插件：多源采集、群组深度挖掘
 
 ## Google Calendar API Key 配置
 
-VRCEve / VRCEvent-KR 数据源需要使用者自己的 Google API Key（这三个源是 Google Calendar 公开日历）。**此 Key 是使用者的，不是本服务凭据**：
-- 未配置时这两个源跳过，`fetch_community_events` 返回的 `configStatus.googleKeySetupGuide` 给出创建 Key 的指引网址
+VRCEve / VRCEvent-KR 数据源需要使用者自己的 Google API Key（这两个源是 Google Calendar 公开日历）。**此 Key 是使用者的，不是本服务凭据**：
+- **推荐优先用环境变量 `VRC_MONITOR_GCAL_CRED`**（不落地、不提交）；`set_community_events_google_key` 存数据库次之；插件目录 `config.json` 仅作最后兜底（已加 `.gitignore` 排除，防 `git add .` 泄 key）。
+- 未配置时这两个源跳过，`fetch_community_events` 返回的 `configStatus.googleKeySetupGuide` 给出创建 Key 的指引网址；`sourceBreakdown` 用 `not_queried:true` 明确标注「未查询」，不会伪装成「源可达但无活动」。
 - 创建后经 `set_community_events_google_key` 录入（存数据库 `plg_events_config`，非明文配置文件）
-- 也支持 `VRC_MONITOR_GCAL_CRED` 环境变量（注意避开 loader 敏感词，勿含 KEY/SECRET/TOKEN 等）
+- 环境变量名刻意避开 KEY/SECRET/TOKEN/PASSWORD/COOKIE/AUTH 子串（避免插件 loader 敏感词扫描）
 
 创建网址：<https://console.cloud.google.com/apis/credentials>（启用 Calendar API：<https://console.cloud.google.com/apis/library/calendar-googleapis.com>）
+
+## 网络代理（中国大陆必需）
+
+Google Calendar（VRCEve / VRCEvent-KR）在需代理的网络环境下**必须走代理**才能访问。插件 `httpGet` 复用仓库核心 `core/fetch-x-worlds.js` 的「先代理后直连」模式（`HttpsProxyAgent`），自动读取环境变量：
+- `VRC_MONITOR_HTTP_PROXY`（优先）或 `HTTPS_PROXY` / `https_proxy` / `HTTP_PROXY` / `http_proxy`
+- 未配置代理时自动直连（VRC Search / RLVRC 等无需代理的中文源照常工作）
+
+代理环境（如 Clash 127.0.0.1:7892）下部署示例：`HTTPS_PROXY=http://127.0.0.1:7892 node start-monitor.js`。代理不可达时自动回退直连。
 
 ## 开发与验证
 

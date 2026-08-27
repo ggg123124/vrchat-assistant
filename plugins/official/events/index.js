@@ -21,10 +21,14 @@
  * =====================================================================
  */
 
-// ── 配置来源（插件目录内 config.json 优先；VRC_MONITOR_GCAL_CRED 环境变量兜底）──
+// ── 配置来源（DB 优先 + 环境变量；config.json 仅作非敏感兜底，已入 .gitignore 防泄 key）──
 import { readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
+import http from 'node:http';
+import https from 'node:https';
+import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
+import { HttpsProxyAgent } from 'https-proxy-agent';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // 注意：环境变量名刻意避开 KEY/SECRET/TOKEN/PASSWORD/COOKIE/AUTH 子串，
@@ -32,6 +36,78 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const GOOGLE_KEY_ENV = process.env.VRC_MONITOR_GCAL_CRED;
 const GOOGLE_CAL_VRCEVE = '0058cd78d2936be61ca77f27b894c73bfae9f1f2aa778a762f0c872e834ee621@group.calendar.google.com';
 const GOOGLE_CAL_KR = 'vrchatcalendarkr@gmail.com';
+
+// ── 代理解析：与核心 core/fetch-x-worlds.js resolveProxy 同源（读同一批 env，兼容仓库既有网络规范）──
+// 显式 VRC_MONITOR_HTTP_PROXY 优先，否则 HTTPS_PROXY/https_proxy/HTTP_PROXY/http_proxy 兜底。
+// 未配置代理 → 直连（中国大陆需代理才能访问 Google Calendar 时靠 env 注入，见 SKILL.md）。
+function resolveProxy() {
+  const env = process.env;
+  return env.VRC_MONITOR_HTTP_PROXY || env.HTTPS_PROXY || env.https_proxy
+    || env.HTTP_PROXY || env.http_proxy || '';
+}
+
+// ── 通用 HTTP fetch（外部数据站）：先代理后直连（复用仓库 core 的无障碍 HTTP 模式）
+//   用 node:http/https + 可选 HttpsProxyAgent + 手动 gzip/deflate 解压，读 HTTPS_PROXY。
+//   返回 { status, headers, body }；全部失败抛 FETCH_FAILED（带各路径错误）。
+function httpRequest(url, { headers = {}, method = 'GET', body = null, timeoutMs = 20000, agent = null } = {}) {
+  return new Promise((resolve, reject) => {
+    const isHttps = url.startsWith('https:');
+    const lib = isHttps ? https : http;
+    const opts = { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/126.0.0.0', ...headers }, method };
+    if (agent) opts.agent = agent;
+    const req = lib.request(url, opts, (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => {
+        const buf = Buffer.concat(chunks);
+        const enc = String(res.headers['content-encoding'] || '').toLowerCase();
+        let body;
+        try {
+          if (enc === 'gzip' || enc === 'x-gzip') body = zlib.gunzipSync(buf).toString('utf-8');
+          else if (enc === 'deflate') body = zlib.inflateSync(buf).toString('utf-8');
+          else body = buf.toString('utf-8');
+        } catch { body = buf.toString('utf-8'); }
+        resolve({ status: res.statusCode || 0, headers: res.headers || {}, body });
+      });
+    });
+    req.on('error', (e) => reject(e));
+    req.setTimeout(timeoutMs, () => req.destroy(new Error('timeout')));
+    if (body) req.write(body);
+    req.end();
+  });
+}
+
+function tryFetchWithProxy(url, opts = {}) {
+  const proxy = resolveProxy();
+  const errors = [];
+  return (async () => {
+    if (proxy) {
+      try {
+        const agent = new HttpsProxyAgent(proxy);
+        return await httpRequest(url, { ...opts, agent });
+      } catch (e) { errors.push(`代理(${proxy})失败: ${e.code || e.message}`); }
+    }
+    // 直连（无代理配置，或代理失败回退）
+    try {
+      return await httpRequest(url, opts);
+    } catch (e) { errors.push(`直连失败: ${e.code || e.message}`); }
+    const err = new Error(errors.join('；'));
+    err.code = 'FETCH_FAILED';
+    throw err;
+  })();
+}
+
+async function httpGet(url, opts = {}) {
+  // 统一入口：JSON 源自动 parse，HTML 源返回文本。
+  const r = await tryFetchWithProxy(url, { timeoutMs: opts.timeoutMs || 20000 });
+  if (r.status < 200 || r.status >= 300) throw new Error(`HTTP ${r.status}: ${url}`);
+  const ct = String(r.headers['content-type'] || '');
+  try {
+    return ct.includes('json') ? JSON.parse(r.body) : r.body;
+  } catch {
+    return r.body;
+  }
+}
 
 export default function register(api) {
   // ── Google Calendar API key 来源（使用者的 Google API Key，非本服务凭据）──
@@ -206,25 +282,27 @@ export default function register(api) {
       return [];
     }
     const out = [];
-    for (const it of items) {
-      const summary = (it.summary || '').trim();
-      if (!summary) continue;
-      const start = it.start?.dateTime || it.start?.date || '';
-      const end = it.end?.dateTime || it.end?.date || '';
-      const desc = it.description || '';
-      const sc = (desc.match(/vrc\.group\/([A-Za-z0-9.]+)/i) || [])[1] || '';
-      out.push({
-        name: summary.slice(0, 100), start, end,
-        category: '', category_zh: '', lang, languages: [lang === 'ja' ? '日本語' : '한국어'],
-        desc: desc.slice(0, 500), group_id: '', group_name: '',
-        shortcode: sc ? sc.toUpperCase() : '', cal_id: '', image: '',
-        join_info: parseJoinInfo(desc), src,
-      });
-    }
-    return out;
-  }
+        for (const it of items) {
+          const summary = (it.summary || '').trim();
+          if (!summary) continue;
+          const start = it.start?.dateTime || it.start?.date || '';
+          const end = it.end?.dateTime || it.end?.date || '';
+          const desc = it.description || '';
+          const sc = (desc.match(/vrc\.group\/([A-Za-z0-9.]+)/i) || [])[1] || '';
+          out.push({
+            name: summary.slice(0, 100), start, end,
+            category: '', category_zh: '', lang, languages: [lang === 'ja' ? '日本語' : '한국어'],
+            desc: desc.slice(0, 500), group_id: '', group_name: '',
+            shortcode: sc ? sc.toUpperCase() : '', cal_id: '', image: '',
+            join_info: parseJoinInfo(desc), src,
+            // Google Calendar 权威时区（Asia/Tokyo / Asia/Seoul），KST/JST 判别依据
+            time_zone: it.start?.timeZone || it.end?.timeZone || (it.originalStartTime && it.originalStartTime.timeZone) || '',
+          });
+        }
+        return out;
+      }
 
-  function parseJoinInfo(desc) {
+      function parseJoinInfo(desc) {
     const m = desc.match(/【参加方法】\s*([\s\S]*?)(?:【備考】|【参加条件|$)/);
     const s = m ? m[1].replace(/\s+/g, ' ').trim() : '';
     if (!s) return '';
@@ -441,46 +519,50 @@ export default function register(api) {
   //   naive（无时区，VRC Search 输出 UTC，见 JSON-LD）按 languages/lang 判本地偏移；
   //   aware（VRCEve +09:00=JST）直接用自带偏移。
   function eventTzInfo(e) {
-    const out = { start_local: '', start_bj: '', tz_label: '', tz_offset: 0 };
-    const t = e && e.start;
-    if (!t) return out;
-    const BJ_OFF = 8 * 3600 * 1000;
-    try {
-      const raw = String(t);
-      // 判断 naive（原始无时区，VRC Search 输出 UTC）vs aware（VRCEve +09:00）
-      const hasTz = /[zZ]|[+-]\d{2}:?\d{2}$|[+-]\d{4}$/.test(raw.trim());
-      if (!hasTz) {
-        // naive: 当 UTC。本地偏移按社团语言，北京=UTC+8
-        const iso = raw.trim().replace(' ', 'T') + 'Z';   // 补 Z 当 UTC
-        const utcMs = Date.parse(iso);
-        if (isNaN(utcMs)) return out;
-        const offH = localOffsetHs(e);
-        out.start_local = fmtDtUtc(utcMs + offH * 3600 * 1000);
-        out.start_bj = fmtDtUtc(utcMs + BJ_OFF);
-        out.tz_offset = offH;
-        out.tz_label = tzName(offH);
-      } else {
-        // aware: 自带偏移。北京=偏移→UTC再+8；本地=原时区字段
-        const iso = raw.trim().replace(' ', 'T');
-        const dt = new Date(iso);
-        if (isNaN(dt.getTime())) return out;
-        // Date.parse(iso) 直接就是 UTC 纪元毫秒（已按 ISO 自带偏移换算）
-        const utcMs = Date.parse(iso);
-        // 解析字符串里显式的偏移（若 ISO 有偏移）；无则推断为 0
-        const oz = String(iso).match(/[+-](\d{2}):?(\d{2})$/);
-        const offH = oz ? (+oz[1] + (+oz[2] / 60)) : 0;
-        out.start_local = rawLocal(iso);                    // 本地=原时区字段
-        out.start_bj = fmtDtUtc(utcMs + BJ_OFF);            // 北京=UTC+8
-        out.tz_offset = offH;
-        out.tz_label = tzName(offH);
-      }
-    } catch (err) {}
-    const js = String(t);
-    if (js.includes('+09:00') || js.includes('+0900')) { out.tz_label = 'JST'; out.tz_offset = 9; }
-    else if (js.includes('+08:00')) { out.tz_label = '北京时间'; out.tz_offset = 8; }
-    else if (js.includes('+00:00') || js.endsWith('Z')) { out.tz_label = 'UTC'; out.tz_offset = 0; }
-    return out;
-  }
+      const out = { start_local: '', start_bj: '', tz_label: '', tz_offset: 0 };
+      const t = e && e.start;
+      if (!t) return out;
+      const BJ_OFF = 8 * 3600 * 1000;
+      try {
+        const raw = String(t);
+        // 判断 naive（原始无时区，VRC Search 输出 UTC）vs aware（VRCEve +09:00）
+        const hasTz = /[zZ]|[+-]\d{2}:?\d{2}$|[+-]\d{4}$/.test(raw.trim());
+        if (!hasTz) {
+          // naive: 当 UTC。本地偏移按社团语言，北京=UTC+8
+          const iso = raw.trim().replace(' ', 'T') + 'Z';   // 补 Z 当 UTC
+          const utcMs = Date.parse(iso);
+          if (isNaN(utcMs)) return out;
+          const offH = localOffsetHs(e);
+          out.start_local = fmtDtUtc(utcMs + offH * 3600 * 1000);
+          out.start_bj = fmtDtUtc(utcMs + BJ_OFF);
+          out.tz_offset = offH;
+          out.tz_label = tzName(offH, e);
+        } else {
+          // aware: 自带偏移。北京=偏移→UTC再+8；本地=原时区字段
+          const iso = raw.trim().replace(' ', 'T');
+          const dt = new Date(iso);
+          if (isNaN(dt.getTime())) return out;
+          // Date.parse(iso) 直接就是 UTC 纪元毫秒（已按 ISO 自带偏移换算）
+          const utcMs = Date.parse(iso);
+          // 解析字符串里显式的偏移（若 ISO 有偏移）；无则推断为 0
+          const oz = String(iso).match(/[+-](\d{2}):?(\d{2})$/);
+          const offH = oz ? (+oz[1] + (+oz[2] / 60)) : 0;
+          out.start_local = rawLocal(iso);                    // 本地=原时区字段
+          out.start_bj = fmtDtUtc(utcMs + BJ_OFF);            // 北京=UTC+8
+          out.tz_offset = offH;
+          out.tz_label = tzName(offH, e);
+        }
+      } catch (err) {}
+      const js = String(t);
+      // 用 Google Calendar 权威 timeZone 区分 KST/JST（同偏移 +09:00，但名不同）；默认按偏移
+      const tz = String(e.time_zone || '');
+      if (tz.includes('Seoul')) { out.tz_label = 'KST'; out.tz_offset = 9; }
+      else if (tz.includes('Tokyo')) { out.tz_label = 'JST'; out.tz_offset = 9; }
+      else if (js.includes('+09:00') || js.includes('+0900')) { out.tz_label = (String(e.lang) === 'ko') ? 'KST' : 'JST'; out.tz_offset = 9; }
+      else if (js.includes('+08:00')) { out.tz_label = '北京时间'; out.tz_offset = 8; }
+      else if (js.includes('+00:00') || js.endsWith('Z')) { out.tz_label = 'UTC'; out.tz_offset = 0; }
+      return out;
+    }
 
   function localOffsetHs(e) {
     const langs = (e.languages || []).join(' ') + ' ' + String(e.lang || '').toLowerCase();
@@ -493,9 +575,11 @@ export default function register(api) {
     return -4; // 默认国际美东
   }
 
-  function tzName(offH) {
-    return { 9: 'JST', '-4': 'ET', 3: 'MSK', 8: '北京时间' }[offH] || `UTC${offH >= 0 ? '+' : ''}${offH}`;
-  }
+  function tzName(offH, e) {
+      // JST/KST 同偏移 +09:00，靠 e.lang/time_zone 区分（韩国日历应标 KST）
+      if (offH === 9) return (String((e && e.time_zone) || '').includes('Seoul') || String(((e || {}).lang || '')) === 'ko') ? 'KST' : 'JST';
+      return { '-4': 'ET', 3: 'MSK', 8: '北京时间' }[offH] || `UTC${offH >= 0 ? '+' : ''}${offH}`;
+    }
 
   // 按 UTC 字段格式化时间戳(millis)，不依赖服务器本地时区（跨平台约束 §3.6）
   function fmtDtUtc(ms) {
@@ -530,13 +614,25 @@ export default function register(api) {
     e.tz_offset = tz.tz_offset;
     // join_info 中文规则化（VRCEve 日文原文 → 中文指示）
     e.join_info_zh = joinInfoZh(e.join_info || (e.desc || ''), e.group_name);
-    // category_zh 已有，若缺按 category 映射
-    if (!e.category_zh) e.category_zh = CAT_ZH_EVENTS[e.category] || e.category || '';
+    // category_zh 已有，若缺按 category 映射或从描述关键词推断（GC/RLVRC 源 category 为空）
+        e.category_zh = e.category_zh || CAT_ZH_EVENTS[e.category] || e.category || inferCategoryZh(e) || '';
     return e;
   }
 
   // VRCEve 【参加方法】日文 → 中文参加方式（规则化，技能 §7）
-  function joinInfoZh(info, groupName) {
+    function inferCategoryZh(e) {
+      // Google Calendar / RLVRC 源无 category 字段时，从 name+desc 关键词轻量推中文类别
+      // （仅作展示辅助；音乐/VTuber 筛选主判据仍是 isMusic/hasVtuber 的 name 正则）
+      const text = ((e.name || '') + ' ' + (e.desc || '')).toLowerCase();
+      if (/(dj|ライブ|音楽|音楽|コンサート|アニソン|カラオケ|バンド|ピアノ|ギター|生演奏|kpop|music|live|sing|concert|フェス)/i.test(text)) return '音乐';
+      if (/(ダンス|dance|踊|zumba|パラパラ)/i.test(text)) return '舞蹈';
+      if (/(ゲーム|gaming|game|ボドゲ|麻雀)/i.test(text)) return '游戏';
+      if (/(カフェ|cafe|コーヒー|飲み会|bar|バー|雑談|hangout|chat|交流)/i.test(text)) return '聚会';
+      if (/(演劇|劇|roleplay|rp|ストーリー|物語|ホスト)/i.test(text)) return '角色扮演';
+      if (/(学校|学|lesson|class|study|learn|教室)/i.test(text)) return '教育';
+      return '';
+    }
+    function joinInfoZh(info, groupName) {
     if (!info) return groupName ? `加入群组房间「${groupName}」后参加` : '加入活动所属群组后参加';
     let s = String(info);
     if (!/[\u3040-\u30ff]/.test(s) && !/グループ|インスタンス/.test(s)) {
@@ -590,30 +686,39 @@ export default function register(api) {
     const wantVrcSearch = opts.sources.includes('all') || opts.sources.includes('vrcsearch');
     const wantRlvrc = opts.sources.includes('all') || opts.sources.includes('rlvrc');
     const wantVrceve = opts.sources.includes('all') || opts.sources.includes('vrceve');
-    const wantKr = opts.sources.includes('all') || opts.sources.includes('vrckr');
+        const wantKr = opts.sources.includes('all') || opts.sources.includes('vrckr');
+        // Google 源可用性：无 key → 明确 not_queried（不产生 ok:1/fail:0 假象）
+        const HAVE_GC_KEY = !!(getGoogleKey() && !String(getGoogleKey()).includes('...'));
+        const GC_UNAVAILABLE_REASON = HAVE_GC_KEY ? '' : '未配置 Google Calendar API key（用 set_community_events_google_key 录入或设 VRC_MONITOR_GCAL_CRED）';
 
-    api.log(`🔍 采集活动 window=${opts.window} focus=${opts.focus} sources=${opts.sources.join(',')}`);
+        api.log(`🔍 采集活动 window=${opts.window} focus=${opts.focus} sources=${opts.sources.join(',')}`);
 
-    // 采集（限流友好：串行，逐源）。记录每源 ok/fail 供 sourceBreakdown 区分「源不可达」与「无活动」。
-        let collected = [];
-        const srcStatus = {};
-        if (wantVrcSearch) {
-          const r = await collectVrcSearch(opts);
-          collected = collected.concat(r.events);
-          srcStatus.vrcsearch = { ok: r.okCount, fail: r.failCount };
-        }
-        if (wantRlvrc) {
-          try { collected = collected.concat(await collectRlvrc()); srcStatus.rlvrc = { ok: 1, fail: 0 }; }
-          catch (e) { srcStatus.rlvrc = { ok: 0, fail: 1 }; }
-        }
-        if (wantVrceve) {
-          try { collected = collected.concat(await collectGoogleCalendar(GOOGLE_CAL_VRCEVE, 'VRCEve', 'ja', minD, maxD)); srcStatus.vrceve = { ok: 1, fail: 0 }; }
-          catch (e) { srcStatus.vrceve = { ok: 0, fail: 1 }; }
-        }
-        if (wantKr) {
-          try { collected = collected.concat(await collectGoogleCalendar(GOOGLE_CAL_KR, 'VRCEvent KR', 'ko', minD, maxD)); srcStatus.vrckr = { ok: 1, fail: 0 }; }
-          catch (e) { srcStatus.vrckr = { ok: 0, fail: 1 }; }
-        }
+        // 采集（限流友好：串行，逐源）。记录每源 ok/fail 供 sourceBreakdown 区分「源不可达」与「无活动」。
+            let collected = [];
+            const srcStatus = {};
+            if (wantVrcSearch) {
+              const r = await collectVrcSearch(opts);
+              collected = collected.concat(r.events);
+              srcStatus.vrcsearch = { ok: r.okCount, fail: r.failCount };
+            }
+            if (wantRlvrc) {
+              try { collected = collected.concat(await collectRlvrc()); srcStatus.rlvrc = { ok: 1, fail: 0 }; }
+              catch (e) { srcStatus.rlvrc = { ok: 0, fail: 1 }; }
+            }
+            if (wantVrceve) {
+              if (!HAVE_GC_KEY) { srcStatus.vrceve = { ok: 0, fail: 0, queried: false, not_queried: true, reason: GC_UNAVAILABLE_REASON }; }
+              else {
+                try { const r = await collectGoogleCalendar(GOOGLE_CAL_VRCEVE, 'VRCEve', 'ja', minD, maxD); collected = collected.concat(r); srcStatus.vrceve = { ok: r.length ? 1 : 1, fail: 0, queried: true, count: r.length }; }
+                catch (e) { srcStatus.vrceve = { ok: 0, fail: 1, queried: true }; }
+              }
+            }
+            if (wantKr) {
+              if (!HAVE_GC_KEY) { srcStatus.vrckr = { ok: 0, fail: 0, queried: false, not_queried: true, reason: GC_UNAVAILABLE_REASON }; }
+              else {
+                try { const r = await collectGoogleCalendar(GOOGLE_CAL_KR, 'VRCEvent KR', 'ko', minD, maxD); collected = collected.concat(r); srcStatus.vrckr = { ok: 1, fail: 0, queried: true, count: r.length }; }
+                catch (e) { srcStatus.vrckr = { ok: 0, fail: 1, queried: true }; }
+              }
+            }
 
     // 去重（name 规范化 + 日期）
     const seen = new Set();
@@ -720,13 +825,14 @@ export default function register(api) {
         },
       },
       sourceBreakdown: {
-              // 每源 { count, ok, fail }：count=采集条数；ok/fail=请求成功/失败数。
-              // 判读：ok>0 且 count=0 → 「源可访问但无活动」；ok=0 且 fail>0 → 「源不可达(403/超时/地域限制)」。
-              vrcsearch: { count: collected.filter(e => e.src === 'VRC Search').length, ...(srcStatus.vrcsearch || {}) },
-              rlvrc: { count: collected.filter(e => e.src === 'RLVRC').length, ...(srcStatus.rlvrc || {}) },
-              vrceve: { count: collected.filter(e => e.src === 'VRCEve').length, ...(srcStatus.vrceve || {}) },
-              vrckr: { count: collected.filter(e => e.src === 'VRCEvent KR').length, ...(srcStatus.vrckr || {}) },
-            },
+                    // 每源 { count, ok, fail, queried?, not_queried?, reason? }：
+                    //   ok>0 且 count=0 → 「源可访问但无活动」；ok=0 且 fail>0 → 「源不可达」；
+                    //   not_queried=true → 「已有 key 配置，按需查询」（无 key 时不以 ok:1/fail:0 伪装成"可达但无活动"）。
+                    vrcsearch: { count: collected.filter(e => e.src === 'VRC Search').length, ...(srcStatus.vrcsearch || {}), queried: true },
+                    rlvrc: { count: collected.filter(e => e.src === 'RLVRC').length, ...(srcStatus.rlvrc || {}), queried: true },
+                    vrceve: { count: collected.filter(e => e.src === 'VRCEve').length, ...(srcStatus.vrceve || {}) },
+                    vrckr: { count: collected.filter(e => e.src === 'VRCEvent KR').length, ...(srcStatus.vrckr || {}) },
+                  },
       counts: { collected: collected.length, deduped: dedup.length, output: events.length },
       groupsMined: toMine.filter(e => e.group_id).length,
       events: events.map(enrichEvent).slice(0, Math.min(Math.max(parseInt(args.limit, 10) || 200, 1), 500)),
