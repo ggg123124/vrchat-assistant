@@ -29,15 +29,6 @@ import re
 import subprocess
 import sys
 
-# Windows CI 修复：stdout 默认 cp1252，print 含中文的 ensure_ascii=False JSON 会崩
-# → 强制 stdout/stderr 用 UTF-8（3.7+ 有 reconfigure；旧版 getattr 返回 None 跳过）。
-_reconf = getattr(sys.stdout, 'reconfigure', None)
-if _reconf:
-    _reconf(encoding='utf-8', errors='replace')
-_reconf = getattr(sys.stderr, 'reconfigure', None)
-if _reconf:
-    _reconf(encoding='utf-8', errors='replace')
-
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # 仓库根（本脚本在 scripts/ 下）
 
 # 需要扫数字残留的路径（相对仓库根；目录递归，文件单查）
@@ -68,7 +59,7 @@ def extract_code_tools():
     try:
         r = subprocess.run(
             ["node", "scripts/dump-tools.mjs"],
-            capture_output=True, encoding="utf-8", errors="replace", timeout=60, cwd=REPO,
+            capture_output=True, text=True, timeout=60, cwd=REPO,
         )
         if r.returncode != 0:
             print(f"ERROR: dump-tools failed: {r.stderr.strip()}", file=sys.stderr)
@@ -170,7 +161,7 @@ def gh_repo_description():
     try:
         r = subprocess.run(
             ["gh", "repo", "view", "ggg123124/vrchat-assistant", "--json", "description", "-q", ".description"],
-            capture_output=True, encoding="utf-8", errors="replace", timeout=30,
+            capture_output=True, text=True, timeout=30,
         )
         if r.returncode != 0:
             return None, r.stderr.strip() or "gh repo view failed"
@@ -185,7 +176,7 @@ def gh_all_pr_states():
             ["gh", "pr", "list", "--state", "all", "--limit", "100",
              "--json", "number,state,mergedAt",
              "--jq", r'.[] | "\(.number)|\(.state)|\(.mergedAt // "")"'],
-            capture_output=True, encoding="utf-8", errors="replace", timeout=30,
+            capture_output=True, text=True, timeout=30,
         )
         if r.returncode != 0:
             return None, r.stderr.strip() or "gh pr list failed"
