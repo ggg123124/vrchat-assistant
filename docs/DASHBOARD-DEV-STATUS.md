@@ -37,7 +37,7 @@
 ## 部署信息
 
 - 工作副本：`/opt/data/vrchat-assistant-work`（git 未 commit/push）
-- 目标：路由器 192.168.100.1，目录 /opt/vrchat-assistant，容器 vrchat-assistant
+- 目标：路由器（本地局域网），目录 /opt/vrchat-assistant，容器 vrchat-assistant
 - 部署方式：python3 + paramiko + tarfile（排除 .git/node_modules/data/backups/__pycache__/.system_generated/service-logs + credentials/.env）
 - Dashboard 端口 8799，认证头 `Authorization: Bearer $VRC_MONITOR_AUTH_TOKEN`（容器内）
 
@@ -274,14 +274,14 @@
 
 参考 VRCX `FriendsSidebar.vue`（me-item 置顶 + friendsInSameInstance 分组 + 收藏/在线/离线分段）。
 
-- **后端**：新增 `GET /api/dashboard/me`（复用 avatars.js 的 5min `/auth/user` 缓存，导出 `loadMe`），返回 userId/displayName/location/travelingToLocation/status/statusDescription/avatarUrl/trustLevel/currentAvatar/**currentAvatarName**。模型名解析：`/auth/user` 只给 currentAvatar(ID)，按 ID 查 `/avatars/{id}` 拿精确名字（`loadAvatarName`，复用 avatars.js 30min 详情缓存 + stale-while-revalidate）；实测返回 psenY7 当前模型 "Sunohara Kokona"
+- **后端**：新增 `GET /api/dashboard/me`（复用 avatars.js 的 5min `/auth/user` 缓存，导出 `loadMe`），返回 userId/displayName/location/travelingToLocation/status/statusDescription/avatarUrl/trustLevel/currentAvatar/**currentAvatarName**。模型名解析：`/auth/user` 只给 currentAvatar(ID)，按 ID 查 `/avatars/{id}` 拿精确名字（`loadAvatarName`，复用 avatars.js 30min 详情缓存 + stale-while-revalidate）；实测返回当前账号模型 "Sunohara Kokona"
 - **前端 core.js**：store 加 `me`，`load()` 并行拉 `/api/dashboard/me`
 - **前端 rightbar.js**：
   - **me-item 置顶**：当前用户头像 + 信任色名字 + 状态点 + 状态描述 + 实例位置（点击打开自己资料；空 location 时显示状态描述如“挂机”而非“离线”）
   - **同实例好友分组**：与我在同一世界实例的在线好友（`location === me.location` 精确匹配，同 player-list 判定）置顶高亮（accent 边框/图标/加粗），并从普通世界分组排除避免重复
   - 搜索/收藏/离线/状态预设逻辑不变
 - **CSS**：`.me-item`（卡片式）+ `.worldgroup.same-instance`（accent 高亮，color-mix 背景）
-- **验证**：jsdom 实测（无 JS 错误、me-item 渲染「我自己」、同实例分组 2 人 + 世界名、空 location 显示状态描述、普通分组保留非同实例好友）；`npm test` 7/7；mock register 38 路由无重复；部署路由器 healthy；容器内 `/api/dashboard/me` 实拉返回 psenY7/挂机/currentAvatar 正常；rightbar.js md5 容器=本地一致
+- **验证**：jsdom 实测（无 JS 错误、me-item 渲染「我自己」、同实例分组 2 人 + 世界名、空 location 显示状态描述、普通分组保留非同实例好友）；`npm test` 7/7；mock register 38 路由无重复；部署路由器 healthy；容器内 `/api/dashboard/me` 实拉返回当前账号/挂机/currentAvatar 正常；rightbar.js md5 容器=本地一致
 - **诚实限制**：用户当前 location 为空（在线但不在世界）→ 同实例分组实际不显示；进入世界后自动出现。浏览器视觉复验因容器 rebuild 丢失 chromium 且路由器 apt 安装过慢，本轮跳过（jsdom + 端点已覆盖渲染逻辑与数据）
 
 ## 2026-08 重启后页面加载慢（冷缓存 + 限流排队）修复
