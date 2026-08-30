@@ -34,6 +34,25 @@ export function buildPluginApi(pluginName, { registry, ctx, services, serviceOwn
 
     log: apiLog,
 
+    // HTTP 路由注册：插件可挂载自定义路由（/mcp、/health 之外的路径）。
+    // 核心 http-server 统一分发，路由随插件卸载自动清理。
+    http: {
+      registerRoute(route) {
+        if (!route || typeof route.path !== 'string' || typeof route.handler !== 'function') {
+          throw new Error('http.registerRoute 需要 path 与 handler');
+        }
+        const method = String(route.method || 'GET').toUpperCase();
+        const key = `${method} ${route.path}`;
+        if (ctx.httpRoutes.has(key)) throw new Error(`HTTP 路由冲突: ${key}`);
+        ctx.httpRoutes.set(key, { method, path: route.path, handler: route.handler, pluginName });
+      },
+      removeRoutes() {
+        for (const [key, route] of ctx.httpRoutes.entries()) {
+          if (route.pluginName === pluginName) ctx.httpRoutes.delete(key);
+        }
+      },
+    },
+
     tools: {
       call(name, args = {}) {
         if (!registry.hasTool(name)) {

@@ -14,6 +14,8 @@ export const ctx = {
   friendState: null,
   serverState: { started: null, authUser: null, friendCount: 0, needsOtp: false, needsTotp: false },
   watchlist: { cache: [], dirty: false },
+  // HTTP 路由由插件注册（api.http.registerRoute），核心统一分发
+  httpRoutes: new Map(),
   paths: {
     __dirname: null,
     PORT: 8799,
