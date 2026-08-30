@@ -1,7 +1,9 @@
 // 全量 GET 实测：用真实凭据+真实资源 ID 逐个调用域方法，输出状态矩阵
-const { VrchatApiClient } = await import('/app/vrchat-api.js');
+// 用法：VRC_MONITOR_DIR=<仓库路径> COOKIE_FILE=<cookie文件> [VRC_MONITOR_USER_ID=<userId>] node scripts/api-live-audit.mjs
+const REPO = process.env.VRC_MONITOR_DIR || new URL('..', import.meta.url).pathname;
+const { VrchatApiClient } = await import(REPO + 'core/vrchat-api.js');
 const api = new VrchatApiClient('', '');
-api.loadCookieFromFile('/app/data/auth_cookie.txt');
+api.loadCookieFromFile(process.env.COOKIE_FILE || REPO + 'data/auth_cookie.txt');
 try { await api.ensureAuth(); } catch (e) { console.log('ensureAuth 失败（继续用现有 cookie）:', String(e.message || e).slice(0, 60)); }
 
 const results = [];
@@ -21,7 +23,8 @@ async function probe(name, path, fn) {
   await new Promise(r => setTimeout(r, 350));
 }
 
-const me = 'usr_e4a1302c-fd1b-4225-af95-80a8c568e86a';
+const me = process.env.VRC_MONITOR_USER_ID || ''; // 必填：自己的 userId
+if (!me) { console.error('请设置 VRC_MONITOR_USER_ID=<你的 userId>'); process.exit(2); }
 
 // Phase 1: 无参/自足 GET
 await probe('getConfig', '/config', () => api.getConfig());
@@ -44,7 +47,7 @@ await probe('getInventory', '/inventory', () => api.getInventory({ n: 20 }));
 await probe('getGlobalInventory', '/inventory/global', () => api.getGlobalInventory());
 await probe('getInventoryDrops', '/inventory/drops', () => api.getInventoryDrops());
 await probe('getGroupRoleTemplates', '/groups/roleTemplates', () => api.getGroupRoleTemplates());
-await probe('searchUsers(自己)', '/users?search=', () => api.searchUsers('psenY7', 5));
+await probe('searchUsers(自己)', '/users?search=', () => api.searchUsers(process.env.VRC_MONITOR_SEARCH_USER || 'vrc', 5));
 await probe('searchWorlds', '/worlds?search=', () => api.searchWorlds({ search: 'vrchat', n: 5 }));
 await probe('listActiveWorlds', '/worlds/active', () => api.listActiveWorlds({ n: 5 }));
 await probe('listRecentWorlds', '/worlds/recent', () => api.listRecentWorlds({ n: 5 }));
@@ -83,7 +86,8 @@ await probe('getInstance(好友当前房)', null, async () => {
   return api.getInstance(loc);
 });
 await probe('群组三连(加入的群)', null, async () => {
-  const gid = 'grp_2bbdc93e-cb4b-4bc3-9b3c-7f1a25f3364d';
+  const gid = process.env.VRC_MONITOR_GROUP_ID || '';
+  if (!gid) return { status: 'SKIP', data: '未设置 VRC_MONITOR_GROUP_ID' };
   const r1 = await api.getGroup(gid);
   const r2 = await api.getUserGroups(me);
   const r3 = await api.getGroupInstances(gid).catch(e => ({ status: e.status || 'ERR' }));
