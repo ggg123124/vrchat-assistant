@@ -29,6 +29,14 @@ import re
 import subprocess
 import sys
 
+# Windows stdout 默认 cp1252，打印中文 JSON 时崩溃（UnicodeEncodeError）——强制 UTF-8
+_reconf = getattr(sys.stdout, 'reconfigure', None)
+if _reconf:
+    _reconf(encoding='utf-8', errors='replace')
+_reconf = getattr(sys.stderr, 'reconfigure', None)
+if _reconf:
+    _reconf(encoding='utf-8', errors='replace')
+
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # 仓库根（本脚本在 scripts/ 下）
 
 # 需要扫数字残留的路径（相对仓库根；目录递归，文件单查）
