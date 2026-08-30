@@ -72,6 +72,23 @@ async function handleRequest(req, res) {
     }
   }
 
+  // ── 插件注册的 HTTP 路由（api.http.registerRoute）──
+  // 在鉴权中间件之后分发：插件路由与 /health、/mcp 同级，按 method+path 精确匹配。
+  const route = ctx.httpRoutes?.get(`${req.method} ${pathname}`);
+  if (route) {
+    try {
+      await route.handler(req, res);
+    } catch (err) {
+      log(`❌ 插件 HTTP 路由失败 [${route.pluginName} ${pathname}]: ${err.message}`);
+      if (!res.headersSent) {
+        const body = JSON.stringify({ error: 'Internal Server Error', message: err.message });
+        res.writeHead(500, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) });
+        res.end(body);
+      }
+    }
+    return;
+  }
+
   // Health check
   if (req.method === 'GET' && pathname === '/health') {
     const uptime = serverState.started ? Math.floor((Date.now() - serverState.started) / 1000) : 0;
