@@ -46,6 +46,7 @@
     "get_companions",
     "get_friend_pair_meeting",
     "get_friend_pair_screen",
+    "get_recent_cooplay",
     "get_online_pattern",
     "get_nicknames",
     "set_nickname",
@@ -102,5 +103,8 @@
     "auth_get_status",
     "auth_generate_token",
     "auth_verify_token"
+  ],
+  "tools": [
+    "get_recent_cooplay"
   ]
 }
