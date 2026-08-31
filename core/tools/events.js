@@ -84,6 +84,21 @@ export function handleGetRecentCooplay({ days = 7, limit = 30 } = {}) {
   return { days: d, total: list.length, companions: list.slice(0, lim) };
 }
 
+export function handleGetOpsLog({ limit = 200, kind } = {}) {
+  const { storage } = ctx;
+  const cap = Math.min(Math.max(Number.parseInt(limit, 10) || 200, 1), 1000);
+  const rows = storage.getOpsLog({ limit: cap, kind });
+  return {
+    items: rows.map(r => ({
+      id: r.id,
+      kind: r.kind,
+      level: r.level,
+      message: r.message,
+      createdAt: r.created_at,
+    })),
+  };
+}
+
 export function handleGetRecentEvents({ limit = 30, offset = 0, typeFilter, userIdFilter }) {
   const { storage } = ctx;
   let events;
@@ -546,6 +561,24 @@ export const tools = [
       }
     },
     handler: async (args) => handleGetRecentCooplay(args)
+  },
+  {
+    "name": "get_ops_log",
+    "description": "[query·运维] 查询服务运维日志（认证/WS/运维生命周期事件，保留最近 500 条）：返回 items[{ id, kind, level, message, createdAt }]。limit(1-1000 默认 200)、kind(可选 filter，'auth'|'ws'|'ops')。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": "number",
+          "description": "返回条数上限(1-1000，默认200)"
+        },
+        "kind": {
+          "type": "string",
+          "description": "类别过滤：auth|ws|ops（可选）"
+        }
+      }
+    },
+    handler: async (args) => handleGetOpsLog(args)
   },
   {
     "name": "get_friend_profile_changes",

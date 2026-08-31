@@ -426,7 +426,7 @@
 - **修复既有 bug：VRC+ 夹名显示原始 tag**：`favName()` 原正则 `(?:vrcPlus)?worlds(\d+)` 匹配不到实际 tag `vrcPlusWorlds1`（**大写 W**）→ VRC+ 专属夹一直显示 `vrcPlusWorlds1` 而非「VRC+ 收藏夹 X」。改 `/i` 大小写不敏感 + `/^vrc/i` 判前缀。9 用例回归通过（worlds0-3/vrcPlusWorlds1-2/avatars/friends/自定义名 chill 透传/空值）。
 - **构建产物跨机一致性**：换机 Windows（`core.autocrlf=true`）后 vite 把 CRLF 模板原样带进 dist/index.html，`git diff --check` 报尾随空白、产物 diff 混入换行噪音。build 脚本追加 Node 一行把 dist 规范为 LF——**产物跨机器字节一致**（实验：已提交源码在 Windows 构建与已提交 dist 完全相同，环境无差异；剩余 diff 全为新功能 + 压缩器变量顺移）。package-lock.json 的 libc 字段删改为 Windows npm 环境噪音，不提交。
 - **验证**：npm test 7/7、test-registry PASS（102 工具）、check-doc-drift has_drift=false、全 dashboard JS node --check OK、构建通过且 dist 含「收藏夹筛选」标记。
-- **已部署**（2026-08-29，外网 SSH 110.190.184.137:2222 → iStoreOS，`python deploy.py <host> <port>` 全量 tar + docker-compose up -d --build）：部署前全树 md5 对比确认远端无独有改动（仅 3 行旧启动日志，HEAD 已删）；容器重建后 healthy、`/health` auth.authenticated=true + ws.status=connected、TOTP 自动重登正常、`/dashboard` 服务的 dist 指纹=新构建（fv-chips 标记在）。**注意**：路由器 `.env` 配置了 `VRC_MONITOR_AUTH_TOKEN`，验证 /health 与 /dashboard 必须带 Bearer token（容器内读 `process.env.VRC_MONITOR_AUTH_TOKEN` 验证，勿明文回显）；远端代码现为 Windows 工作副本字节（CRLF），后续从本机部署基线一致，md5 对比应对照工作副本而非 `git show`（LF）。
+- **已部署**（2026-08-29）：已部署到远端服务器并完成 docker-compose 容器重建，`/health` 通过、`/dashboard` 可访问，TOTP 自动重登正常，dist 指纹为新构建（fv-chips 标记在）。部署前通过 md5 对比确认远端无独有改动；后续从本机部署基线一致，md5 对比应对照工作副本而非 `git show`（LF）。
 
 ## 2026-08-29（晚） 修复：同屏引擎改区间重叠判定——用户反馈「次数/时间和 VRCX 对不上」
 
