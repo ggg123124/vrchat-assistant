@@ -104,8 +104,5 @@
     "auth_get_status",
     "auth_generate_token",
     "auth_verify_token"
-  ],
-  "tools": [
-    "get_recent_cooplay"
   ]
 }

@@ -41,13 +41,6 @@ const coShown = computed(() => { const l = store.coPlay || []; return coAll.valu
 const friendMap = computed(() => { const m = new Map(); for (const f of friends.value) m.set(f.userId, f); return m; });
 function coAvatar(c) { const f = friendMap.value.get(c.userId); return (f && (f.avatarUrl || f.userIcon)) || ''; }
 function coName(c) { return store.nicknameMap[c.userId] || c.displayName || '?'; }
-// 共处时长展示：对齐 VRCX timeTogether（<60 分钟显示分钟，否则小时，10 小时以上取整）
-function coMinutes(c) {
-  const m = c.minutes || 0;
-  if (m >= 600) return Math.round(m / 60) + ' 小时';
-  if (m >= 60) return (Math.round((m / 60) * 10) / 10) + ' 小时';
-  return m + ' 分钟';
-}
 function meStatusText() {
   const me = store.me;
   if (!me) return '';
@@ -243,7 +236,7 @@ async function submitStatus() {
           <Avatar :image="coAvatar(c)" shape="circle" size="small" :label="avatarLabel(coAvatar(c), c.displayName)" />
           <div class="rf-text">
             <b>{{ coName(c) }}</b>
-            <small class="co-sub">{{ c.matchCount }} 次 · {{ coMinutes(c) }}<span v-if="c.daysCount > 1"> · {{ c.daysCount }} 天</span><span v-if="c.lastDay"> · 最近 {{ c.lastDay }}</span></small>
+            <small class="co-sub">{{ c.matchCount }} 次<span v-if="c.daysCount > 1"> · {{ c.daysCount }} 天</span><span v-if="c.lastDay"> · 最近 {{ c.lastDay }}</span></small>
           </div>
         </div>
         <div v-if="(store.coPlay || []).length > 8" class="co-more" role="button" tabindex="0" @click="coAll = !coAll" @keydown.enter="coAll = !coAll">

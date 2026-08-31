@@ -75,12 +75,11 @@ export function handleGetRecentCooplay({ days = 7, limit = 30 } = {}) {
       userId,
       displayName: m.displayName || '',
       matchCount: m.matchCount || 0,
-      minutes: m.minutes || 0,
       daysCount: dayLabels.length,
       lastDay: dayLabels.length ? dayLabels[dayLabels.length - 1] : '',
     });
   }
-  list.sort((a, b) => b.matchCount - a.matchCount || (b.minutes || 0) - (a.minutes || 0));
+  list.sort((a, b) => b.matchCount - a.matchCount);
   return { days: d, total: list.length, companions: list.slice(0, lim) };
 }
 
@@ -546,7 +545,7 @@ export const tools = [
   },
   {
     "name": "get_recent_cooplay",
-    "description": "[query] 最近一起玩：查询最近 N 天与自己共同在场（同一实例且时间区间重叠）过的好友列表，按同屏次数降序。口径与 get_weekly_report 的同屏伙伴一致（北京自然日逐日区间重叠匹配合并）；返回 companions[{ userId, displayName, matchCount（共同在场段数）, minutes（共同在场总分钟数）, daysCount（同屏天数）, lastDay（最近同屏日 MM-DD 北京） }]。days(1-90 默认 7)、limit(1-100 默认 30)。与 get_friend_pair_screen（两人版，带逐条 matches）互补——本工具是面向自己的全好友批量版。",
+    "description": "[query] 最近一起玩：查询最近 N 天与自己共同在场（同一实例且时间区间重叠）过的好友列表，按同屏次数降序。口径与 get_weekly_report 的同屏伙伴一致（北京自然日逐日区间重叠匹配合并）；返回 companions[{ userId, displayName, matchCount（共同在场段数）, daysCount（同屏天数）, lastDay（最近同屏日 MM-DD 北京） }]。days(1-90 默认 7)、limit(1-100 默认 30)。与 get_friend_pair_screen（两人版，带逐条 matches）互补——本工具是面向自己的全好友批量版。",
     "inputSchema": {
       "type": "object",
       "properties": {
