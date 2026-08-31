@@ -45,7 +45,7 @@ metadata:
 | `get_worlds_by_author` | **按作者列出全部世界**：authorId 或 authorName（内部经 /users 解析）→ GET /worlds?userId= 分页拉全该作者发布的全部图（worldId/名称/收藏/浏览/容量/标签/发布时间），顺带写 world_cache（含 author_id）。配合 get_world_name 返回的 authorId 使用（如「当前所在图作者的全部图加权重」） |
 | `set_world_note` | 世界用户备注写入/更新（本地存储，API 刷新不覆盖；空串清除） |
 | `get_world_history` | 世界信息变更历史（name/description/author/image_url/release_status/capacity/tags 字段级记录） |
-| `get_weekly_report` | 一周游戏周报（活跃天数/时长/世界 Top/同屏伙伴带昵称/自己的上线规律/群组活动/圈内活动日历；days 默认 7） |
+| `get_weekly_report` | 一周游戏周报（活跃天数/时长/世界 Top/同屏伙伴带昵称/自己的上线规律/群组活动/圈内活动日历；days 默认 7）。**渲染含两个固化板块**：①每日足迹（每天去了哪些房间+和谁一起，daily 每项带当天 companions[{nickname,matchCount}]）②本周总结（末尾一段连贯叙事评述）。模板见 vrchat-social-queries §9 |
 | `scan_new_worlds` | 扫描最近 N 天新世界（1-30，默认 7），过滤测试/垃圾图后写入 world_kb 表（原 new_worlds），按热度推荐 TOP10；dryRun 只看不写 |
 | `get_new_worlds` | 只读查询已跟踪新世界：onlyUnvisited 只看未逛过、sortBy（favorites/occupants/popularity/created_at）、excludeTheme 排除主题（按 author_tag_* 逗号分隔，SQL 层排除）、limit（默认 10 最大 50） |
 | `rate_world` | **用户反馈**：给世界打好评/烂图标记（rating: 1=好图加权 / -1=烂图降权 / 0=清除），写入 world_kb.user_rating，影响 worldScore 推荐排序 |
