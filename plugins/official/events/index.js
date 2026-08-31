@@ -217,6 +217,65 @@ export default function register(api) {
     return out;
   }
 
+  // ════════════ 数据源 5：vrcwiki.ru（俄罗斯社区，VRC✦CULTURE）════════════
+  // API https://vrcwiki.ru/api/events 返回全量结构化 JSON（字段≈VRChat 官方 API，自带 group 信息）。
+  // ⚠️ 已知反爬：服务器对非浏览器 TLS/UA 指纹返回 HTTP 200 但 0 bytes——插件内 Node fetch
+  //    大概率拿不到（本机实测 0 bytes）。此函数仍保留（服务器策略变化时立即可用），
+  //    失败时 sourceBreakdown 诚实标 not_queried+reason，提示走浏览器通道，不伪装成功。
+  async function collectVrcWiki(minDate, maxDate) {
+      try {
+        const resp = await tryFetchWithProxy('https://vrcwiki.ru/api/events', {
+          headers: {
+            'Accept': 'application/json,text/html,*/*',
+            'Accept-Language': 'ru-RU,ru;q=0.9,en;q=0.8,ja;q=0.7',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+          }, timeoutMs: 20000,
+        });
+        if (resp.status < 200 || resp.status >= 300) throw new Error(`HTTP ${resp.status}`);
+        const text = String(resp.body || '');
+        // 反爬：非浏览器返回 0 bytes 空 body → 明确失败（别当"无活动"）
+        if (!text.trim() || !text.trim().startsWith('{')) {
+          const err = new Error('vrcwiki.ru 反爬：非浏览器请求返回空 body（需浏览器通道，见 SKILL.md）');
+          err.code = 'ANTIBOT_EMPTY';
+          throw err;
+        }
+        const j = JSON.parse(text);
+        const arr = (j && (j.data || j.events)) || [];
+        const out = [];
+        // ⚠️ vrcwiki API 返回全量历史（~1900 条），必须按窗口过滤，否则挤占其他源 + 触发 limit 截断
+        const winStart = minDate ? Date.parse(`${minDate}T00:00:00Z`) : 0;
+        const winEnd = maxDate ? Date.parse(`${maxDate}T23:59:59Z`) : Infinity;
+        for (const it of arr) {
+          const title = (it.title || '').trim();
+          if (!title) continue;
+          const startsAt = it.startsAt || '';
+          // 窗口过滤（startsAt 是 UTC ISO 带 Z；无/非法时间跳过窗口外，有非法时间也放行？——严格按窗口）
+          if (winEnd !== Infinity) {
+            const st = Date.parse(startsAt);
+            if (isNaN(st) || st < winStart || st > winEnd) continue;
+          }
+          const langs = (it.languages || []).map(x => String(x).toLowerCase());
+          out.push({
+            name: title.slice(0, 100), start: startsAt, end: it.endsAt || '',
+            category: it.category || '', category_zh: CAT_ZH_EVENTS[it.category] || '',
+            lang: langs.includes('rus') ? 'ru' : (langs.includes('eng') ? 'en' : 'multi'),
+            languages: langs, desc: (it.description || '').slice(0, 500),
+            group_id: (it.group && it.group.id) || it.ownerId || '', group_name: (it.group && it.group.name) || '',
+            cal_id: it.id || '', image: (it.group && it.group.iconUrl) || it.imageUrl || '',
+            icon_url: (it.group && it.group.iconUrl) || '', src: 'vrcwiki',
+            // vrcwiki 自带群组信息，无需另行反查
+          });
+        }
+        api.log(`🇷🇺 vrcwiki.ru 采集 ${out.length} 条俄罗斯活动（窗口 ${minDate}~${maxDate}）`);
+        return out;
+      } catch (e) {
+        api.log(`⚠️ vrcwiki.ru 采集失败: ${e.message}`);
+        const err = e;
+        err.code = err.code || 'FETCH_FAILED';
+        throw err;
+      }
+    }
+
   // ════════════ 数据源 2：RLVRC（中文，JSON API）════════════
   async function collectRlvrc() {
     try {
@@ -506,6 +565,19 @@ export default function register(api) {
       const t = e && e.start;
       if (!t) return out;
       const BJ_OFF = 8 * 3600 * 1000;
+      // ⚠️ RLVRC 源时区坑：start 无时区后缀＝已是北京时间（本地时间），不能当 UTC 再 +8
+      //   （实测术力口工坊 start=20:00 若当 UTC+8 会算成 08-30 04:00，用户抓出「应是北京 20:30」）
+      if (String(e.src) === 'RLVRC' && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(String(t).trim())) {
+        const m = String(t).match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+        if (m) {
+          const bj = `${m[2]}-${m[3]} ${m[4]}:${m[5]}`;
+          out.start_local = bj;
+          out.start_bj = bj;
+          out.tz_offset = 8;
+          out.tz_label = '北京时间';
+        }
+        return out;
+      }
       try {
         const raw = String(t);
         // 判断 naive（原始无时区，VRC Search 输出 UTC）vs aware（VRCEve +09:00）
@@ -670,6 +742,8 @@ export default function register(api) {
     const wantRlvrc = opts.sources.includes('all') || opts.sources.includes('rlvrc');
     const wantVrceve = opts.sources.includes('all') || opts.sources.includes('vrceve');
         const wantKr = opts.sources.includes('all') || opts.sources.includes('vrckr');
+        // 俄罗斯社区源（vrcwiki.ru）——API 反爬，Node fetch 大概率 0 bytes，失败诚实标注
+        const wantVrcwiki = opts.sources.includes('all') || opts.sources.includes('vrcwiki') || opts.sources.includes('ru');
         // Google 源可用性：无 key → 明确 not_queried（不产生 ok:1/fail:0 假象）
         const HAVE_GC_KEY = !!(getGoogleKey() && !String(getGoogleKey()).includes('...'));
         const GC_UNAVAILABLE_REASON = HAVE_GC_KEY ? '' : '未配置 Google Calendar API key（用 set_community_events_google_key 录入或设 VRC_MONITOR_GCAL_CRED）';
@@ -696,12 +770,23 @@ export default function register(api) {
               }
             }
             if (wantKr) {
-              if (!HAVE_GC_KEY) { srcStatus.vrckr = { ok: 0, fail: 0, queried: false, not_queried: true, reason: GC_UNAVAILABLE_REASON }; }
-              else {
-                try { const r = await collectGoogleCalendar(GOOGLE_CAL_KR, 'VRCEvent KR', 'ko', minD, maxD); collected = collected.concat(r); srcStatus.vrckr = { ok: 1, fail: 0, queried: true, count: r.length }; }
-                catch (e) { srcStatus.vrckr = { ok: 0, fail: 1, queried: true }; }
-              }
-            }
+                          if (!HAVE_GC_KEY) { srcStatus.vrckr = { ok: 0, fail: 0, queried: false, not_queried: true, reason: GC_UNAVAILABLE_REASON }; }
+                          else {
+                            try { const r = await collectGoogleCalendar(GOOGLE_CAL_KR, 'VRCEvent KR', 'ko', minD, maxD); collected = collected.concat(r); srcStatus.vrckr = { ok: 1, fail: 0, queried: true, count: r.length }; }
+                            catch (e) { srcStatus.vrckr = { ok: 0, fail: 1, queried: true }; }
+                          }
+                        }
+                        // vrcwiki.ru（俄罗斯源）：反爬，Node fetch 大概率失败 → not_queried/ANTIBOT，不伪装成功
+                        if (wantVrcwiki) {
+                          try {
+                            const r = await collectVrcWiki(minD, maxD);
+                            collected = collected.concat(r);
+                            srcStatus.vrcwiki = { ok: 1, fail: 0, queried: true, count: r.length };
+                          } catch (e) {
+                            const isBot = String(e.code) === 'ANTIBOT_EMPTY';
+                            srcStatus.vrcwiki = { ok: 0, fail: 0, queried: true, not_queried: isBot, reason: isBot ? 'vrcwiki.ru 反爬：非浏览器请求返回空 body。需用浏览器通道（browser_exec）打开页面后在浏览器内 fetch /api/events，再把结果喂给管道（见 vrchat-events-aggregation 技能 references/vrcwiki-ru-events-api.md）' : String(e.message) };
+                          }
+                        }
 
     // 去重（name 规范化 + 日期）
     const seen = new Set();
@@ -812,12 +897,18 @@ export default function register(api) {
                     //   ok>0 且 count=0 → 「源可访问但无活动」；ok=0 且 fail>0 → 「源不可达」；
                     //   not_queried=true → 「已有 key 配置，按需查询」（无 key 时不以 ok:1/fail:0 伪装成"可达但无活动"）。
                     vrcsearch: { count: collected.filter(e => e.src === 'VRC Search').length, ...(srcStatus.vrcsearch || {}), queried: true },
-                    rlvrc: { count: collected.filter(e => e.src === 'RLVRC').length, ...(srcStatus.rlvrc || {}), queried: true },
-                    vrceve: { count: collected.filter(e => e.src === 'VRCEve').length, ...(srcStatus.vrceve || {}) },
-                    vrckr: { count: collected.filter(e => e.src === 'VRCEvent KR').length, ...(srcStatus.vrckr || {}) },
-                  },
-      counts: { collected: collected.length, deduped: dedup.length, output: events.length },
-      groupsMined: toMine.filter(e => e.group_id).length,
+                                        rlvrc: { count: collected.filter(e => e.src === 'RLVRC').length, ...(srcStatus.rlvrc || {}), queried: true },
+                                        vrceve: { count: collected.filter(e => e.src === 'VRCEve').length, ...(srcStatus.vrceve || {}) },
+                                        vrckr: { count: collected.filter(e => e.src === 'VRCEvent KR').length, ...(srcStatus.vrckr || {}) },
+                                        vrcwiki: { count: collected.filter(e => e.src === 'vrcwiki').length, ...(srcStatus.vrcwiki || { not_queried: true, reason: '未启用 vrcwiki 源（需 sources=vrcwiki 或 all）' }) },
+                                      },
+                          counts: { collected: collected.length, deduped: dedup.length, output: events.length },
+                          // ⚠️ limit 截断判定：输出条数 == 请求上限 → 说明被截断，不是"该时段只有这些"（重采加大 limit）
+                          truncated: events.length >= Math.min(Math.max(parseInt(args.limit, 10) || 200, 1), 500),
+                          truncateNote: events.length >= Math.min(Math.max(parseInt(args.limit, 10) || 200, 1), 500)
+                            ? '输出已达 limit 上限，可能有活动被截断。如需完整数据请重采并加大 limit（如 limit:2000）。判断「某社区该时段无活动」前先确认本字段为 false。'
+                            : '',
+                          groupsMined: toMine.filter(e => e.group_id).length,
       events: events.map(enrichEvent).slice(0, Math.min(Math.max(parseInt(args.limit, 10) || 200, 1), 500)),
     };
   }
@@ -867,13 +958,13 @@ export default function register(api) {
   // ── 工具注册 ──
   api.registerTool({
     name: 'fetch_community_events',
-    description: '[events] 聚合 VRChat 社区活动：采集(VRC Search/RLVRC/VRCEve/VRCEvent-KR) → 群组深度挖掘(短码/活动名/世界名反查) → 音乐∪虚拟主播筛选 → 结构化 JSON + 落库 plg_events_store。可选 peekGroups=true 窥探已挖掘群组公告补充活动（有副作用：加入→读→退出）。用于找"最近/今晚有什么活动、哪些要参与、群组热度"。未配置 Google Key 时返回 configStatus 的创建网址指引。PDF 渲染另走管道。',
+    description: '[events] 聚合 VRChat 社区活动：采集(VRC Search/RLVRC/VRCEve/VRCEvent-KR/vrcwiki.ru) → 群组深度挖掘(短码/活动名/世界名反查) → 音乐∪虚拟主播筛选 → 结构化 JSON + 落库 plg_events_store。可选 peekGroups=true 窥探已挖掘群组公告补充活动（有副作用：加入→读→退出）。返回含 sourceBreakdown 各源状态、truncated 截断判定。注意：vrcwiki.ru(俄罗斯) 有反爬，Node fetch 大概率 0 bytes，sourceBreakdown.vrcwiki 会标 not_queried+reason（需浏览器通道）。用于找"最近/今晚有什么活动、哪些要参与、群组热度"。未配置 Google Key 时返回 configStatus 的创建网址指引。PDF 渲染另走管道。',
     inputSchema: {
       type: 'object',
       properties: {
         window: { type: 'string', enum: ['week', 'month', 'tonight'], default: 'week', description: '时间窗：week(近8天)/month(近31天)/tonight(今晚到明早)' },
         focus: { type: 'string', enum: ['all', 'music', 'vtuber'], default: 'all', description: 'focus=music 时筛音乐∪虚拟主播活动' },
-        sources: { type: 'string', default: 'all', description: '逗号分隔数据源: vrcsearch,rlvrc,vrceve,vrckr (默认 all)' },
+        sources: { type: 'string', default: 'all', description: '逗号分隔数据源: vrcsearch,rlvrc,vrceve,vrckr,vrcwiki,ru (默认 all 含全部)。注意 vrcwiki 有反爬可能取不到（见返回 sourceBreakdown）' },
         languages: { type: 'string', default: 'all', description: '逗号分隔语言筛: zh,ja,ko,en (默认 all)。注：VRC Search 源活动 lang 标 multi（多语言），视为通配在任何语言筛下都保留' },
                 minMembers: { type: 'number', default: 0, description: '只保留群组人数 ≥ 该值的活动' },
                 maxMine: { type: 'number', default: 60, description: '群组深度挖掘的活动数上限(0~300，受 API 限流约 2.6s/个，短码优先)' },
