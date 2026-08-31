@@ -347,7 +347,15 @@ export async function handleGetWeeklyReport({ days = 7 }) {
       companionUsers: companions.size,
       topCompanion: topCompanions[0] ? { userId: topCompanions[0].userId, displayName: topCompanions[0].displayName, nickname: topCompanions[0].nickname, days: topCompanions[0].days, matchCount: topCompanions[0].matchCount } : null,
     },
-    daily: [...dayWorlds.entries()].sort().map(([day, worlds]) => ({ day, worlds: [...worlds].map(w => ({ worldId: w, name: worldNameMap[w] || w })) })),
+    daily: [...dayWorlds.entries()].sort().map(([day, worlds]) => ({
+      day,
+      worlds: [...worlds].map(w => ({ worldId: w, name: worldNameMap[w] || w })),
+      // 每日同屏伙伴（昵称 + 当天次数），次数降序
+      companions: [...companions.entries()]
+        .filter(([uid, v]) => v.days.has(day))
+        .map(([uid, v]) => ({ userId: uid, displayName: v.displayName, nickname: nickMap[uid] || null, matchCount: v.dayCounts[day] || 0 }))
+        .sort((a, b) => b.matchCount - a.matchCount),
+    })),
     topWorlds,
     ownPattern: {
       activeDays30: pattern.activeDates?.length || 0,
