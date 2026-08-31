@@ -60,6 +60,20 @@ export class Storage {
     } catch (e) {
       console.warn(`[storage] x-worlds DDL 加载失败: ${e.message}`);
     }
+    // 迁移：旧库 tracked_non_friends 缺状态列（非好友追踪在线状态展示，幂等）
+    const tnfCols = this._query(`PRAGMA table_info(tracked_non_friends)`);
+    if (!tnfCols.some(c => c.name === 'status')) {
+      this._run(`ALTER TABLE tracked_non_friends ADD COLUMN status TEXT DEFAULT ''`);
+    }
+    if (!tnfCols.some(c => c.name === 'status_description')) {
+      this._run(`ALTER TABLE tracked_non_friends ADD COLUMN status_description TEXT DEFAULT ''`);
+    }
+    if (!tnfCols.some(c => c.name === 'location')) {
+      this._run(`ALTER TABLE tracked_non_friends ADD COLUMN location TEXT DEFAULT ''`);
+    }
+    if (!tnfCols.some(c => c.name === 'removed_at')) {
+      this._run(`ALTER TABLE tracked_non_friends ADD COLUMN removed_at TEXT DEFAULT ''`);
+    }
     // 迁移：旧库 world_cache 缺 note 列
     const worldCols = this._query(`PRAGMA table_info(world_cache)`);
     if (!worldCols.some(c => c.name === 'note')) {
@@ -457,6 +471,25 @@ export class Storage {
   getOwnWorldSessions(...args) { return this.social.getOwnWorldSessions(...args); }
   getWeeklyCompanions(...args) { return this.social.getWeeklyCompanions(...args); }
   getFriendGroupStats(...args) { return this.social.getFriendGroupStats(...args); }
+
+  // ── 运维日志（认证/连接生命周期）──
+
+  insertOpsLog({ kind, level = 'info', message, createdAt }) {
+    this._run(
+      `INSERT INTO ops_log (kind, level, message, created_at) VALUES ($kind, $level, $message, $createdAt)`,
+      { $kind: kind, $level: level, $message: String(message).slice(0, 500), $createdAt: createdAt || new Date().toISOString() }
+    );
+    // 保留策略：只留最近 500 条（写入即裁剪，幂等）
+    this._run(`DELETE FROM ops_log WHERE id <= (SELECT id FROM ops_log ORDER BY id DESC LIMIT 1 OFFSET 500)`);
+  }
+
+  getOpsLog({ limit = 200, kind } = {}) {
+    const lim = Math.min(Math.max(Number(limit) || 200, 1), 1000);
+    if (kind) {
+      return this._query(`SELECT * FROM ops_log WHERE kind = $kind ORDER BY id DESC LIMIT $lim`, { $kind: kind, $lim: lim });
+    }
+    return this._query(`SELECT * FROM ops_log ORDER BY id DESC LIMIT $lim`, { $lim: lim });
+  }
 
   getStats() {
     const result = {};

@@ -292,6 +292,24 @@ export class EventPipeline {
     if (this._eventCount % 100 === 0) {
       this.storage.save();
     }
+
+    // SSE 实时推送：事件已落库
+    if (typeof this.onStoredEvent === 'function') {
+      try {
+        const dto = {
+          type: event.type,
+          userId: event.userId || '',
+          displayName: event.displayName || '',
+          worldId: event.worldId || '',
+          worldName: worldName || '',
+          createdAt: event.receivedAt,
+        };
+        if (event.updateType) dto.updateType = event.updateType;
+        this.onStoredEvent(dto);
+      } catch {
+        // 广播失败不能影响主流程
+      }
+    }
   }
 
   async _resolveWorldName(worldId) {

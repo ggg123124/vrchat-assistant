@@ -54,6 +54,50 @@ export function handleGetFriendPairScreen({ userIdA, userIdB, startTime, endTime
   return storage.findFriendPairScreen(userIdA, userIdB, start, end, windowMinutes, limit);
 }
 
+/**
+ * 最近一起玩：与自己同屏（同实例共玩）过的好友列表，按同屏次数降序。
+ * 复用周报的同屏合并引擎（getWeeklyCompanions：北京自然日逐日 findCompanions 匹配），
+ * 输出精简为列表（matchCount/daysCount/lastDay），供 dashboard 右侧栏与 MCP Agent 消费。
+ */
+export function handleGetRecentCooplay({ days = 7, limit = 30 } = {}) {
+  const { storage, serverState } = ctx;
+  const meId = serverState.authUser?.id;
+  if (!meId) throw new Error('Not authenticated');
+  const d = Math.min(Math.max(Number.parseInt(days, 10) || 7, 1), 90);
+  const lim = Math.min(Math.max(Number.parseInt(limit, 10) || 30, 1), 100);
+  const endIso = new Date().toISOString();
+  const startIso = new Date(Date.now() - d * 86400000).toISOString();
+  const merged = storage.getWeeklyCompanions(meId, startIso, endIso);
+  const list = [];
+  for (const [userId, m] of merged) {
+    const dayLabels = [...(m.days || [])].sort();
+    list.push({
+      userId,
+      displayName: m.displayName || '',
+      matchCount: m.matchCount || 0,
+      daysCount: dayLabels.length,
+      lastDay: dayLabels.length ? dayLabels[dayLabels.length - 1] : '',
+    });
+  }
+  list.sort((a, b) => b.matchCount - a.matchCount);
+  return { days: d, total: list.length, companions: list.slice(0, lim) };
+}
+
+export function handleGetOpsLog({ limit = 200, kind } = {}) {
+  const { storage } = ctx;
+  const cap = Math.min(Math.max(Number.parseInt(limit, 10) || 200, 1), 1000);
+  const rows = storage.getOpsLog({ limit: cap, kind });
+  return {
+    items: rows.map(r => ({
+      id: r.id,
+      kind: r.kind,
+      level: r.level,
+      message: r.message,
+      createdAt: r.created_at,
+    })),
+  };
+}
+
 export function handleGetRecentEvents({ limit = 30, offset = 0, typeFilter, userIdFilter }) {
   const { storage } = ctx;
   let events;
@@ -498,6 +542,42 @@ export const tools = [
       ]
     },
     handler: async (args) => handleGetFriendPairScreen(args)
+  },
+  {
+    "name": "get_recent_cooplay",
+    "description": "[query] 最近一起玩：查询最近 N 天与自己共同在场（同一实例且时间区间重叠）过的好友列表，按同屏次数降序。口径与 get_weekly_report 的同屏伙伴一致（北京自然日逐日区间重叠匹配合并）；返回 companions[{ userId, displayName, matchCount（共同在场段数）, daysCount（同屏天数）, lastDay（最近同屏日 MM-DD 北京） }]。days(1-90 默认 7)、limit(1-100 默认 30)。与 get_friend_pair_screen（两人版，带逐条 matches）互补——本工具是面向自己的全好友批量版。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "days": {
+          "type": "number",
+          "description": "回溯天数（1-90，默认 7）"
+        },
+        "limit": {
+          "type": "number",
+          "description": "返回条数上限（1-100，默认 30）"
+        }
+      }
+    },
+    handler: async (args) => handleGetRecentCooplay(args)
+  },
+  {
+    "name": "get_ops_log",
+    "description": "[query·运维] 查询服务运维日志（认证/WS/运维生命周期事件，保留最近 500 条）：返回 items[{ id, kind, level, message, createdAt }]。limit(1-1000 默认 200)、kind(可选 filter，'auth'|'ws'|'ops')。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": "number",
+          "description": "返回条数上限(1-1000，默认200)"
+        },
+        "kind": {
+          "type": "string",
+          "description": "类别过滤：auth|ws|ops（可选）"
+        }
+      }
+    },
+    handler: async (args) => handleGetOpsLog(args)
   },
   {
     "name": "get_friend_profile_changes",

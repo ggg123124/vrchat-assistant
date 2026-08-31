@@ -1,0 +1,382 @@
+/* VRChat Assistant — 全局样式与双端布局 */
+:root {
+  /* 黑灰配色（偏黑、去掉蓝调） */
+  --bg: #070708;
+  --surface: #0e0e10;
+  --surface-2: #131315;
+  --surface-3: #1a1a1d;
+  --border: #202024;
+  --border-soft: #151518;
+  --text: #ececee;
+  --text-dim: #8b8b93;
+  --accent: #8b5cf6;
+  --accent-2: #22d3ee;
+  --ok: #2bcf5c;
+  --warn: #ff7b42;
+  --info: #1778ff;
+  --danger: #ff5252;
+  --radius: 10px;
+  --font-mono: ui-monospace, 'JetBrains Mono', SFMono-Regular, Menlo, Consolas, monospace;
+  --header-h: 48px;
+  --rail-w: 200px;
+  --rightbar-w: 300px;
+  --footer-h: 30px;
+}
+
+* { box-sizing: border-box; }
+html, body, #app { height: 100%; margin: 0; }
+/* 修复 iOS：软键盘弹出时 100dvh 固定布局被顶飞（fixed tabbar/header 消失或悬空）。
+   键盘可见时把壳体高度改为 visualViewport 实际可视高度（--vvh 由 main.js 写入） */
+@supports (-webkit-touch-callout: none) {
+  .app-shell.has-vvk { height: var(--vvh, 100dvh); }
+}
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Inter', -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+}
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: #26262a; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #333338; }
+::-webkit-scrollbar-track { background: transparent; }
+* { scrollbar-width: thin; scrollbar-color: #26262a transparent; }
+
+/* ── 应用壳 ── */
+.app-shell { display: flex; flex-direction: column; height: 100dvh; }
+.app-header {
+  height: var(--header-h);
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 14px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  position: relative;
+  z-index: 30;
+}
+.brand {
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 0.2px;
+  color: var(--text);
+  white-space: nowrap;
+}
+.header-right { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+
+.app-body { flex: 1; display: flex; min-height: 0; }
+
+/* 左侧导航（桌面） */
+.nav-rail {
+  width: var(--rail-w);
+  flex: none;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 13px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  transition: background 0.12s, color 0.12s;
+  position: relative;
+}
+.nav-item:hover { background: var(--surface-2); color: var(--text); }
+.nav-item.active { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--text); }
+.nav-item.active::before {
+  content: '';
+  position: absolute;
+  left: -8px;
+  top: 6px;
+  bottom: 6px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+.nav-item .ni-ico { width: 20px; text-align: center; font-size: 15px; flex: none; }
+.nav-badge {
+  margin-left: auto;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 主视口 */
+.main-viewport { flex: 1; min-width: 0; overflow-y: auto; padding: 14px 16px 40px; }
+
+/* 右侧好友栏（桌面） */
+.rightbar {
+  width: var(--rightbar-w);
+  flex: none;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 底部状态栏 */
+.app-footer {
+  height: var(--footer-h);
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 14px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  font-size: 10.5px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.footer-item { display: inline-flex; align-items: center; gap: 5px; }
+.footer-item b { color: var(--text); font-weight: 600; }
+.f-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+.f-dot.ok { background: var(--ok); }
+.f-dot.warn { background: var(--warn); }
+.f-dot.err { background: var(--danger); }
+.f-dot.dim { background: var(--text-dim); }
+
+/* 通用 */
+.empty {
+  text-align: center;
+  color: var(--text-dim);
+  padding: 48px 20px;
+  font-size: 13px;
+}
+.empty small { display: block; margin-top: 8px; color: var(--text-dim); opacity: 0.7; }
+.view-title { font-size: 16px; font-weight: 700; margin: 0 0 12px; display: flex; align-items: center; gap: 8px; }
+/* 动态标题行内嵌动作按钮（移动端日期+星标） */
+.vt-actions { display: inline-flex; align-items: center; gap: 6px; margin-left: 2px; min-width: 0; }
+.vt-actions .chip { height: 26px; padding: 4px 10px; font-size: 11px; }
+.vt-actions .date-btn i { font-size: 10px; }
+.text-dim { color: var(--text-dim); }
+.mono { font-family: var(--font-mono, monospace); font-variant-numeric: tabular-nums; }
+.mt-8 { margin-top: 8px; }
+.mt-12 { margin-top: 12px; }
+.mb-8 { margin-bottom: 8px; }
+
+/* 滚动区域圆角统一 */
+.rounded { border-radius: var(--radius); }
+
+/* PrimeVue 暗色微调 */
+.p-button:focus-visible, .p-drawer, .p-inputtext:focus { outline-color: var(--accent); }
+
+/* B5 弹窗内容超高时在视口内滚动（移动端尤其需要，100dvh 适配地址栏伸缩） */
+.p-dialog .p-dialog-content { max-height: calc(100dvh - 130px); overflow-y: auto; }
+
+/* ── 移动端 ── */
+@media (max-width: 899px) {
+  /* 页脚多条目（AUTH/WS/SSE/DB/运行时长/安全模式）窄屏换行，避免 overflow 裁剪 */
+  .app-footer { flex-wrap: wrap; height: auto; min-height: var(--footer-h); padding-top: 6px; padding-bottom: 6px; gap: 4px 14px; }
+  :root { --rail-w: 0px; --rightbar-w: 0px; }
+  /* C3：顶部 safe-area（刘海屏/挖孔屏状态栏不遮挡），header 内容随之居中下沉 */
+  .app-header {
+    height: calc(var(--header-h) + env(safe-area-inset-top, 0px));
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+  .nav-rail { display: none; }
+  .rightbar { display: none; }
+  .main-viewport { padding: 10px 12px 70px; }
+  .brand-sub { display: none; }
+  /* B6：手机上隐藏右侧副标语，避免底部状态栏截断 */
+  .footer-brand { display: none; }
+  /* 移动端底部导航 */
+  .mobile-tabbar {
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    height: 56px;
+    background: color-mix(in srgb, var(--surface) 92%, transparent);
+    backdrop-filter: blur(12px);
+    border-top: 1px solid var(--border);
+    display: flex;
+    z-index: 40;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .mtab {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    font-size: 10px;
+    cursor: pointer;
+  }
+  .mtab.active { color: var(--accent); }
+  .mtab .pi { font-size: 17px; }
+}
+
+/* C4 窄窗口（平板横屏/小笔记本）：收窄两侧栏，给主区留空间 */
+@media (min-width: 900px) and (max-width: 1280px) {
+  :root { --rail-w: 168px; --rightbar-w: 248px; }
+}
+
+/* PrimeVue 覆盖：暗色下边框/输入框 */
+.app-dark .p-dialog, .app-dark .p-drawer { background: var(--surface-2); }
+.app-dark .p-dialog .p-dialog-header, .app-dark .p-drawer .p-drawer-header { background: transparent; }
+
+/* 修复：移动端 bottom-center Toast 被底部 tabbar（56px + safe-area）遮挡，整体上移 */
+@media (max-width: 899px) {
+  .p-toast.p-toast-bottom-center {
+    margin-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+    width: min(25rem, calc(100vw - 24px));
+  }
+}
+
+/* ═══ 共享 UI 基元（UI 统一：所有视图收敛到全局定义，各页不再各自复制） ═══ */
+
+/* 筛选/分段 chips：统一的胶囊按钮 */
+.chip {
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-dim);
+  border-radius: 999px;
+  padding: 4px 13px;
+  font-size: 12px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: all 0.12s;
+  white-space: nowrap;
+  font-family: inherit;
+  line-height: 1;
+}
+.chip:hover { border-color: var(--accent); color: var(--text); }
+.chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.chip-n { opacity: 0.75; font-size: 10px; margin-left: 3px; }
+.star-btn.active { background: transparent; border-color: var(--accent); color: var(--accent); }
+.star-on { background: transparent; border-color: var(--accent); color: var(--accent); }
+.star-on .pi { color: var(--accent); }
+@media (max-width: 899px) {
+  .chip { height: 26px; padding: 4px 10px; font-size: 11px; flex: none; }
+}
+
+/* 空态：居中、弱化、留白 */
+.empty {
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+/* 加载中：居中迷你 spinner */
+.loading-mini {
+  display: flex;
+  justify-content: center;
+  padding: 24px;
+}
+
+/* ═══ 全局交互统一（第二波） ═══ */
+
+/* 文本选区：accent 色调 */
+::selection { background: rgba(139, 92, 246, 0.35); color: #fff; }
+
+/* 链接统一色（各视图不再各自定义） */
+a { color: var(--accent); }
+a:hover { opacity: 0.85; }
+
+/* 按钮继承字体（部分视图漏设 font-family） */
+button { font-family: inherit; }
+
+/* 动效克制：尊重系统「减少动态效果」偏好 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* 视图头部 h2 统一（所有 .xx-head h2 收敛到此处；各视图不再各自复制） */
+[class$="-head"] h2 {
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+[class$="-head"] h2 .pi { color: var(--accent); font-size: 14px; }
+
+/* 搜索/输入框统一：所有 .xx-input 收敛（透明底、继承字体、占位弱化） */
+[class$="-input"] {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+}
+[class$="-input"]::placeholder { color: var(--text-dim); opacity: 0.8; }
+[class$="-input"]:focus-visible { outline: none; }
+
+/* 浮层圆角统一：Dialog/Drawer/Toast 用设计 token（--radius: 10px） */
+.p-dialog, .p-drawer { border-radius: var(--radius); overflow: hidden; }
+.p-dialog .p-dialog-content { border-radius: 0 0 var(--radius) var(--radius); }
+.p-toast .p-toast-message { border-radius: var(--radius); }
+.p-toast .p-toast-message .p-toast-message-content { padding: 10px 12px; }
+
+/* 统计卡统一（图表/周报共用；单点定义） */
+.stat-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+.stat-box { background: var(--surface); border: 1px solid var(--border-soft); border-radius: 10px; padding: 12px 14px; }
+.sb-label { display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 4px; }
+.sb-val { font-size: 22px; font-weight: 700; }
+
+/* 视图切换淡入（克制、快速；prefers-reduced-motion 已全局禁用） */
+.main-viewport > * { animation: viewFade 0.16s ease; }
+@keyframes viewFade {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* 空态图标：柔和弱化的引导图形 */
+.empty-icon { font-size: 26px; display: block; margin: 0 auto 10px; color: var(--text-dim); opacity: 0.55; }
+
+/* 搜索框焦点态：focus-within 高亮边框（可用性+精致） */
+.bh-box:focus-within, .sv-box:focus-within, .ws-box:focus-within, .ft-search:focus-within, .op-box:focus-within, .ta-box:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.15);
+}
+
+/* 网格卡片悬停微浮起（足迹/相册/素材/模型/收藏 共用；克制 1px + 柔影） */
+.ws-card, .pr-card, .bh-card, .av-card, .world-card, .avatar-card {
+  transition: border-color 0.12s, transform 0.12s, box-shadow 0.12s;
+}
+.ws-card:hover, .pr-card:hover, .bh-card:hover, .av-card:hover, .world-card:hover, .avatar-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.32);
+}

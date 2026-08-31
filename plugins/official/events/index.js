@@ -200,7 +200,7 @@ export default function register(api) {
         const grp = card.match(/href="\/groups\/(grp_[^"]+)"[^>]*>([^<]+)</);
         const cal = card.match(/calendar\/(cal_[a-f0-9-]+)/);
         const img = card.match(/<img[^>]*src="([^"]+)"[^>]*result-row-thumb/);
-        const langs = (card.match(/badge bg-secondary">([^<]+)</g) || []).map(x => x.replace('badge bg-secondary">','').replace('<',''));
+        const langs = (card.match(/badge bg-secondary">([^<]+)</g) || []).map(x => x.replace('badge bg-secondary">','').replace(/</g,''));
         out.push({
           name: name.slice(0, 100),
           start, end,
@@ -1006,10 +1006,17 @@ export default function register(api) {
 // ── 工具函数（模块级，不依赖 api）──
 const CAT_ZH = { music:'音乐',dance:'舞蹈',hangout:'聚会',gaming:'游戏',roleplaying:'角色扮演',performance:'演出',education:'教育' };
 function decodeEntities(s) {
-  return s.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'");
+  const map = { amp:'&', lt:'<', gt:'>', quot:'"', '#39':"'", apos:"'", '#x27':"'" };
+  return String(s || '').replace(/&(#?\w+);/g, (m, ent) => {
+    const k = ent.toLowerCase();
+    return Object.prototype.hasOwnProperty.call(map, k) ? map[k] : m;
+  });
 }
 function stripHtml(s) {
-  return decodeEntities(s.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim());
+  return decodeEntities(String(s || ''))
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/</g, ' ').replace(/>/g, ' ')
+    .replace(/\s+/g, ' ').trim();
 }
 function normName(s) {
   return decodeEntities(String(s || '').toLowerCase()).replace(/[\s【】()（）\[\]＿_\-＃#:：、，。·中\.\"'`]/g, '');

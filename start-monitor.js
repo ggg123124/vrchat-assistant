@@ -12,6 +12,7 @@ import path from 'node:path';
 import net from 'node:net';
 
 import { ctx, log, refreshWatchlistCache } from './core/server-context.js';
+import { recordOpsLog, setOpsLogSink } from './core/ops-log.js';
 import * as registry from './core/registry.js';
 import { isSafeModeEnabled, DESTRUCTIVE_TOOLS } from './core/safe-mode.js';
 import { Storage } from './core/storage.js';
@@ -22,6 +23,7 @@ import { EventPipeline } from './core/event-pipeline.js';
 import { FriendStateManager } from './core/friend-state.js';
 import { createServer } from './core/http-server.js';
 import { PluginLoader } from './core/plugin-loader.js';
+import { registerDashboardServices } from './core/dashboard-services.js';
 import { migrateLegacyData } from './core/migrate-legacy-data.js';
 import { fetchOtpFromEmail } from './core/otp-fetcher.js';
 import {
@@ -106,22 +108,272 @@ async function _updateFriendState(event) {
 
 // ── WebSocket 重连后刷新全量在线状态 ──
 async function _refreshOnlineState() {
-  const { api, friendState } = ctx;
+  const { api, friendState, storage } = ctx;
   try {
-    const r = await api._request('GET', '/auth/user/friends?offline=false');
-    if (r.status === 200 && Array.isArray(r.data)) {
-      const online = r.data.filter(f => f.location && f.location !== 'offline');
-      friendState.batchSetOnline(online.map(f => ({
-        userId: f.id,
-        displayName: f.displayName,
-        location: f.location,
-        worldId: f.worldId,
-        isOnline: true,
-      })));
-      log(`🔄 刷新在线状态: ${friendState.getOnlineCount()} 人在线`);
+    // offline=false = 仅返回在线+active 好友（docs vrchat.community /reference/get-friends；
+    // 注意 offline=true 是「仅离线」，不是全量）。分页拉全，任何一页失败则放弃本轮对账（防误标）
+    const online = [];
+    let offset = 0, complete = false;
+    for (let i = 0; i < 6; i++) {
+      const r = await api._request('GET', `/auth/user/friends?offline=false&n=100&offset=${offset}`);
+      if (r.status !== 200 || !Array.isArray(r.data)) break; // complete 保持 false → 跳过本轮对账
+      online.push(...r.data);
+      if (r.data.length < 100) { complete = true; break; }
+      offset += r.data.length;
     }
+    if (!complete) { log('⚠️ 刷新在线状态: 好友列表未拉全，跳过本轮对账'); return; }
+
+    friendState.batchSetOnline(online.map(f => ({
+      userId: f.id,
+      displayName: f.displayName,
+      location: f.location || '',
+      worldId: f.worldId || (f.location || '').split(':')[0],
+      isOnline: true,
+    })));
+
+    // 断线窗口对账：WS 断开期间的好友下线事件会错过（下线不再广播），本地状态会卡在「在线」。
+    // 好友表标记在线、但不在真实在线集合中的 → 置离线 + 补记 friend-offline 事件（动态流可见）。
+    // 准确下线时刻在断线窗口内无法得知，记对账时刻。
+    const onlineIds = new Set(online.map(f => f.id));
+    const stale = storage.query(`SELECT user_id, display_name, last_seen FROM friends WHERE is_online = 1`);
+    const nowIso = new Date().toISOString();
+    // API 掉线窗口起点 = WS 最近一次断开时刻（重连对账的「期间」语义）
+    const disconnectedAt = ctx.wsManager && ctx.wsManager.disconnectedAt
+      ? new Date(ctx.wsManager.disconnectedAt).toISOString() : '';
+    let fixed = 0;
+    for (const row of stale) {
+      if (onlineIds.has(row.user_id)) continue;
+      storage.upsertFriend({
+        userId: row.user_id,
+        isOnline: false,
+        location: 'offline',
+        lastSeen: nowIso,
+        lastOffline: nowIso,
+      });
+      // 去重：重连风暴期 WS 实时下线可能已先入账（窗口内已有该好友的 offline 事件）→ 只修状态不补事件
+      try {
+        const since = disconnectedAt || new Date(Date.now() - 10 * 60_000).toISOString();
+        const dup = storage.query(
+          `SELECT id FROM events WHERE type = 'friend-offline' AND user_id = $uid AND created_at >= $since LIMIT 1`,
+          { $uid: row.user_id, $since: since }
+        );
+        if (dup.length) { fixed++; continue; }
+      } catch { /* 去重查询失败按无重复处理 */ }
+      try {
+        storage.insertEvent({
+          type: 'friend-offline',
+          userId: row.user_id,
+          displayName: row.display_name || '',
+          contentJson: {
+            userId: row.user_id, location: 'offline',
+            reconcile: true,
+            offlineWindowStart: disconnectedAt,   // API 掉线起点（WS 断开时刻）
+            detectedAt: nowIso,                    // 对账确认离线时刻
+            lastSeen: row.last_seen || '',         // 好友最后活动时刻（更紧的下界）
+          },
+          worldId: '',
+          worldName: '',
+          createdAt: nowIso,
+          source: 'api_poll',
+        });
+      } catch { /* 补事件失败不影响状态对账 */ }
+      fixed++;
+    }
+    log(`🔄 刷新在线状态: 在线 ${online.length} 人${fixed ? `，断线窗口对账补离线 ${fixed} 人` : ''}`);
   } catch (err) {
     log(`⚠️ 刷新在线状态失败: ${err.message}`);
+  }
+}
+
+// ── 好友头像/信任等级补全（低频）：拉全量好友列表，补齐头像为空或 trustLevel 缺失的（VRChat 对部分用户不返回 trustLevel 字段，但 tags 里有 system_trust_* 标记）
+function inferTrustFromTags(tags) {
+  // 对齐 VRCX computeTrustLevel（src/shared/utils/userTransforms.js）：system_trust_veteran→Trusted User / trusted→Known User / known→User / basic→New User
+  const t = Array.isArray(tags) ? tags : [];
+  if (t.includes('system_trust_veteran')) return 'Trusted User';
+  if (t.includes('system_trust_trusted')) return 'Known User';
+  if (t.includes('system_trust_known')) return 'User';
+  if (t.includes('system_trust_basic')) return 'New User';
+  return '';
+}
+async function _syncFriendAvatars() {
+  const { api, rateLimiter, storage } = ctx;
+  if (!api || !rateLimiter) return;
+  let updated = 0;
+  try {
+    // 全量好友 = offline=false（在线+active）∪ offline=true（离线）——docs 实测：不传参数仅返回在线（2/13），
+    // offline=true 仅离线（11/13）。旧实现只拉 offline=true，在线好友的头像/信任等级永远补不到。
+    for (const flag of ['false', 'true']) {
+    let offset = 0;
+    for (let i = 0; i < 10; i++) {
+      const r = await rateLimiter.execute(() => api._request('GET', `/auth/user/friends?offline=${flag}&n=100&offset=${offset}`));
+      if (r.status !== 200 || !Array.isArray(r.data) || !r.data.length) break;
+      for (const f of r.data) {
+        // 模型 ID ↔ 图片映射：VRChat WS 推送的 friend-update 不含 currentAvatar（只有图片 URL），
+        // 这里用全量好友列表建 imageUrl→avatarId 映射，供 events 服务富化模型变动事件的 avtr ID
+        const fm = String(f.currentAvatarImageUrl || '').match(/\/file\/(file_[a-f0-9-]+)/);
+        if (fm && f.currentAvatar) {
+          try { storage.setPlanetCache(`avimg:${fm[1]}`, { avatarId: f.currentAvatar, at: Date.now() }); } catch { /* 落盘失败忽略 */ }
+        }
+        // VRChat API User 对象：头像字段 currentAvatarImageUrl/currentAvatarThumbnailImageUrl/userIcon，信任等级 trustLevel
+        const av = f.currentAvatarImageUrl || f.currentAvatarThumbnailImageUrl || '';
+        const ic = f.userIcon || '';
+        const tl = f.trustLevel || inferTrustFromTags(f.tags);
+        if (!av && !ic && !tl) continue;
+        const ex = storage.getFriend(f.id);
+        if (ex && (ex.avatar_image_url || ex.user_icon) && ex.trust_level) continue; // 头像+信任等级都有则不覆盖
+        storage.upsertFriend({ userId: f.id, avatarImageUrl: av, userIcon: ic, trustLevel: tl });
+        updated++;
+      }
+      offset += r.data.length;
+      if (r.data.length < 100) break;
+    }
+    }
+    if (updated) log(`🖼️ 好友头像补全: 更新 ${updated} 人（全量=在线+离线双列表）`);
+  } catch (err) {
+    log(`⚠️ 好友头像补全失败: ${err.message}`);
+  }
+}
+
+// ── 追踪非好友（VRCX-Luo 对齐）──
+// VRChat 任何用户的 bio/status/头像都是公开的（GET /users/{id}），
+// 非好友不推 WS 事件，只能定时拉取 diff 记录变化；同时用拉到的头像回填历史事件。
+async function _seedTrackedNonFriends() {
+  try {
+    // 自己 userId：优先事件推导（user-location/user-update 只会是自己的事件，启动早期即可用），
+    // /auth/user 在启动早期可能失败导致自己被误导入（2026-08-30 用户反馈）
+    let selfId = ctx.storage.query(
+      `SELECT user_id FROM events WHERE type IN ('user-location', 'user-update') AND user_id LIKE 'usr_%' LIMIT 1`
+    )[0]?.user_id || '';
+    const me = await ctx.rateLimiter.execute(() => ctx.api._request('GET', '/auth/user')).catch(() => null);
+    if (me && me.status === 200 && me.data && me.data.id) selfId = me.data.id || selfId;
+    // 启动清理：移除历史误导入的自己
+    if (selfId) {
+      const del = ctx.storage.run(`DELETE FROM tracked_non_friends WHERE user_id = $u`, { $u: selfId });
+      if (del.changes > 0) log(`🧹 追踪列表移除误导入的自己（${selfId.slice(0, 12)}…）`);
+    }
+    const rows = ctx.storage.query(
+      `SELECT user_id, MAX(display_name) AS dn FROM events
+       WHERE user_id LIKE 'usr_%' AND user_id != ''
+       GROUP BY user_id`
+    );
+    let added = 0;
+    for (const r of rows) {
+      if (r.user_id === selfId) continue;                 // 排除自己
+      if (ctx.storage.getFriend(r.user_id)) continue;     // 排除当前好友
+      // 已移除追踪的用户不再重新导入（removed_at 标记，INSERT OR IGNORE 不覆盖）
+      const wasRemoved = ctx.storage.query(
+        `SELECT user_id FROM tracked_non_friends WHERE user_id = $u AND removed_at != ''`,
+        { $u: r.user_id });
+      if (wasRemoved.length) continue;
+      ctx.storage.run(
+        `INSERT OR IGNORE INTO tracked_non_friends (user_id, display_name) VALUES ($u, $d)`,
+        { $u: r.user_id, $d: r.dn || '' }
+      );
+      added++;
+    }
+    if (added) log(`⭐ 追踪非好友: 自动导入 ${added} 人（历史非好友，定时拉取资料/头像）`);
+  } catch (e) {
+    log(`⚠️ 追踪非好友初始化失败: ${e.message}`);
+  }
+}
+
+let _trackedRefreshRunning = false;  // 手动/定时刷新并发闸（防重复 diff 事件）
+
+async function _refreshTrackedNonFriends() {
+  const { api, rateLimiter, storage } = ctx;
+  if (!api || !rateLimiter) return;
+  const list = storage.query(`SELECT * FROM tracked_non_friends WHERE removed_at = ''`);
+  if (!list.length) return;
+  let ok = 0;
+  for (const u of list) {
+    try {
+      const r = await rateLimiter.execute(() => api._request('GET', `/users/${encodeURIComponent(u.user_id)}`));
+      if (r.status !== 200 || !r.data || r.data.error) continue;
+      const userObj = r.data;
+      const av = userObj.currentAvatarImageUrl || userObj.currentAvatarThumbnailImageUrl || userObj.userIcon || '';
+      const dn = userObj.displayName || u.display_name || '';
+      // 头像变化检测：按 file id 归一化比较（防 currentAvatarImageUrl vs Thumbnail 兜底链或 URL 版本号 /1/ vs /3/ 波动误报）
+      const prevAv = u.avatar_image_url || '';
+      const fileIdOf = (url) => { const m = String(url || '').match(/\/file\/(file_[a-f0-9-]+)/); return m ? m[1] : ''; };
+      const changed = fileIdOf(av) && fileIdOf(prevAv) ? fileIdOf(av) !== fileIdOf(prevAv) : (av !== prevAv);
+      if (av && prevAv && changed) {
+        try {
+          storage.insertEvent({
+            type: 'friend-update', userId: u.user_id, displayName: dn || u.display_name || '',
+            contentJson: { userId: u.user_id, displayName: dn || u.display_name || '', type: 'avatar', avatarImageUrl: av, previousAvatarImageUrl: prevAv },
+            worldId: '', worldName: '', createdAt: new Date().toISOString(), source: 'poll',
+          });
+          log(`⭐ 追踪非好友头像变化: ${dn || u.user_id}`);
+        } catch { /* 记录失败不影响刷新 */ }
+      }
+      const st = userObj.status || '';
+      const stDesc = userObj.statusDescription || '';
+      const loc = userObj.location || '';
+      if (av || dn || st) {
+        storage.run(
+          `UPDATE tracked_non_friends SET avatar_image_url=$a, display_name=$d, status=$s, status_description=$sd, location=$l, last_refresh_at=datetime('now') WHERE user_id=$u`,
+          { $a: av, $d: dn, $s: st, $sd: stDesc, $l: loc, $u: u.user_id }
+        );
+      }
+      _recordNonFriendChange(u.user_id, dn, userObj, av);
+      // 回填历史事件头像（之前没存头像的事件，如 VRCX 迁移数据）
+      if (av) {
+        try {
+          storage.run(
+            `UPDATE events SET content_json = json_set(COALESCE(content_json,'{}'), '$.avatarImageUrl', $a)
+             WHERE user_id = $u AND (
+               json_extract(content_json, '$.avatarImageUrl') IS NULL
+               OR json_extract(content_json, '$.avatarImageUrl') = ''
+             )`,
+            { $a: av, $u: u.user_id }
+          );
+        } catch { /* 个别 JSON 解析失败忽略 */ }
+      }
+      ok++;
+    } catch { /* 404/网络错误跳过，非致命 */ }
+  }
+  if (ok) log(`⭐ 追踪非好友刷新: ${ok}/${list.length} 位已更新`);
+}
+
+// 对照 events 表该用户最新 bio/status 事件，变化则记录（事件带头像）
+function _recordNonFriendChange(userId, displayName, userObj, av) {
+  const { storage } = ctx;
+  const curBio = userObj.bio || '';
+  const lastBio = storage.query(
+    `SELECT content_json FROM events WHERE user_id=$u AND type='friend-update'
+     AND json_extract(content_json,'$.type')='bio' ORDER BY id DESC LIMIT 1`, { $u: userId });
+  let prevBio = '';
+  if (lastBio.length) { try { prevBio = (JSON.parse(lastBio[0].content_json).bio || ''); } catch { /* 脏数据忽略 */ } }
+  if (!lastBio.length || prevBio !== curBio) {
+    storage.insertEvent({
+      type: 'friend-update', userId, displayName,
+      contentJson: { userId, displayName, type: 'bio', bio: curBio, previousBio: prevBio, avatarImageUrl: av },
+      worldId: '', worldName: '', createdAt: new Date().toISOString(), source: 'poll',
+    });
+  }
+  const valid = ['join me', 'active', 'ask me', 'busy'];
+  const curStatus = valid.includes(userObj.status) ? userObj.status : '';
+  if (curStatus) {
+    const lastSt = storage.query(
+      `SELECT content_json FROM events WHERE user_id=$u AND type='friend-update'
+       AND json_extract(content_json,'$.type')='status' ORDER BY id DESC LIMIT 1`, { $u: userId });
+    let prev = null;
+    if (lastSt.length) { try { prev = JSON.parse(lastSt[0].content_json); } catch { /* 脏数据忽略 */ } }
+    const prevStatus = prev ? (prev.status || '') : '';
+    if (!lastSt.length || prevStatus !== curStatus) {
+      storage.insertEvent({
+        type: 'friend-update', userId, displayName,
+        contentJson: {
+          userId, displayName, type: 'status',
+          status: curStatus,
+          statusDescription: userObj.statusDescription || '',
+          previousStatus: prevStatus,
+          previousStatusDescription: prev ? (prev.statusDescription || '') : '',
+          avatarImageUrl: av,
+        },
+        worldId: '', worldName: '', createdAt: new Date().toISOString(), source: 'poll',
+      });
+    }
   }
 }
 
@@ -241,6 +493,20 @@ function registerCoreServices(loader, ctx) {
     port: parseInt(process.env.VRC_MONITOR_PORT || '8799', 10),
   }));
   loader.serviceOwners.set('core.authConfig', 'core');
+
+  // 手动触发非好友资料刷新（tracked 视图「立即刷新」按钮；fire-and-forget，立即返回）。
+  // 并发闸：模块级 _trackedRefreshRunning 防与每小时例行任务/连续点击并发——并发下两个任务读到
+  // 相同旧头像/旧状态会重复插入 friend-update 事件（diff 只在串行下保证去重）
+  loader.services.set('dashboard.refreshTracked', () => {
+    if (_trackedRefreshRunning) return { ok: true, started: false, reason: 'already-running' };
+    _trackedRefreshRunning = true;
+    _refreshTrackedNonFriends()
+      .catch(() => {})
+      .finally(() => { _trackedRefreshRunning = false; });
+    return { ok: true, started: true };
+  });
+  loader.serviceOwners.set('dashboard.refreshTracked', 'core');
+
 }
 
 // ── 启动 ──
@@ -285,8 +551,15 @@ async function main() {
   // 1. 初始化数据库
   log('📦 初始化数据库...');
   ctx.storage = new Storage();
+// 服务运维日志（ops_log）：认证/连接生命周期打点的落库出口
+setOpsLogSink((kind, level, message) => {
+  try { ctx.storage.insertOpsLog({ kind, level, message, createdAt: new Date().toISOString() }); } catch { /* 不影响主流程 */ }
+});
   await ctx.storage.init(DB_PATH);
   const stats = ctx.storage.getStats();
+  // 服务进程启动打点：必须在 storage.init（建表）与 sink 接线之后，否则静默失败
+  recordOpsLog('ops', 'info', `服务进程启动（v${APP_VERSION}，部署/容器重建/手动重启）`);
+  ctx.serverState.version = APP_VERSION;
   log(`   ✅ 数据库就绪: ${DB_PATH}`);
   log(`   📊 事件: ${stats.events} 条 | 好友: ${stats.friends} 位 | 世界缓存: ${stats.world_cache} 个`);
   refreshWatchlistCache();  // 初始化 watchlist 内存缓存
@@ -395,6 +668,7 @@ async function main() {
   // 5.5 加载插件（失败不阻断核心启动）
   const pluginLoader = new PluginLoader({ registry, ctx, log, notifier });
   registerCoreServices(pluginLoader, ctx);
+  registerDashboardServices(pluginLoader, ctx);
   await pluginLoader.loadAll();
   pluginLoader.watch();
   ctx.pluginLoader = pluginLoader;
@@ -424,7 +698,8 @@ async function main() {
     onStatusChange: (status) => {
       log(`🔌 WebSocket: ${status}`);
       if (status === 'connected') {
-        _refreshOnlineState(); // 连接后刷新全量状态
+        // 连接后延迟对账：先让重连突发的实时推送（上线/下线）落地，再对账补漏，避免双记
+        setTimeout(() => { _refreshOnlineState().catch(() => {}); }, 25_000);
         // WS 重连成功但启动登录可能失败(如 OTP 错位)，此处复查认证并同步 authUser
         ctx.api.checkAuth().then((res) => {
           if (res.valid) {
@@ -450,6 +725,17 @@ async function main() {
   runAutoBackup();
   setInterval(runAutoBackup, BACKUP_INTERVAL_MS);
 
+  // 7a. 好友头像补全：启动 90s 后首次 + 每 6 小时（低频，只补空头像）
+  setTimeout(_syncFriendAvatars, 90 * 1000);
+  setInterval(_syncFriendAvatars, 6 * 3600 * 1000);
+
+  // 7a2. 追踪非好友（VRCX-Luo 对齐）：启动 20s 后自动导入历史非好友并首次拉取，之后每小时刷新
+  setTimeout(async () => {
+    await _seedTrackedNonFriends();
+    await _refreshTrackedNonFriends();
+  }, 20 * 1000);
+  setInterval(_refreshTrackedNonFriends, 3600 * 1000);
+
   // 7b. 启动 MCP 服务
   const server = createServer();
   server.listen(PORT, HOST, () => {
@@ -470,6 +756,7 @@ main().catch(err => {
 
 // ── 优雅关闭 ──
 async function shutdown(signal) {
+  recordOpsLog('ops', 'info', `服务进程停止（${signal}——容器重建/手动停止）`);
   const { wsManager, eventPipeline, storage } = ctx;
   log(`\n⚠️ 收到 ${signal}，正在关闭...`);
   try {

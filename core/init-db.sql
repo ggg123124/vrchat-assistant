@@ -201,3 +201,26 @@ CREATE TABLE IF NOT EXISTS booth_search_history (
   created_at TEXT DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_booth_search_created ON booth_search_history(created_at);
+
+-- 追踪的非好友（VRCX-Luo 对齐）：手动/自动添加，定时拉 /users/{id} 记录 bio/状态变化并回填头像
+CREATE TABLE IF NOT EXISTS tracked_non_friends (
+  user_id TEXT PRIMARY KEY,
+  display_name TEXT DEFAULT '',
+  avatar_image_url TEXT DEFAULT '',
+  added_at TEXT DEFAULT (datetime('now')),
+  last_refresh_at TEXT DEFAULT '',
+  status TEXT DEFAULT '',
+  status_description TEXT DEFAULT '',
+  location TEXT DEFAULT '',
+  removed_at TEXT DEFAULT ''
+);
+
+-- 服务运维日志（认证/连接生命周期）：独立于 events（动态流语义），保留最近 500 条（写入即裁剪）
+CREATE TABLE IF NOT EXISTS ops_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind TEXT NOT NULL,              -- 'auth' | 'ws' | 'ops'
+  level TEXT DEFAULT 'info',       -- 'info' | 'warn' | 'error'
+  message TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ops_log_created ON ops_log(created_at);

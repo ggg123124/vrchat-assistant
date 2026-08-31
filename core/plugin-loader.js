@@ -363,6 +363,9 @@ export class PluginLoader {
       try { plugin.dispose(); } catch (err) { this.log(`插件 ${name} dispose 出错: ${err.message}`); }
     }
     this.registry.removePluginTools(name);
+    for (const [key, route] of this.ctx.httpRoutes?.entries() || []) {
+      if (route.pluginName === name) this.ctx.httpRoutes.delete(key);
+    }
     for (const [svc, owner] of this.serviceOwners.entries()) {
       if (owner === name) {
         this.services.delete(svc);
@@ -393,6 +396,9 @@ export class PluginLoader {
       try { plugin.dispose(); } catch (err) { this.log(`插件 ${name} dispose 出错: ${err.message}`); }
     }
     this.registry.removePluginTools(name);
+    for (const [key, route] of this.ctx.httpRoutes?.entries() || []) {
+      if (route.pluginName === name) this.ctx.httpRoutes.delete(key);
+    }
     // 移除该插件提供的服务
     const oldServices = [];
     for (const [svc, owner] of this.serviceOwners.entries()) {
