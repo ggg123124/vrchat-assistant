@@ -12,13 +12,25 @@
  */
 
 import { ctx, log } from './server-context.js';
+import { HttpsProxyAgent } from 'https-proxy-agent';
+import https from 'node:https';
+import http from 'node:http';
+import zlib from 'node:zlib';
 
-const NITTER_BASE = 'https://nitter.net';
+// Nitter 实例列表（按实测可达性排序：nitter.net 本机实测可用，其余为回退）
+const NITTER_INSTANCES = [
+  'https://nitter.net',
+  'https://nitter.tiekoetter.com',
+  'https://nitter.poast.org',
+  'https://xcancel.com',
+  'https://nitter.privacydev.net',
+  'https://nitter.1d4.us',
+];
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
-const NITTER_TIMEOUT_MS = 25000;
+const NITTER_TIMEOUT_MS = 12000;   // 单实例超时（短，便于快速回退）
+const NITTER_MIN_BYTES = 200;      // 空壳检测：响应体小于此字节视为不可用
 const MAX_TWEETS_PER_CREATOR = 20; // Nitter RSS 固定返回最近 ~20 条
 
-<<<<<<< HEAD
 // ── X SearchTimeline GraphQL 兜底数据源 ─────────────────────
 // 背景：Nitter 实例不稳定（403/404/SSL 挂/部分博主无缓存），且 RSS 仅返回最近 ~20 条，
 // 导致高频博主（如 Bradlee1011）3 天 10+ 条推荐只抓到 3 条。X 的 SearchTimeline GraphQL
@@ -549,8 +561,6 @@ export async function fetchCreatorViaBrowser(screenName) {
   throw err;
 }
 
-=======
->>>>>>> origin/main
 // ── 博主清单 ──────────────────────────────────────────────
 
 export function getCreators(storage) {
@@ -596,37 +606,7 @@ export function removeCreator(storage, screenName) {
   return { removed: true, creators: next };
 }
 
-// ── Nitter RSS 抓取 ───────────────────────────────────────
-
-/**
- * 抓取某博主的 Nitter RSS，返回推文数组：
- * [{ id, url, time (ISO), text, worldIds: [], worldNames: [] }]
- */
-export async function fetchCreatorRss(screenName) {
-  const url = `${NITTER_BASE}/${encodeURIComponent(screenName)}/rss`;
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), NITTER_TIMEOUT_MS);
-  let resp;
-  try {
-    resp = await fetch(url, {
-      headers: {
-        'User-Agent': UA,
-        'Accept': 'application/rss+xml, application/xml, text/xml, */*',
-        'Accept-Encoding': 'gzip, deflate',
-      },
-      signal: ctrl.signal,
-    });
-  } catch (e) {
-    clearTimeout(timer);
-    throw new Error(`Nitter fetch failed for @${screenName}: ${e.message}`);
-  }
-  clearTimeout(timer);
-  if (!resp.ok) {
-    throw new Error(`Nitter HTTP ${resp.status} for @${screenName}`);
-  }
-  const xml = await resp.text();
-  return parseRss(xml, screenName);
-}
+// ── Nitter RSS 抓取（多实例回退 + 代理支持，见上方 fetchCreatorRss） ──
 
 /**
  * 从单条推文文本提取世界信息（RSS 与 SearchTimeline 共用）。
@@ -708,57 +688,7 @@ export function parseRss(xml, screenName) {
 
     // 合并 title + description 提取世界信息（Nitter 的 description 含完整链接）
     const fullText = `${title} ${stripHtml(desc)}`;
-<<<<<<< HEAD
     const { worldIds, worldNames, authorName } = extractWorldsFromTweetText(fullText);
-=======
-
-    // 世界链接：vrchat.com/home/world/wrld_xxx 或 vrchat.com/home/launch?worldId=wrld_xxx
-    const worldIds = [...new Set(
-      [
-        ...fullText.matchAll(/vrchat\.com\/home\/world\/(wrld_[0-9a-f-]+)/gi),
-        ...fullText.matchAll(/vrchat\.com\/home\/launch\?[^"'\s]*worldId=([0-9a-f-]+)/gi),
-        ...fullText.matchAll(/vrchat\.com\/home\/launch\?worldId=wrld_([0-9a-f-]+)/gi),
-      ].map(x => {
-        // 归一化：带 wrld_ 前缀的直接用；launch 里可能带或不带前缀
-        const raw = x[1];
-        return raw.startsWith('wrld_') ? raw : `wrld_${raw}`;
-      })
-    )];
-
-    // 世界名（多格式兼容）：
-    //   "World: XXX" / "ワールド：XXX" / "World name: XXX" / "World：XXX"
-    // 名字在 By:/Platform:/换行/# 处截断，避免吞掉作者和描述
-    const worldNames = [];
-    const nameRe = /(?:World(?:\s*name)?|ワールド)\s*[:：]\s*([^\n#|]{2,80}?)(?=\s*(?:By|by|作者|Platform|プラットフォーム)[:：]|\n|#|\||$)/gi;
-    let nm;
-    while ((nm = nameRe.exec(fullText)) !== null) {
-      const name = nm[1].replace(/https?:\/\/\S+/g, '').trim().replace(/[|｜].*$/, '').trim();
-      if (name && !worldNames.includes(name)) worldNames.push(name);
-    }
-
-    // 作者名提取（By: XXX，到 Platform/#/换行/描述边界截断）
-    // 用于搜索辅助匹配，防止"名字包含"误报（如 NOIR → Noir - Nocturne）
-    const authorName = extractAuthor(fullText);
-
-    // 三行格式（八谷凛奈等）："世界名\n作者名\n-- 描述" 或 "世界名 作者名 -- 描述"
-    // 且文本带 #VRChat_world紹介
-    const looksLikeWorldIntro = /#VRChat_world紹介|#VRChat_world紹介|ワールド紹介|World.*紹介/i.test(fullText);
-    if (looksLikeWorldIntro && worldNames.length === 0 && worldIds.length === 0) {
-      // 优先同行式 "名称 作者 -- 描述"（Nitter 标题行，最可靠）
-      // 其次换行分隔三行式（desc 的 <br> 换行）
-      const inline = fullText.match(/([^\n#|]{2,60}?)\s+([A-Za-z0-9_\-\.]{2,40})\s+--\s+/);
-      const threeLine = !inline
-        ? fullText.match(/([^\n]{2,60})\n\s*([A-Za-z0-9_\-\.]{2,40})\n\s*--/)
-        : null;
-      const matched = inline || threeLine;
-      if (matched) {
-        const wName = matched[1].trim();
-        if (wName && !/[#|]/.test(wName) && !/^RT\b/.test(wName)) {
-          worldNames.push(wName);
-        }
-      }
-    }
->>>>>>> origin/main
 
     tweets.push({
       id: tweetId,
@@ -781,7 +711,10 @@ function extractTag(xml, tag) {
 function stripHtml(s) {
   // 块级标签保留换行（<br>、</p>、</blockquote>、<hr>），其余标签清掉
   // <a href="..."> 保留完整 URL（显示文本可能被截断，如 vrchat.com/home/launch?world…）
+  // 先剥离 CDATA 标记（<![CDATA[ 无 > 会吞掉后续首个标签）
   return s
+    .replace(/<!\[CDATA\[/g, '')
+    .replace(/\]\]>/g, '')
     .replace(/<a\s+[^>]*href="([^"]+)"[^>]*>/gi, '$1 ')
     .replace(/<a\s+[^>]*href='([^']+)'[^>]*>/gi, '$1 ')
     .replace(/<br\s*\/?>/gi, '\n')
@@ -940,7 +873,6 @@ function mapWorld(w) {
     popularity: w.popularity || 0,
     capacity: w.capacity || 0,
     tags: Array.isArray(w.tags) ? w.tags : [],
-    createdAt: w.created_at || w.publicationDate || '',   // 世界真实创建时间（VRChat API）
   };
 }
 
@@ -1067,15 +999,11 @@ export async function scanCreatorWorlds({ force = false } = {}) {
       results.push({ screen_name: screen, name: creator.name || screen, tweets: tweets.length, worlds: saved });
     } catch (e) {
       log(`❌ x-world scan @${screen}: ${e.message}`);
-<<<<<<< HEAD
       // 结构化错误：三通道均失败 → 用户可读的降级提示
       const errorInfo = e.code === 'X_FETCH_ALL_FAILED'
         ? `Nitter / X SearchTimeline / 浏览器抓取均不可用（2026 上游反向爬 + 网络受限），该通道当前无法获取新推荐。`
         : e.message;
       results.push({ screen_name: screen, name: creator.name || screen, tweets: 0, worlds: 0, error: errorInfo });
-=======
-      results.push({ screen_name: screen, name: creator.name || screen, tweets: 0, worlds: 0, error: e.message });
->>>>>>> origin/main
     }
   }
 

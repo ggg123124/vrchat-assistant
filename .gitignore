@@ -45,11 +45,7 @@ backups/
 *.sqlite3-wal
 *.sqlite3-shm
 
-<<<<<<< HEAD
-# ── 收藏 PDF 生成缓存与产物 ──
+# ── 生成产物 ──
 img_cache/
 pdf/
-=======
-# ── 生成产物 ──
 *.pdf
->>>>>>> origin/main
