@@ -667,6 +667,67 @@ export function extractWorldsFromTweetText(text) {
   return { worldIds, worldNames, authorName };
 }
 
+// ── t.co 短链解包（2026-09 实测：t.co 不返回 302，而是 200 HTML + meta refresh）──
+// 背景：部分博主（探跡家もっけい mokkei_VE、fox_yata9 等）的世界推荐不是写在
+// "World: X By: Y" 文本里，而是附带 https://t.co/XXXX 短链指向 vrchat 世界页。
+// 旧逻辑只匹配文本里的 vrchat.com/world 直链，导致这类博主整批漏抓（实测 mokkei 被误判 0 推荐，
+// 解包后恢复 11 个世界）。t.co 现在的响应不是 HTTP 302，而是 200 HTML +
+// <meta http-equiv="refresh" content="0;URL=真实URL">，必须抓 body 解析。
+
+/** 从推文文本提取全部 t.co 短链（同步，纯本地） */
+export function extractTcoLinks(text) {
+  return [...new Set(Array.from((text || '').matchAll(/https:\/\/t\.co\/\w+/gi)).map(m => m[0]))];
+}
+
+/** 解包单个 t.co 短链 → 真实 URL（抓 200 HTML 解析 meta refresh URL=；失败返回 null） */
+export async function resolveTcoLink(url, { timeoutMs = 8000 } = {}) {
+  try {
+    const resp = await tryFetchWithProxy(url, {
+      headers: { 'User-Agent': UA, 'Accept': 'text/html,application/xhtml+xml,*/*' },
+      timeoutMs,
+    });
+    const body = resp.body || '';
+    const m = body.match(/URL=([^"'\s]+)/i);
+    if (m) return m[1].trim();
+    return null;
+  } catch {
+    return null; // 解包失败静默，不影响主流程
+  }
+}
+
+/** 解包一批 t.co 短链，返回解出的 wrld_ ID（带清除空/并发上限） */
+export async function resolveTcoWorldIds(links, { maxLinks = 8, timeoutMs = 8000 } = {}) {
+  const ids = new Set();
+  for (const link of (links || []).slice(0, maxLinks)) {
+    try {
+      const real = await resolveTcoLink(link, { timeoutMs });
+      const m = real && real.match(/wrld_[0-9a-f-]{36}/i);
+      if (m) {
+        const hex = m[0].slice(5).replace(/-/g, '');
+        if (/^[0-9a-f]{32}$/i.test(hex)) ids.add(m[0]);
+      }
+    } catch { /* 单链接失败跳过 */ }
+    if (ids.size >= maxLinks) break;
+    await sleep(250); // 轻限速，避免触发 t.co 反爬
+  }
+  return [...ids];
+}
+
+/**
+ * 从推文对象解包 t.co 短链，把新增 wrld_ ID 合并回 tweet.worldIds（幂等去重）。
+ * 对 RSS / SearchTimeline / 浏览器三个通道统一生效。
+ */
+export async function enrichWorldIdsFromTco(tweet) {
+  if (!tweet || !tweet.text) return tweet;
+  const tcoLinks = extractTcoLinks(tweet.text);
+  if (tcoLinks.length === 0) return tweet;
+  const extra = await resolveTcoWorldIds(tcoLinks);
+  if (extra.length > 0) {
+    tweet.worldIds = [...new Set([...(tweet.worldIds || []), ...extra])];
+  }
+  return tweet;
+}
+
 /**
  * 解析 Nitter RSS XML → 推文数组
  */
@@ -896,7 +957,7 @@ export async function fetchCreatorTweets(screenName, { minTweets = 0 } = {}) {
   if (xCfg.enabled) {
     try {
       const tweets = await fetchCreatorViaBrowser(screenName);
-      return { tweets, source: 'browser' };
+      return { tweets: await enrichWorldsWithTco(tweets, screenName), source: 'browser' };
     } catch (e) {
       log(`⚠️ x-world @${screenName} 浏览器抓取失败，回退 HTTP 通道：${e.message}`);
       // 落到下方原 Nitter RSS → SearchTimeline 链
@@ -937,7 +998,36 @@ export async function fetchCreatorTweets(screenName, { minTweets = 0 } = {}) {
     err.code = 'X_FETCH_ALL_FAILED';
     throw err;
   }
-  return { tweets, source };
+  return { tweets: await enrichWorldsWithTco(tweets, screenName), source };
+}
+
+/**
+ * 对一批推文批量解包 t.co 短链（仅对含 t.co 链接的推文生效）。
+ * 并发受限 + 整体超时（默认 20s），解包失败静默、不影响其他推文与主流程。
+ */
+async function enrichWorldsWithTco(tweets, screenName = '', { concurrency = 3, timeoutMs = 30000 } = {}) {
+  // 开关：VRC_MONITOR_X_RESOLVE_TCO 默认开启，设 0 关闭（解包需逐个请求 t.co，弱网环境可关）
+  if (String(process.env.VRC_MONITOR_X_RESOLVE_TCO ?? '1') === '0') return tweets;
+  const targets = (tweets || []).filter(t => t && t.text && extractTcoLinks(t.text).length > 0);
+  if (targets.length === 0) return tweets;
+  const done = new Set();
+  const worker = async (tweet) => {
+    try { await enrichWorldIdsFromTco(tweet); } catch { /* 单推文解包失败不影响整体 */ }
+    done.add(tweet.id || tweet.url || tweet.text);
+  };
+  const queue = targets.slice();
+  const start = Date.now();
+  async function pump() {
+    while (queue.length > 0 && Date.now() - start < timeoutMs) {
+      const batch = queue.splice(0, concurrency);
+      await Promise.all(batch.map(worker));
+    }
+  }
+  try { await pump(); } catch { /* 整体超时/异常静默 */ }
+  if (done.size > 0) {
+    log(`x-world @${screenName} t.co 短链解包：${done.size}/${targets.length} 条含短链推文已处理`);
+  }
+  return tweets;
 }
 
 /**
