@@ -346,11 +346,28 @@ function _recordNonFriendChange(userId, displayName, userObj, av) {
   const { storage } = ctx;
   const curBio = userObj.bio || '';
   const lastBio = storage.query(
-    `SELECT content_json FROM events WHERE user_id=$u AND type='friend-update'
+    `SELECT content_json, created_at FROM events WHERE user_id=$u AND type='friend-update'
      AND json_extract(content_json,'$.type')='bio' ORDER BY id DESC LIMIT 1`, { $u: userId });
   let prevBio = '';
   if (lastBio.length) { try { prevBio = (JSON.parse(lastBio[0].content_json).bio || ''); } catch { /* 脏数据忽略 */ } }
-  if (!lastBio.length || prevBio !== curBio) {
+  // bio 刷屏防护：①unicode NFC 归一化比较（emoji/组合字符在不同刷新返回的字节不稳定，
+  // 归一化后相等视为无变化）；②时间窗去重——同用户 5 分钟内已记录过 bio 事件则跳过
+  // （VRChat 编辑 bio 时逐字保存，逐次抓取内容不同会高频产生事件）。
+  // bio 刷屏彻底方案:过滤 U+FFFD 后剥离标点只比核心文字(乱码会随机吞字符,标点差异全忽略)——
+  // 例: '最好的' vs '最好'+U+FFFD 剥离后都归一, emoji/冒号/空格差异不误判
+  // 根源修复(Buffer chunk 解码)后乱码不再产生,此处只需 NFC 归一化(规范等价) + 防御性滤 U+FFFD,
+  // 不做核心文字剥离——真实微小变化(标点/emoji 增减)也要记录
+  const norm = (x) => String(x || '').replace(/\uFFFD/g, '').normalize('NFC');
+
+  const bioChanged = norm(prevBio) !== norm(curBio);
+  if (bioChanged) {
+    const recent = lastBio[0] && lastBio[0].created_at;
+    if (recent) {
+      const dt = (new Date().getTime() - new Date(recent).getTime()) / 1000;
+      if (dt >= 0 && dt < 300) return;  // 5 分钟内已有 bio 事件，跳过本次(仅防 VRChat 编辑中逐字保存连发)
+    }
+  }
+  if (!lastBio.length || bioChanged) {
     storage.insertEvent({
       type: 'friend-update', userId, displayName,
       contentJson: { userId, displayName, type: 'bio', bio: curBio, previousBio: prevBio, avatarImageUrl: av },

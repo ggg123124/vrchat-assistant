@@ -34,7 +34,7 @@ const parsed = computed(() => {
 });
 const link = computed(() => {
   if (!parsed.value) return '';
-  const type = parsed.value.slice(0, 3);
+  const type = parsed.value.slice(0, 4);
   const map = { usr: 'user', wrld: 'world', avtr: 'avatar', grp: 'group' };
   return `https://vrchat.com/home/${map[type]}/${parsed.value}`;
 });

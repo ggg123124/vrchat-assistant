@@ -666,6 +666,36 @@ export default function register(api) {
     },
   });
 
+  // 收藏/取消收藏模型（VRChat /favorites type=avatar：favorite=true 收藏、false 取消）
+  api.http.registerRoute({
+    method: 'POST',
+    path: '/api/dashboard/avatar/favorite',
+    handler: async (req, res) => {
+      try {
+        const body = await readJsonBody(req);
+        const avatarId = String((body && body.avatarId) || '').trim();
+        const favorite = !!body && body.favorite !== false;
+        if (!avatarId.startsWith('avtr_')) return sendJson(res, { ok: false, error: 'bad-params: 需要 avtr_ 开头的 avatarId' });
+        if (favorite) {
+          const r = await api.vrchat.fetch('/favorites', {
+            method: 'POST',
+            body: { type: 'avatar', favoriteId: avatarId, tags: ['avatars1'] },
+          });
+          sendJson(res, { ok: !!r, avatarId, favorite: true });
+        } else {
+          // 取消收藏：先按 avatarId 查收藏记录 id，再删除
+          const favs = await api.vrchat.fetch('/favorites?type=avatar&n=100').catch(() => []);
+          const hit = (Array.isArray(favs) ? favs : []).find((f) => f.favoriteId === avatarId);
+          if (!hit) return sendJson(res, { ok: true, avatarId, favorite: false, already: true });
+          await api.vrchat.fetch('/favorites/' + encodeURIComponent(hit.id), { method: 'DELETE' });
+          sendJson(res, { ok: true, avatarId, favorite: false });
+        }
+      } catch (e) {
+        sendJson(res, { ok: false, error: String(e.message || e) });
+      }
+    },
+  });
+
   // 上传相册照片（浏览器 base64 → 容器临时文件 → upload_print → 清理；非破坏性）
   api.http.registerRoute({
     method: 'POST',

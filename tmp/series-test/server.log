@@ -1,0 +1,155 @@
+══════════════════════════════════════════════
+  VRChat-Assistant v3.1.0
+══════════════════════════════════════════════
+
+[14:56:55] 
+🔓 安全模式未启用（VRC_MONITOR_SAFE_MODE 未设置或非 true）
+[migrate] 移动失败 vrc-monitor.sqlite3: EBUSY: resource busy or locked, rename 'D:\workspace\vrcx-mcp-actions\vrc-monitor.sqlite3' -> 'D:\workspace\vrcx-mcp-actions\data\vrc-monitor.sqlite3'
+[migrate] 移动失败 vrc-monitor.sqlite3-wal: EBUSY: resource busy or locked, rename 'D:\workspace\vrcx-mcp-actions\vrc-monitor.sqlite3-wal' -> 'D:\workspace\vrcx-mcp-actions\data\vrc-monitor.sqlite3-wal'
+[migrate] 移动失败 vrc-monitor.sqlite3-shm: EBUSY: resource busy or locked, rename 'D:\workspace\vrcx-mcp-actions\vrc-monitor.sqlite3-shm' -> 'D:\workspace\vrcx-mcp-actions\data\vrc-monitor.sqlite3-shm'
+[migrate] auth_cookie.txt -> data\auth_cookie.txt
+[migrate] backups/ -> data\backups
+[14:56:55] 📦 初始化数据库...
+[14:56:55]    ✅ 数据库就绪: D:\workspace\vrcx-mcp-actions\tmp\series-test\test.sqlite3
+[14:56:55]    📊 事件: 0 条 | 好友: 0 位 | 世界缓存: 0 个
+[14:56:55] 
+🔑 初始化 API 客户端...
+[14:56:57]    ✅ 已登录: 超级有节操的逆袭 (usr_aa57de30-516b-4047-95b6-30601a6c91a2)
+[14:56:57] 
+⏱  限流器: 间隔 2600ms
+[14:56:57] 
+👥 好友状态管理器就绪
+[14:56:57] [plugin:auth-guard] auth-guard 插件已加载：提供 http.authenticate 服务与公网安全工具
+[14:56:57] 插件已加载: auth-guard v1.0.0
+[14:56:57] 插件已加载: booth v1.0.0
+[14:56:57] 插件已加载: events v1.0.0
+[14:56:57] 插件已加载: favorites v1.0.0
+[14:56:57] 插件已加载: groups v1.0.0
+[14:56:57] 插件已加载: media v1.0.0
+[14:56:57] 插件已加载: planet v1.0.0
+[14:56:57] 插件已加载: recommend v1.0.0
+[14:56:57] ❌ 插件加载失败 [web-dashboard]: Cannot read properties of undefined (reading 'registerRoute')
+[14:56:57] 插件已加载: world-kb v1.0.0
+[14:56:57] 插件已加载: x-creators v1.0.0
+[14:56:57]  插件系统就绪
+[14:56:57] 📨 事件处理管道就绪
+[14:56:57] 
+🔌 启动 WebSocket 连接...
+[14:56:57] 🔌 WebSocket: connecting
+[14:56:57] 
+🚀 MCP 服务运行在 http://127.0.0.1:8898/mcp
+
+[14:56:57] 可用工具:
+[14:56:57]   send_boop — [write·vrchat] Send a boop to a user. Requires userId.
+[14:56:57]   get_boop_emojis — [query] List built-in boop emojis and their emojiId format.
+[14:56:57]   upload_emoji — [write·vrchat] Upload a custom boop emoji (requires VRChat Plus). Returns fileId to use as emojiId in send_boop.
+[14:56:57]   upload_print — [write·vrchat] Upload a photo to your VRChat prints album (requires VRChat Plus).
+[14:56:57]   upload_gallery_image — [write·vrchat] Upload an image to your VRC+ gallery (requires VRChat Plus).
+[14:56:57]   get_prints — [query] List your VRChat prints (VRChat Plus photo album).
+[14:56:57]   remove_print — [write·vrchat] Remove a print from your VRChat prints album. Requires printId and confirm: true to execute (irreversible).
+[14:56:57]   get_gallery_images — [query] List your VRChat gallery images (VRChat Plus).
+[14:56:57]   remove_gallery_image — [write·vrchat] Remove an image from your VRChat gallery. Requires fileId and confirm: true to execute (irreversible).
+[14:56:57]   download_print — [query] Download a photo from your VRChat prints album to local disk. Returns local file path.
+[14:56:57]   download_gallery_image — [query] Download an image from your VRC+ gallery to local disk. Returns local file path.
+[14:56:57]   send_invite — [write·vrchat] Send an invite to join your current instance.
+[14:56:57]   request_invite — [write·vrchat] Request an invite from a user.
+[14:56:57]   create_instance — [write·vrchat] Create a new instance (room) for a world. Returns instance location ready for invite_myself. Region defaults to jp.
+[14:56:57]   invite_myself — [write·vrchat] Open an instance in the running VRChat client (same engine as open_world): named-pipe launch first (Windows, silent in-game join dialog), falls back to API self-invite (client teleports on accept) when pipe unavailable. Accepts location (worldId:instanceId) or worldId+instanceId separately.
+[14:56:57]   open_world — [write·vrchat] Open a world/instance in the running VRChat client. If only worldId given, creates a new instance first (hidden jp default), then: named-pipe launch (VRChatURLLaunchPipe → silent in-game join dialog, Windows, 1 step) with API self-invite fallback (invite notification) when pipe unavailable. Core: core/vrchat-launch.js openInstance.
+[14:56:57]   send_friend_request — [write·vrchat] Send a friend request to a user. Supports userId or exact displayName match.
+[14:56:57]   remove_friend — [write·vrchat] Remove a friend. Requires userId or exact displayName match, plus confirm: true to execute (irreversible).
+[14:56:57]   get_online_friends — [query] List currently online friends from VRChat API.
+[14:56:57]   get_friend_info — [query] Get detailed info about a specific friend from API.
+[14:56:57]   get_mutual_friends — [query] List mutual friends between you and a user (userId or exact displayName). Includes local nicknames.
+[14:56:57]   search_users — [query] Search VRChat users by display name.
+[14:56:57]   get_database_stats — [system] Get local database statistics (event count, friend count, etc).
+[14:56:57]   get_server_status — [system] Check server health and auth status.
+[14:56:57]   get_friend_events — [query] Query a friend's event history from local database.
+[14:56:57]   get_recent_events — [query] Get the latest event stream from local database.
+[14:56:57]   get_friend_profile_changes — [query·资料] 好友资料变更历史（Avatar/Bio/状态/头像图标/代词）：事件管道实时采集 friend-update 的 user 对象 diff 落库，与 VRCX 迁移的 feed_avatar/feed_status/feed_bio 同 type 打通。userId 可选（省略=全部好友）；types 逗号分隔过滤（avatar/status/bio/user_icon/pronouns，默认全部）；limit(1-200)/offset 分页。返回每条 { userId, displayName, changeType, source, createdAt, change:{当前值, 旧值} }。
+[14:56:57]   get_world_name — [query] Get world name by worldId. Checks local cache first, falls back to API.
+[14:56:57]   get_worlds_by_author — [query] List worlds published by a single author, up to limit (default 100, max 500) — 通过作者 ID/作者名列出该作者的世界（最多 limit 张，默认 100，上限 500）. Resolves authorId by authorName via /users?search when authorName given, then lists worlds via GET /worlds?userId=<authorId> with offset pagination until exhausted or limit reached.
+[14:56:57]   set_world_note — [manage] Set or update a user note for a world (stored locally, never overwritten by API refresh). Empty string clears the note.
+[14:56:57]   get_world_history — [query] Get change history of a world's info (name, description, capacity, etc.).
+[14:56:57]   get_weekly_report — [query] Generate a weekly gaming report for the authenticated user: active days, play time, worlds visited, companion friends (with nicknames), own online pattern, group activities and friend group calendar. Data from local events DB + cached group info.
+[14:56:57]   scan_new_worlds — [action] Scan VRChat for worlds created in the last N days, filter junk, write to the world_kb table, and return a recommended list. dryRun=true only reports without writing.
+[14:56:57]   get_new_worlds — [query] Query tracked new worlds from the world_kb table (read-only). Filter by visited, sort by heat, limit count.
+[14:56:57]   rate_world — [action] Rate a world as good/junk for recommendation feedback (Issue #19). rating=1 good (weighted up), -1 junk (weighted down/excluded), 0 clear.
+[14:56:57]   mark_world_visited — [action] Explicitly mark a world as visited (Issue #19: event-driven visited can miss). Useful to close the recommend-open-browse loop.
+[14:56:57]   set_world_sleep — [action] Manually mark a world as a sleep-friendly map (sets sleep_ok=1, a strong signal in recommend_join/recommend_worlds). isSleep=false clears the marker. Local-only.
+[14:56:57]   add_to_backlog — [action] Add a world to your local to-visit backlog (待逛列表). Worlds stay pending until visited (auto-cleared by location events) or manually removed. Idempotent: re-adding updates reason/priority. Local-only, does not touch VRChat cloud favorites.
+[14:56:57]   get_backlog — [query] List worlds in your local to-visit backlog (待逛列表). Visiting a world auto-clears it from the backlog (location events / mark_world_visited / scan set backlog=0 on first visit), so status=pending (default) shows the to-visit worlds still outstanding. Each item carries snapshot details (favorites/tags/description) from the local world knowledge table.
+[14:56:57]   remove_from_backlog — [action] Remove a world from the to-visit backlog (待逛列表). Local-only, does not affect cloud favorites. Idempotent.
+[14:56:57]   get_watchlist — [manage] List all watched friends.
+[14:56:57]   add_to_watchlist — [manage] Add a friend to watchlist.
+[14:56:57]   remove_from_watchlist — [manage] Remove a friend from watchlist.
+[14:56:57]   get_companions — [query] Find all friends who were in the same instances as you during a time range. Uses SQLite cross-reference by instanceId. Each companion has: userId/displayName/firstSeen/lastSeen/matchCount/worlds (worlds is a STRING array of world names or worldIds, NOT objects). By default userTimeline is omitted (empty array) to avoid huge MCP output when the range spans many location events; pass includeTimeline=true to include the full per-event location timeline.
+[14:56:57]   get_friend_pair_meeting — [query] 查询两个好友（任意第三方）之间「每次见面」的时段与时长（单次见面分析）。按实例切分：同一实例内所有同屏匹配事件合并为一次见面，返回每次的 start/end/durationMinutes、世界与实例；同时给出 meetingCount（见面次数）与 totalDurationSeconds（总时长）。精确口径：B 的每条可识别实例事件匹配 A 同一实例且时间差 ≤ windowMinutes → 计同屏；排除 offline/traveling/private（private 无房主信息无法判定同房）。startTime/endTime 与 days 二选一，windowMinutes 默认 30。
+[14:56:57]   get_friend_pair_screen — [query] 查询两个好友（任意第三方）之间的同屏次数与时长（共玩/同房分析）。精确口径：对好友 B 的每条可识别实例事件，找好友 A 在同一实例且时间戳在 ±windowMinutes 内的匹配，计为一次同屏；排除 offline/traveling/private（private 无房主信息无法判定同房）。不同时间去过同一房间不计。返回 matchCount（次数）、totalMinutes/totalSeconds（总同屏时长，段首到段尾累加，含实例内中途断开空档）、worldDuration（按世界拆分时长）、worlds（共现世界）与 matches（匹配事件对，默认全量，可用 limit 限制条数——采样密集时 matches 可能上千条）。startTime/endTime 与 days 二选一，windowMinutes 默认 30。
+[14:56:57]   get_recent_cooplay — [query] 最近一起玩：查询最近 N 天与自己共同在场（同一实例且时间区间重叠）过的好友列表，按同屏次数降序。口径与 get_weekly_report 的同屏伙伴一致（北京自然日逐日区间重叠匹配合并）；返回 companions[{ userId, displayName, matchCount（共同在场段数）, minutes（共同在场总分钟数）, daysCount（同屏天数）, lastDay（最近同屏日 MM-DD 北京） }]。days(1-90 默认 7)、limit(1-100 默认 30)。与 get_friend_pair_screen（两人版，带逐条 matches）互补——本工具是面向自己的全好友批量版。
+[14:56:57]   get_online_pattern — [query] Analyze a friend's online activity pattern (hourly distribution and frequency in Beijing time).
+[14:56:57]   get_nicknames — [manage] Query friend nickname mappings (exact by userId, fuzzy by nickname/displayName, or all).
+[14:56:57]   set_nickname — [manage] Set or update a friend nickname mapping (upsert).
+[14:56:57]   get_user_groups — [group] List groups a user has joined (default: current account). withDetails=true also fetches descriptions.
+[14:56:57]   get_group_info — [group] Get a VRChat group's details (name, member count, description, verified status). includeAnnouncement=true also fetches the announcement.
+[14:56:57]   get_group_instances — [group] List a group's currently open group instances (rooms). Empty array = no rooms open.
+[14:56:57]   get_group_announcement — [group] Get a group's announcement post (title/text/author/createdAt). null if none or not a member.
+[14:56:57]   search_planet_worlds — [query·地图] Search VRChat worlds on PlanetVRC (planetvrchat.net, Japanese world directory) by keyword. Returns world name, wrld_id (when enriched), platform, categories, favorites/visitors counts. Useful for finding worlds by Japanese/English keywords that the VRChat API search may miss.
+[14:56:57]   recommend_planet_worlds — [query·推荐] PlanetVRC world rankings (planetvrchat.net): popular (most visited), new (recently published), or updated. Returns worlds with wrld_id, maxPlayers, visitors, favorites, publishedAt.
+[14:56:57]   recommend_worlds — [query·推荐] Multi-source world recommendation: fuses local world_kb + PlanetVRC popularity ranking + official theme search, scored by heat × user feedback × freshness × theme match × author affinity. Returns scored candidates with explainable reasons and canOpen flag (planet cards are resolved to wrld_ ids via official name lookup).
+[14:56:57]   get_group_heat — [query·热度] Group activity heat: rank groups by how much your friends/you were in their group rooms (activityCount, friendCount, worldCount, trendPct vs previous equal window) + day-of-week×hour Beijing-time heatmap for top groups. Data from local event history (supports grp_/gmem_ ids).
+[14:56:57]   search_groups — [group] Search VRChat groups by name. Returns matching groups (query param; API requires query, NOT search).
+[14:56:57]   search_worlds — [query] Search VRChat worlds by name. English/Japanese search the live API; Chinese keywords fall back to local cache (API CJK search is unreliable).
+[14:56:57]   backup_database — [system] Immediately back up the local database (WAL online backup, no restart needed). Keeps the 2 most recent backups in data/backups/.
+[14:56:57]   join_group — [group] Join a group. Open groups join instantly; 400 already-member is returned as alreadyMember:true (no error).
+[14:56:57]   leave_group — [group] Leave a group (removes your membership). Requires confirm: true. 404 non-member returns notMember:true.
+[14:56:57]   peek_group_announcement — [group] Peek a group announcement: joins if joinState=open, reads announcement, then leaves. Non-open groups return peekable:false.
+[14:56:57]   get_favorite_friends_locations — [query·好友收藏] 列出某个好友收藏夹（线上收藏分组）内所有好友的当前位置列表。可指定 groupName（如 "new"、"join" 等收藏夹名）或 favoriteGroupId；不指定则列出全部分组。返回按推荐度排序：在线且实例可加入的在前（public/friends/hidden=friend+/group 实例均可加入），仅 private 实例自动排除（看不到位置），按实例内玩家数/容量比 + 收藏热度综合评分。也可用 searchName 直接按名字在好友列表里查某人的位置（能看到具体位置即代表可加入，标记 joinable；纯 private 才进不去）。
+[14:56:57]   recommend_join — [query·推荐加入] 查看全部在线好友在做什么，按推荐度排序给出可加入的推荐。综合评分：熟悉度（最近30天+历史一年共玩次数，来自本地 events 同屏统计）+ 收藏夹分组权重（可配置）+ 房间场景（睡觉图人少=电灯泡风险降权）+ 实例人数/容量比 + 实例类型（public/friends/friend+/group 可加入，private 排除）。返回 TopN 推荐及理由。
+[14:56:57]   set_join_preference — [配置·推荐偏好] 用自然语言设置「推荐加入」的评分偏好，持久化到 config 表，下次推荐自动生效。例：「我不喜欢人太多」→ 爆满惩罚加重(80)、人数权重降低(×1.5)、冷清不罚；「喜欢热闹」→ 人数权重加强(×4)、爆满轻罚(20)；「恢复默认」→ 清除偏好。
+[14:56:57]   get_join_preference — [配置·推荐偏好] 查询当前「推荐加入」的评分偏好（含解析结果与设置时间）。
+[14:56:57]   record_join_choice — [配置·选择学习] 记录一次「从推荐列表中选择加入」的行为（用户选择谁/哪张图）。服务端自动从最近一次 recommend_join 的快照补全上下文（人数/类型/熟悉度/排名/列表基线），写入 join_choices 表；积累 ≥5 次后自动分析用户偏好（选人少→避人潮、总选熟人→熟悉度加权等）并应用到推荐权重。用法：先运行 recommend_join 拉列表，再从列表里选一个人记录：传 userId 或 displayName（模糊匹配）。
+[14:56:57]   get_join_learning — [配置·选择学习] 查看推荐选择学习状态：累计选择数、自动分析出的偏好（人数倾向/熟悉度加权/安静图倾向）与生效中的权重调整。
+[14:56:57]   favorite_world — [action·写操作] 把世界加入你的 VRChat 云端收藏夹（POST /favorites，云端写入，调用前请与用户确认）。tag 为收藏分组（worldsN / vrcPlusWorldsN 动态发现，含 VRC+ 专属收藏夹，默认 worlds0；支持传 displayName）。成功后本地 world_cache 标记 favorited=1（供推荐加权）。API 拒绝（如重复收藏）时返回 favorited:false + error，不抛错。
+[14:56:57]   unfavorite_world — [write·收藏] 从收藏分组移除世界（DELETE /favorites/{记录id}，可逆，重新 favorite_world 即可加回）。worldId 必填；tag 可选（省略 = 从全部所在分组移除，含 VRC+ 专属收藏夹）。写操作，confirm: true 才执行，否则只返回预览。
+[14:56:57]   move_world_group — [write·收藏] 把世界移动到另一收藏分组（删旧建新，与 move_friend_group 同模式；官方客户端 2026.1.1 同款能力）。worldId 必填；toGroup 为分组 tag 或 displayName（含 VRC+ 专属收藏夹）。写操作，confirm: true 才执行。
+[14:56:57]   update_favorite_group — [write·收藏] 重命名收藏分组或修改可见性（PUT /favorite/group/{type}/{name}/{userId}）。group 为分组 tag 或 displayName；displayName（新名）/ visibility（friends/private/public）至少填一个。⚠️ 设为 public 会使收藏分组公开可见，隐私敏感，须显式 confirm。写操作，confirm: true 才执行。
+[14:56:57]   clear_favorite_group — [write·收藏] 清空某收藏分组内全部收藏（DELETE /favorite/group/{type}/{name}/{userId}，语义=清空组内收藏，分组本身保留；重新收藏可加回）。group 为分组 tag 或 displayName。批量删除，destructive，confirm: true 才执行。
+[14:56:57]   search_booth_items — [query·素材] Search BOOTH (booth.pm, pixiv digital-goods marketplace) for VRChat assets (avatars/clothes/3D models/accessories) by keyword. Returns items with name, price, wishlistCount (收藏数=热度), shop/seller, tags, isSoldOut, images (array of {original, resized, caption} objects — use images[0].original as the cover URL), url. NOTE: download/sales counts are NOT publicly visible on BOOTH (always 0 anonymously). Use wishlistCount as the popularity signal. Detail fetch is rate-limited to 400ms/item.
+[14:56:57]   get_booth_item — [query·素材] Get a single BOOTH item detail by item id (booth.pm/ja/items/{id}). Returns name, price, description, tags, images (array of {original, resized, caption} objects — use images[0].original as the cover URL), shop/seller, publishedAt, isSoldOut, wishlistCount (收藏数), variations, url. NOTE: purchase/download counts are not publicly visible (0 anonymously). Results are cached locally (booth_items table): cached:true returns the snapshot without hitting BOOTH; forceRefresh:true bypasses the cache.
+[14:56:57]   get_booth_history — [query·素材] List BOOTH items previously queried (local booth_items snapshot cache). Sorted by wishlistCount (热度) or updatedAt; supports minWishlist filter for trend tracking (which items are gaining popularity).
+[14:56:57]   get_booth_searches — [query·素材] List recent BOOTH search history (query, result item ids, result count, timestamp).
+[14:56:57]   x_world_digest — [查询·X推荐] 聚合指定 X 博主近 1/3/7/15/30 天推荐的世界，按收藏数排序输出；收藏/浏览比 ≥ 1/5 的标注为 ⭐重点。可选 refresh=true 先抓取最新推文再查询。
+[14:56:57]   x_scan_creators — [查询·X推荐] 立即抓取所有已配置博主的最新推文，提取推荐的世界并查询收藏/浏览数据入库。
+[14:56:57]   x_creators — [查询·X推荐] 列出当前配置的 X 博主清单。
+[14:56:57]   x_add_creator — [配置·X推荐] 添加要追踪的 X 博主（VRChat 世界推荐博主）。screen_name 是 X 用户名（不带 @）。
+[14:56:57]   x_remove_creator — [配置·X推荐] 移除追踪的 X 博主。
+[14:56:57]   x_worlds — [查询·X推荐] 查看已收录的推荐世界列表（调试用）。
+[14:56:57]   fetch_community_events — [events] 聚合 VRChat 社区活动：采集(VRC Search/RLVRC/VRCEve/VRCEvent-KR) → 群组深度挖掘(短码/活动名/世界名反查) → 音乐∪虚拟主播筛选 → 结构化 JSON + 落库 plg_events_store。可选 peekGroups=true 窥探已挖掘群组公告补充活动（有副作用：加入→读→退出）。用于找"最近/今晚有什么活动、哪些要参与、群组热度"。未配置 Google Key 时返回 configStatus 的创建网址指引。PDF 渲染另走管道。
+[14:56:57]   set_community_events_google_key — [events·配置] 录入/清除使用者的 Google Cloud API Key（存入数据库 plg_events_config，仅本插件读取，用于 VRCEve/VRCEvent-KR 日历源）。需要 confirm:true。创建 key 的网址见返回的 guide。
+[14:56:57]   get_community_events_config — [events·配置] 查看社区活动抓取的配置状态：Google Calendar API Key 是否已配置（值存数据库不回显）；未配置时返回创建 key 的指引网址。
+[14:56:57]   get_my_favorite_worlds — [查询·收藏] 拉取当前账号收藏的全部世界（含 VRC+ 专属收藏夹），按标签分类（🎮游戏/👻恐怖/🎵音乐体验/🌄风景观光/🧍Avatar模型/🍻社交聚会/😴休闲睡觉/📷拍照/其他），返回世界名/作者/收藏/浏览/简介/分类。数据经 GET /worlds/favorites 分页一次拉全（含实时 occupants），秒级返回，无需逐个查详情。group 参数可按收藏夹过滤。
+[14:56:57]   get_my_favorite_groups — [查询·收藏] 列出当前账号的世界收藏分组（world + vrcPlusWorld 两种类型，含 VRC+ 专属收藏夹），返回 tag/显示名/类型/可见性/容量 capacity（来自 /auth/user/favoritelimits）/已用数/分组 id。type 可选过滤。
+[14:56:57]   submit_totp — [认证] 提交 TOTP 验证码完成登录。在 credentials.json 配置 totp_secret 后，服务会自动生成验证码登录（无需调用本工具）；本工具仅在自动登录失败（验证码被拒/secret 有误）时作为手动兜底。处于 needsTotp 状态（/health 可见）时调用本工具提交当前 Authenticator 应用的 6 位验证码。
+[14:56:57]   get_friend_favorite_groups — [query·收藏] 列出好友收藏分组（分组名 + 显示名 + 成员数）。数据来自 GET /favorite/groups?type=friend + GET /favorites?type=friend。
+[14:56:57]   favorite_friend — [write·收藏] 把好友加入收藏分组（POST /favorites type=friend）。groupId/displayName 二选一；groupName 必填（显示名或分组名，可用 get_friend_favorite_groups 查看）。须已是好友（403 返回 not friends）；重复收藏返回 already favorited（不抛错）。写操作，confirm: true 才执行。
+[14:56:57]   unfavorite_friend — [write·收藏] 从收藏分组移除好友（DELETE /favorites/{记录id}，可逆）。groupId/displayName 二选一；groupName 可选（省略 = 从全部分组移除）。写操作，confirm: true 才执行。
+[14:56:57]   move_friend_group — [write·收藏] 移动好友到另一收藏分组（删旧建新，与 VRCX 行为一致；API 无原地更新 tags 端点）。groupId/displayName 二选一；toGroup 必填。写操作，confirm: true 才执行。
+[14:56:57]   get_notifications — [query·通知] 通知收件箱：读取当前账号的未读通知（旧 v1 系统）。limit(1-100)/offset 分页；types 逗号分隔过滤（friendRequest/invite/message/boop/requestInvite/votetokick/inviteResponse/requestInviteResponse）；hidden=true 查看已隐藏通知。返回字段：returned（本页 API 实际返回条数）、shown（types 过滤后条数）、hasMore（本页取满 limit 时可能有下一页）、limit/offset。注意：API 的 type 查询参数已废弃不生效，过滤在本地完成；seen/receiverUserId 仅 WebSocket 推送有，REST 不返回。
+[14:56:57]   see_notification — [write·通知] 标记通知为已读。notificationId 必填。
+[14:56:57]   hide_notification — [write·通知] 隐藏/清除一条通知（旧 v1 系统 hide 即删除）。notificationId 必填。
+[14:56:57]   accept_friend_request — [write·社交] 接受好友请求（PUT /auth/user/notifications/{id}/accept）——接受即直接加为好友，不可逆，必须传 confirm: true 才执行，否则只返回预览。
+[14:56:57]   decline_friend_request — [write·社交] 拒绝好友请求（旧 v1 无独立拒绝端点，hide 即清除该通知）。对方不会收到明确拒绝提示，必须传 confirm: true 才执行，否则只返回预览。
+[14:56:57]   auth_get_status — 查询当前服务的公网鉴权配置状态、网络监听地址与安全就绪度
+[14:56:57]   auth_generate_token — 生成 32 字节高强度密码学随机 Token，并提供 .env 配置模版
+[14:56:57]   auth_verify_token — 校验给定的 Token 是否与当前环境变量配置的 Token 匹配
+[14:56:57] 
+健康检查: http://127.0.0.1:8898/health
+[14:56:57] 
+按 Ctrl+C 停止
+
+[14:56:57] 💾 自动备份完成: D:\workspace\vrcx-mcp-actions\data\backups\vrc-monitor-backup-2026-08-30T14-56-57.sqlite3 (225280 bytes)
+[14:56:59] 🔌 WebSocket: connecting
+[14:57:01] 🔌 WebSocket: connected
+[WS] ✅ 已连接 (14:57:01)
+[14:57:29] 🔄 刷新在线状态: 在线 106 人

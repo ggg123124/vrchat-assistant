@@ -151,7 +151,7 @@ onMounted(load);
 .ga-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .ga-group { background: none; border: 1px solid var(--border); color: var(--accent); border-radius: 999px; padding: 1px 9px; font-size: 11px; cursor: pointer; flex: none; display: inline-flex; align-items: center; gap: 4px; font-family: inherit; }
 .ga-group:hover { border-color: var(--accent); }
-.ga-title { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ga-title { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 0 1 auto; }
 .ga-new { flex: none; background: var(--danger); color: #fff; font-size: 9px; border-radius: 4px; padding: 0 4px; line-height: 14px; font-weight: 700; }
 .ga-time { font-size: 10px; color: var(--text-dim); }
 .ga-chev { color: var(--text-dim); font-size: 12px; flex: none; }
@@ -161,6 +161,7 @@ onMounted(load);
 
 
 @media (max-width: 899px) {
+  .ga-group { padding: 4px 12px; font-size: 12px; min-height: 32px; }
   .ga-search { width: 100%; order: 3; }
   .ga-detail { margin-left: 0; }
 }

@@ -1,0 +1,19 @@
+{
+  "commit_id": "b3502fb4947bc329fed0f8e21cf5e46fb14a1f83",
+  "event": "REQUEST_CHANGES",
+  "body": "审核环境：**实测**（本地 worktree b3502fb + PR head 真实代码，SQLite 集成测试 8 组）；使用者视角：Windows 重度 VRChat 用户 + 仓库维护者，关注数据准确性与跨平台兼容。\n\n## 结论：REQUEST_CHANGES（1 个 🔴 阻断项，已实测复现）\n\n**功能概览**：friend-update 事件携带完整 user 对象 → 与 friends 表快照 diff → 变更写入 events（顶层 type=friend-update + content_json.type=avatar/status/bio/user_icon/pronouns，与 VRCX 迁移数据打通）→ 新 MCP 工具 get_friend_profile_changes 查询。三件套（pipeline + storage + 路由）+ 文档 + 幂等迁移齐全。\n\n**实测 8 组**（node 直跑 PR head 代码 + 临时 SQLite，脚本可复跑）：\n- ✅ T1 首次采集不误报变更\n- ✅ T2 avatar+bio 变更各记录 1 条，content_json 含新旧值，source=websocket\n- ✅ T3 无变化不重复记录；✅ T5 types 过滤与非法 types 兜底；✅ T6 分页；✅ T7 旧库 ALTER 迁移幂等；✅ T8 status 变更检测\n\n**🔴 阻断项：friends 表基线会被 partial upsert 清空 → 变更检测在真实事件流下失效（T4 实测复现）**\n- 复现序列：friend-update 写入 bio='bio A' → 穿插一条 friend-location 事件 → friends 行 bio/avatar_image_url/user_icon/pronouns/status/status_description **全部被覆盖为 ''**（upsertFriend 的 `bio=COALESCE($bio, bio)` 中 `$bio=friend.bio || ''`，location 事件未传这些字段 → '' 覆盖旧值）→ 再收到 bio='bio C' 的 friend-update 时 `prev.bio && ...` 守卫为假 → **本次及此后变更 0 条被记录**（期望 2 条）。\n- 生产数据佐证：本机线上库 420 好友 `status` 仅 8 条非空、`status_description` 0 条、`avatar_image_url` 0 条——该 COALESCE 覆盖模式在 main 上已造成同类丢失（location/online/offline 事件总量是 update 事件的 ~1.5 倍，两次 update 之间必然穿插并清空基线）。\n- **影响**：本功能的核心（实时 diff 追踪）在真实流量下几乎不触发；新写入的 bio/user_icon/pronouns 也会被后续 partial upsert 清空，`get_friend_profile_changes` 查不到刚写的新值。\n- **修复方向**：① upsertFriend 只更新显式传入的字段（如 `bio=COALESCE(NULLIF($bio,''), bio)`，或按字段存在性动态拼接 SET 子句）——顺带修复 main 上 status/status_description/avatar_image_url 的同源丢失；② 或将变更追踪基线移到独立 profile 快照表，与高频 partial upsert 解耦。\n\n## 其他发现\n- 🟡 event-pipeline.js:179：`previousAvatarThumbnailUrl` 复用了 `prev.avatar_image_url`（完整图 URL 当缩略图旧值），语义错误；需旧缩略图应新增 thumbnail 列或省略该字段。\n- 🟢 events 表无 (user_id, created_at) 索引，30 万+ 行下 getFriendProfileChanges 全表扫，建议补索引（非阻断）。\n- 🟢 三连 PR（#56/#57/#58）均修改 AGENTS.md 同一工具清单行与 SKILL.md 相邻区域、#57/#58 同改 rpc-router 导入区，合并时需依次 rebase（提示，非阻断）。\n\n## 使用者视角\n好友 Avatar/Bio/状态变更追踪是期待已久的功能，但按当前实现合并后，实际运行中几乎收不到变更事件（基线被清空），且新列数据本身也会被意外清空——功能等于摆设并引入新脏数据。建议修复后合并。",
+  "comments": [
+    {
+      "path": "core/storage.js",
+      "line": 309,
+      "side": "RIGHT",
+      "body": "🔴 阻断（实测复现）：`bio=COALESCE($bio, bio)` 配合 `$bio=friend.bio || ''`，任何不带 bio 字段的 partial upsert（friend-location/online/offline 事件都会调用 upsertFriend）都会把已存的 bio 覆盖为 ''。实测：写入 bio='bio A' → 一条 friend-location 事件 → friends 行 bio/avatar_image_url/user_icon/pronouns/status/status_description 全部变 '' → 后续 bio 变更全部漏记（prev 为空 → 守卫失效）。生产库 420 好友 status 仅 8 条非空即为该模式在 main 上的现存证据。建议改为只更新显式传入字段（如 `COALESCE(NULLIF($bio,''), bio)` 或动态 SET），这也顺带修复 main 上 status/avatar_image_url 的同源数据丢失。"
+    },
+    {
+      "path": "core/event-pipeline.js",
+      "line": 179,
+      "side": "RIGHT",
+      "body": "🟡 previousAvatarThumbnailUrl 复用了 prev.avatar_image_url（完整图 URL），不是缩略图旧值，字段语义错误。若要提供旧缩略图，需在 friends 表存 thumbnail 列；否则建议省略该字段，避免误导消费者。"
+    }
+  ]
+}

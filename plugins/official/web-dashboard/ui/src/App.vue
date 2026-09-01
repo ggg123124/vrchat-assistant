@@ -27,13 +27,21 @@ import GroupsView from './views/GroupsView.vue';
 import EventsView from './views/EventsView.vue';
 import PlaceholderView from './views/PlaceholderView.vue';
 import RightBar from './components/RightBar.vue';
+import QuickSearch from './components/QuickSearch.vue';
 import UserDialog from './components/UserDialog.vue';
 import WorldDialog from './components/WorldDialog.vue';
 import GroupDialog from './components/GroupDialog.vue';
 import InstanceDialog from './components/InstanceDialog.vue';
+import AvatarDialog from './components/AvatarDialog.vue';
+import LoginView from './components/LoginView.vue';
+import { hasToken, clearToken } from './api.js';
+import { useConfirm } from 'primevue/useconfirm';
+import { bindConfirm } from './confirm.js';
 
 const toastInstance = useToast();
 bindToast(toastInstance);
+const confirmInstance = useConfirm();
+bindConfirm(confirmInstance);
 
 const NAV_GROUPS = [
   { g: '核心', items: [
@@ -82,6 +90,13 @@ function scrollTopSmooth() {
   if (el) el.scrollTo({ top: 0, behavior: 'smooth' });
 }
 onMounted(() => document.addEventListener('scroll', onAnyScroll, true));
+
+// ── 登录页控制 ──
+const loginView = ref(!hasToken());
+function onAuth401() { loginView.value = true; }
+onMounted(() => window.addEventListener('vrc-auth-401', onAuth401));
+onUnmounted(() => window.removeEventListener('vrc-auth-401', onAuth401));
+function doLogout() { clearToken(); location.reload(); }
 onUnmounted(() => document.removeEventListener('scroll', onAnyScroll, true));
 
 const mobileTabs = [
@@ -128,7 +143,8 @@ async function refresh() {
 </script>
 
 <template>
-  <div class="app-shell">
+  <LoginView v-if="loginView" />
+  <div v-else class="app-shell">
     <header class="app-header">
       <Button v-if="store.isMobile" icon="pi pi-bars" text rounded @click="store.navOpen = true" aria-label="打开菜单" />
       <span class="brand">VRChat Assistant</span>
@@ -138,10 +154,13 @@ async function refresh() {
         <Button :icon="store.notifyEnabled ? 'pi pi-bell' : 'pi pi-bell-slash'" text rounded
           :aria-label="store.notifyEnabled ? '关闭通知提醒' : '开启通知提醒'" :title="store.notifyEnabled ? '通知提醒已开启' : '开启通知提醒（好友请求/邀请时桌面弹窗）'"
           :class="{ 'notify-on': store.notifyEnabled }" @click="onToggleNotify">
-          <span v-if="store.notifCount" class="header-bell-dot" :title="store.notifCount + ' 条未读通知'"></span>
+          <span v-if="store.notifCount" class="header-bell-dot" :title="store.notifCount + ' 条未读通知'">{{ store.notifCount > 99 ? '99+' : store.notifCount }}</span>
         </Button>
+        <Button icon="pi pi-search" text rounded aria-label="快速搜索" title="快速搜索（Ctrl+K）"
+          @click="store.quickSearchOpen = true" />
         <Button icon="pi pi-refresh" text rounded aria-label="刷新" title="刷新"
           :loading="refreshing" @click="refresh" />
+        <Button icon="pi pi-sign-out" text rounded aria-label="登出" title="登出（清除令牌）" @click="doLogout" />
       </div>
     </header>
 
@@ -157,29 +176,31 @@ async function refresh() {
       </nav>
 
       <main class="main-viewport">
-        <FeedView v-if="store.view === 'feed'" />
-        <FriendsView v-else-if="store.view === 'friends'" />
-        <FavoritesView v-else-if="store.view === 'favorites'" />
-        <LogsView v-else-if="store.view === 'logs'" />
-        <NotificationsView v-else-if="store.view === 'notifications'" />
-        <SearchView v-else-if="store.view === 'search'" />
-        <WorldsView v-else-if="store.view === 'worlds'" />
-        <XWorldsView v-else-if="store.view === 'xworlds'" />
-        <RecommendView v-else-if="store.view === 'recommend'" />
-        <GroupsView v-else-if="store.view === 'groups'" />
-        <EventsView v-else-if="store.view === 'events'" />
-        <TrackedView v-else-if="store.view === 'tracked'" />
-        <PlayersView v-else-if="store.view === 'players'" />
-        <AvatarsView v-else-if="store.view === 'avatars'" />
-        <PrintsView v-else-if="store.view === 'prints'" />
-        <BoothView v-else-if="store.view === 'booth'" />
-        <AnnouncementsView v-else-if="store.view === 'announcements'" />
-        <ChartsView v-else-if="store.view === 'charts'" />
-        <WeeklyReportView v-else-if="store.view === 'report'" />
-        <ModerationView v-else-if="store.view === 'moderation'" />
-        <ToolsView v-else-if="store.view === 'tools'" />
-        <OpenView v-else-if="store.view === 'open'" />
-        <PlaceholderView v-else :view="store.view" />
+        <Transition name="view-fade" mode="out-in">
+          <FeedView v-if="store.view === 'feed'" key="feed" />
+          <FriendsView v-else-if="store.view === 'friends'" key="friends" />
+          <FavoritesView v-else-if="store.view === 'favorites'" key="favorites" />
+          <LogsView v-else-if="store.view === 'logs'" key="logs" />
+          <NotificationsView v-else-if="store.view === 'notifications'" key="notifications" />
+          <SearchView v-else-if="store.view === 'search'" key="search" />
+          <WorldsView v-else-if="store.view === 'worlds'" key="worlds" />
+          <XWorldsView v-else-if="store.view === 'xworlds'" key="xworlds" />
+          <RecommendView v-else-if="store.view === 'recommend'" key="recommend" />
+          <GroupsView v-else-if="store.view === 'groups'" key="groups" />
+          <EventsView v-else-if="store.view === 'events'" key="events" />
+          <TrackedView v-else-if="store.view === 'tracked'" key="tracked" />
+          <PlayersView v-else-if="store.view === 'players'" key="players" />
+          <AvatarsView v-else-if="store.view === 'avatars'" key="avatars" />
+          <PrintsView v-else-if="store.view === 'prints'" key="prints" />
+          <BoothView v-else-if="store.view === 'booth'" key="booth" />
+          <AnnouncementsView v-else-if="store.view === 'announcements'" key="announcements" />
+          <ChartsView v-else-if="store.view === 'charts'" key="charts" />
+          <WeeklyReportView v-else-if="store.view === 'report'" key="report" />
+          <ModerationView v-else-if="store.view === 'moderation'" key="moderation" />
+          <ToolsView v-else-if="store.view === 'tools'" key="tools" />
+          <OpenView v-else-if="store.view === 'open'" key="open" />
+          <PlaceholderView v-else :view="store.view" key="placeholder" />
+        </Transition>
       </main>
 
       <aside v-if="!store.isMobile" class="rightbar">
@@ -232,10 +253,12 @@ async function refresh() {
     </Drawer>
 
     <!-- 全局弹窗 -->
+    <QuickSearch />
     <UserDialog />
     <WorldDialog />
     <GroupDialog />
     <InstanceDialog />
+    <AvatarDialog />
     <Dialog v-model:visible="store.previewUrl" header="图片预览" :style="{ width: 'min(720px, 96vw)' }" :dismissable-mask="true">
       <img v-if="store.previewUrl" :src="store.previewUrl" style="width:100%; border-radius:8px" alt="预览" />
     </Dialog>
@@ -245,7 +268,7 @@ async function refresh() {
 </template>
 
 <style scoped>
-.header-bell-dot { position: absolute; top: 6px; right: 6px; width: 8px; height: 8px; border-radius: 50%; background: var(--danger); }
+.header-bell-dot { position: absolute; top: 2px; right: 2px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--danger); color: #fff; font-size: 9px; font-weight: 700; line-height: 16px; text-align: center; box-sizing: border-box; }
 .to-top { position: fixed; right: 18px; bottom: 76px; z-index: 50; width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--border); background: var(--surface-3); color: var(--text); cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgba(0,0,0,0.35); transition: transform 0.12s, border-color 0.12s; }
 .to-top:hover { border-color: var(--accent); transform: translateY(-1px); }
 @media (max-width: 899px) { .to-top { bottom: 70px; right: 12px; width: 34px; height: 34px; } }

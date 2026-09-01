@@ -177,7 +177,7 @@ onMounted(load);
 .daily-row { display: flex; align-items: flex-start; gap: 10px; }
 .dl-day { font-size: 11px; color: var(--text-dim); width: 44px; flex: none; padding-top: 3px; }
 .dl-worlds { display: flex; flex-wrap: wrap; gap: 5px; flex: 1; }
-.dl-chip { border: 1px solid var(--border); background: var(--surface-2); color: var(--text); border-radius: 999px; padding: 3px 11px; font-size: 11px; cursor: pointer; transition: border-color 0.12s; font-family: inherit; }
+.dl-chip { border: 1px solid var(--border); background: var(--surface-2); color: var(--text); border-radius: 999px; padding: 5px 13px; font-size: 12px; cursor: pointer; transition: border-color 0.12s; font-family: inherit; min-height: 32px; display: inline-flex; align-items: center; }
 .dl-chip:hover { border-color: var(--accent); }
 .dl-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .tw-list, .cp-list { display: flex; flex-direction: column; gap: 4px; }

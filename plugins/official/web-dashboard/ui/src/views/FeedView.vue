@@ -313,6 +313,7 @@ watch(() => [store.feedFilter, store.feedSearch, store.feedDateFrom, store.feedD
   clearTimeout(filterTimer);
   filterTimer = setTimeout(() => {
     if (store.feedLoading) return;
+    setView(store.view);   // 筛选变化同步 URL hash（刷新后保持筛选状态）
     resetFeed().then(() => fillFeed());
   }, 300);
 });
@@ -672,7 +673,16 @@ onUnmounted(() => {
 
 <style scoped>
 .feed-view { padding: 4px; }
-.feed-toolbar { margin-bottom: 12px; }
+.feed-toolbar {
+  margin-bottom: 12px;
+  /* 长列表滚动时筛选工具栏吸顶（相对 .main-viewport 滚动容器），随时切换筛选不用滚回顶部 */
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: linear-gradient(var(--surface) 85%, transparent);
+  padding-top: 4px;
+  padding-bottom: 8px;
+}
 .ft-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .ft-chips { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex: 1 1 320px; min-width: 0; }
 .ft-search {
@@ -866,6 +876,14 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 100%;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+/* 移动端：简介变更允许换行完整显示（父级 .c-detail 已 wrap），避免长文本横向溢出 */
+@media (max-width: 899px) {
+  .bio-text { white-space: normal; overflow: visible; text-overflow: clip; word-break: break-word; }
+  /* C1 触控目标：世界链接行内元素加大点击区域（16px→inline-flex + padding） */
+  .world-link { display: inline-flex; align-items: center; padding: 4px 8px; }
 }
 
 /* 通知：消息内容（可点击打开群组） */
@@ -933,7 +951,7 @@ onUnmounted(() => {
 .ed-ellip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ed-id { font-size: 10.5px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ed-link { color: var(--accent-2); cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ev-detail :deep(.p-button) { width: 20px; height: 20px; flex: none; }
+.ev-detail :deep(.p-button) { width: 24px; height: 24px; flex: none; }
 
 /* 移动端：卡片化 */
 @media (max-width: 899px) {
@@ -942,6 +960,8 @@ onUnmounted(() => {
   .ft-row { gap: 8px; }
   /* 筛选 chips 移动端尺寸走全局（style.css @media .chip） */
   .search-input { font-size: 12.5px; }
+  /* C1 触控目标：加载更多按钮移动端加大（30px→36px） */
+  .feed-more :deep(.p-button) { min-height: 36px; padding: 6px 16px; }
   /* 右上角计数三段在手机上收窄（完整值在 title 提示） */
   .feed-count { font-size: 10px; max-width: 56%; }
   /* B1：类型筛选 chips 单行横向滚动，不再全宽换行占半屏 */

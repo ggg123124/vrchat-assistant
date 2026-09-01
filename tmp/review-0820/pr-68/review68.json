@@ -1,0 +1,13 @@
+{
+  "commit_id": "4dd6b8cd2969ff47a0ba74dceb3dbf9ea7c73d26",
+  "event": "APPROVE",
+  "body": "审核环境：**端到端实测**（本地 clone + 独立行为测试 17/17 PASS）；使用者视角：Windows 维护者，关注长期运行稳定性与配额保护不回归。\n\n**结论：APPROVE**（无阻断项）\n\n**实测结果**（对 pr-68 源码做最小变换：仅导出 negativeCache/pruneNegativeCache、TTL 缩为 50ms）：\n1. 首次调用（API 恒失败）：2 次 API 调用 → 负缓存写入 2 条，返回 onFail 兜底 ✓\n2. TTL 内二次调用：API 调用数**零增长**（负缓存命中直接兜底，PR #36 W3 配额保护不回归）✓\n3. 超 TTL 后再次调用：过期条目**惰性删除**并重新走解析流程（API 调用恢复增长）✓\n4. pruneNegativeCache：过期条目全清、未过期条目保留 ✓\n5. 成功路径（API 200）：正常解析 + upsertWorld 写回，成功条目不进负缓存 ✓\n\n**代码审查**：`expiresAt > now`（命中）与 `expiresAt <= now`（删除）边界严格互补；`now` 提到循环外取一次避免重复 Date.now()；Map 遍历中 delete 当前元素安全（JS 规范保证）；`setInterval(...).unref()` 不 keep 进程存活；改动单一职责（+25/-4，仅 core/world-names.js），MCP 工具数不变、无用户可见变更，无文档同步需求。\n\n**非阻断观察**（无需修改）：TTL 与清理周期同频 5min，单条目最坏驻留约 2×TTL（过期后至多再等一轮 interval 才被周期清理；但期间若被再次请求，惰性删除会先行清理）。进程内缓存量小，无实际风险。",
+  "comments": [
+    {
+      "path": "core/world-names.js",
+      "line": 25,
+      "side": "RIGHT",
+      "body": "边界确认（实测）：`expiresAt <= now` 删除 与 命中判断 `expiresAt > now` 严格互补，TTL 边界无悬空状态。实测用例 3/4/5 均 PASS：过期条目被惰性删除并重新解析、prune 清空过期但保留未过期。"
+    }
+  ]
+}

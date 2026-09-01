@@ -186,5 +186,7 @@ onMounted(load);
 
 @media (max-width: 899px) {
   .hm-cells { gap: 1px; }
+  /* C1 触控目标：好友排行行移动端加大（29px→36px） */
+  .top-row { padding: 9px 8px; min-height: 36px; }
 }
 </style>

@@ -39,7 +39,7 @@ const shown = computed(() => {
   let list = worlds.value || [];
   if (q.value.trim()) {
     const query = q.value.trim().toLowerCase();
-    list = list.filter(w => (w.name || '').toLowerCase().includes(query));
+    list = list.filter(w => (w.worldName || w.name || '').toLowerCase().includes(query));
   }
   if (onlyNoted.value) list = list.filter(w => w.note);
   if (onlyFav.value) list = list.filter(w => w.favorited);
@@ -90,7 +90,7 @@ onMounted(load);
           <span v-if="i === 0" class="ws-latest">最近</span>
         </div>
         <div class="ws-info">
-          <b class="ws-name" :title="w.name">{{ w.name || w.worldId }}</b>
+          <b class="ws-name" :title="w.worldName || w.name">{{ w.worldName || w.name || w.worldId }}</b>
           <div class="ws-meta">
             <span class="ws-time mono" :title="date(w.lastSeen)">{{ reltime(w.lastSeen) }}<small>{{ date(w.lastSeen) }}</small></span>
             <span v-if="w.visits" class="ws-visits">× {{ w.visits }}</span>
@@ -129,7 +129,7 @@ onMounted(load);
 .ws-img-empty { display: flex; align-items: center; justify-content: center; color: var(--text-dim); }
 .ws-latest { position: absolute; top: 5px; left: 5px; font-size: 10px; background: color-mix(in srgb, var(--accent) 85%, transparent); color: #fff; border-radius: 8px; padding: 0 7px; line-height: 16px; }
 .ws-info { padding: 7px 9px 9px; }
-.ws-name { font-size: 12.5px; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ws-name { font-size: 12.5px; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .ws-meta { display: flex; align-items: center; gap: 8px; margin-top: 4px; font-size: 10.5px; color: var(--text-dim); }
 .ws-time small { margin-left: 4px; }
 .ws-noted { color: var(--accent); }

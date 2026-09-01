@@ -256,6 +256,7 @@ async function openDetail(item) {
 
 .loading-mini { display: flex; justify-content: center; padding: 12px; }
 @media (max-width: 899px) {
+  .bh-rchip { padding: 4px 12px; font-size: 12px; min-height: 32px; }
   .bh-grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 6px; }
 }
 </style>

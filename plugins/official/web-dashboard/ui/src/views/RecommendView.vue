@@ -155,5 +155,7 @@ onMounted(load);
 
 @media (max-width: 899px) {
   .rc-cover { width: 84px; height: 56px; }
+  /* C1 触控目标：卡片喜欢/不喜欢/已逛按钮加大（20px→32px） */
+  .rc-actions .p-button { min-width: 32px; min-height: 32px; }
 }
 </style>

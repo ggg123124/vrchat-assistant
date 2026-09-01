@@ -192,7 +192,7 @@ export function registerDashboardServices(loader, ctx) {
     conds.push(`NOT (e.type IN ('friend-update','user-update') AND json_extract(e.content_json,'$.type') IS NULL)`);
     const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
     const rows = ctx.storage.query(`SELECT e.*, f.display_name AS friendDisplayName,
-      f.avatar_image_url AS avatarUrl, f.user_icon AS userIcon,
+      f.avatar_image_url AS avatarUrl, f.user_icon AS userIcon, f.trust_level AS trustLevel,
       COALESCE(NULLIF(e.world_name,''), wc.name, '') AS world_name,
       wc.image_url AS world_image_url
       FROM events e LEFT JOIN friends f ON f.user_id = e.user_id
@@ -301,6 +301,7 @@ export function registerDashboardServices(loader, ctx) {
         type: row.type,
         userId: row.user_id,
         displayName: row.display_name || row.friendDisplayName || user.displayName || row.user_id || '系统',
+        trustLevel: row.trustLevel || '',
         createdAt: row.created_at,
         worldId,
         worldName,

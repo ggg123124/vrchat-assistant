@@ -1,0 +1,19 @@
+{
+  "commit_id": "1bd0162b2814df8e0d2af7e3c9bfa2f4dcf3f79c",
+  "event": "REQUEST_CHANGES",
+  "body": "审核环境：**实测**（handler 级 mock api._request，13 组断言，未触碰真实账号）；使用者视角：Windows 重度 VRChat 用户 + 仓库维护者，关注写操作安全与数据准确性。\n\n## 结论：REQUEST_CHANGES（1 个 🟡 安全缺陷已实测复现 + 1 个分页局限）\n\n**功能概览**：好友收藏分组管理（favorites type=friend）——分组列表/添加/移除/移动，全部写操作带 confirm 护栏，400=重复收藏、403=非好友的语义映射正确，displayName 大小写歧义会明确报错而非静默选一个。\n\n**实测**：12/13 PASS——分组列表与成员数、confirm 护栏（无 confirm 无任何写请求）、POST body（favoriteId/tags/type 正确）、分组不存在报错、400/403 分支不抛错、正常移除 DELETE 记录 id、移动=删旧建新。\n\n**🟡 缺陷 1（建议修复后合并）：unfavorite_friend 的 groupName 拼错/未找到时会静默移除好友的「全部分组」收藏**\n- friend-favorites.js:96-97：`const targetTag = groupName ? (findGroup(groups, groupName)?.name || null) : null;` —— groupName 传了但 findGroup 未命中时 targetTag 变成 null，与「省略 groupName=从全部分组移除」走同一条路径。\n- 实测：`unfavorite_friend({displayName:'Zoe', groupName:'亲友团拼错', confirm:true})` → 返回 `removed: true` 且 DELETE /favorites/fvrt_5 被执行——用户本想移除一个分组，结果好友被移出**所有**收藏分组。\n- 修复方向：groupName 已传但 findGroup 未命中时应直接报错（与 favorite_friend/move_friend_group 的「分组未找到」行为一致），不应回退到全删。\n\n**🟡 局限 2（可后续优化）：/favorites 硬编码 n=100 单页拉取**\n- friend-favorites.js:29-30：收藏记录超过 100 条的用户，memberCount 不准，unfavorite/move 只能命中第一页记录（第 100 条之后的会漏删或误报「不在分组中」）。建议翻页循环或文档标注上限。\n\n**🟢 nit**：resolveUserId 依赖 /users?search 前 20 条做精确匹配，目标不在前 20 时会误报「未找到」；可先用 /auth/user/friends 好友列表本地匹配。\n\n## 使用者视角\n收藏分组是高频整理操作，confirm 护栏合格；但「拼错分组名反而删了全部分组」是典型的误操作放大器——用户以为只动一个分组，实际清空了该好友的所有分组收藏（虽可逆但无提示）。建议修复后再合并。",
+  "comments": [
+    {
+      "path": "core/handlers/friend-favorites.js",
+      "line": 96,
+      "side": "RIGHT",
+      "body": "🟡 缺陷（实测复现）：groupName 传了但 findGroup(groups, groupName) 未命中时，`?.name || null` 使 targetTag 变成 null，与「groupName 省略=从全部分组移除」语义重合 → 拼错分组名 + confirm 后会把好友移出所有收藏分组（实测 removed:true，DELETE 已发出）。建议 groupName 已传而未命中时直接抛「分组未找到」（与 handleFavoriteFriend/handleMoveFriendGroup 一致），不要静默回退全删。"
+    },
+    {
+      "path": "core/handlers/friend-favorites.js",
+      "line": 29,
+      "side": "RIGHT",
+      "body": "🟡 局限：/favorites 只拉单页 n=100，收藏记录 >100 条时 memberCount 偏小、unfavorite/move 漏操作第一页之后的记录。建议翻页拉全（参考现有 get_favorite_friends_locations 等工具的分页处理），或至少在文档标注上限。"
+    }
+  ]
+}

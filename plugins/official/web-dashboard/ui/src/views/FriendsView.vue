@@ -69,7 +69,9 @@ function offlineSince(f) {
 
 <template>
   <div class="friends-view">
-    <div class="view-title">好友位置</div>
+    <div class="fv-head">
+      <h2><i class="pi pi-users"></i> 好友位置</h2>
+    </div>
 
     <div class="fv-toolbar">
       <SelectButton v-model="store.friendsTab" :options="tabOptions" optionLabel="label" optionValue="value" size="small" />
@@ -261,7 +263,10 @@ function offlineSince(f) {
 .fc-plat:hover { color: var(--text); }
 @media (max-width: 899px) {
   .fg-body { grid-template-columns: 1fr 1fr; }
-  .fv-search { max-width: none; flex: 1; }
+  /* 移动端：tab 与搜索框换行，搜索框独占一行全宽（此前被 5 个 tab 挤压到 74px 不可用） */
+  .fv-toolbar { flex-wrap: wrap; row-gap: 8px; }
+  .fv-toolbar .p-selectbutton, .fv-toolbar .p-selectbutton > * { max-width: 100%; }
+  .fv-search { max-width: none; flex: 1 1 100%; order: 3; }
   /* C1/C2：触屏目标加大 + 字号提升 */
   .fg-head { padding: 8px 9px; }
   .fg-head > span:nth-child(2) { font-size: 12.5px; }

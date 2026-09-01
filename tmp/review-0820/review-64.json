@@ -1,0 +1,12 @@
+{
+  "commit_id": "987635af687466e5092b8671a0a3d6713c5a36d1",
+  "event": "APPROVE",
+  "body": "审核环境：实测（本机仓库 clone + mock API 驱动 resolveWorldNames 全场景）；使用者视角：仓库维护者 + Windows 重度 VRChat 用户，关注功能质量、数据准确性、跨平台兼容与文档一致性。\n\n[AGENT-REVIEW-DONE] #64 审核完成：APPROVE —— resolveWorldNames 缓存/API/写回/负缓存全链路实测通过，调用点改造语义等价，无阻断项。\n\n## ✅ 通过项（实测证据）\n\n1. **缓存命中不调 API**：预置 world_cache 后 resolveWorldNames(['wrld_cached',...]) 对缓存项零 API 调用。\n2. **缺失走 API + 写回**：mock `_request` 计数实测：['wrld_cached','wrld_api1','wrld_fail'] 共 2 次调用（缓存未调）；成功项返回名字且 `storage.getWorldName('wrld_api1').name` 已写回。\n3. **失败负缓存（W3 修复落地）**：失败项返回 onFail 兜底（get_online_friends 传 null，不泄漏内部 ID）；二次调用同一列表 API 调用数不再增长（实测 2→2），负缓存 5 分钟 TTL 生效。\n4. **调用点语义等价**：events.js 周报第 4/5 步合并为一次批量解析 + 群组房补充解析（`!worldNameMap[w]` 过滤与旧 `!worldNameMap[wid] && !missingWorlds.includes(wid)` 集合语义一致，失败兜底 wid 的行为一致）；friends.js worldName 取值 `nameMap.get(...) || null` 与旧逻辑一致。\n5. **语法与文档**：`node --check` 全通过；内部模块不影响工具数，`check-doc-drift.py` 无漂移。\n6. **合并兼容**：与 #63/#65/#66 两两 `git merge-tree` 实测均干净合并。\n\n## 💡 建议（非阻断）\n\n- 负缓存 Map 条目过期后不清理（仅 `> Date.now()` 判断失效），长期运行会累积失败 worldId 条目；量小且进程内，可接受，可在后续顺手加过期清理。\n- `throttleMs` 对首个缺失项也会 sleep（300ms），与原 friends.js 实现行为一致，非回归，仅提示。\n\n（inline 见 world-names.js L46）",
+  "comments": [
+    {
+      "path": "core/world-names.js",
+      "line": 46,
+      "body": "💡 建议（非阻断）：`worldIds` 输入含重复时 `missing` 不去重——实测 ['wrld_dup','wrld_dup','wrld_dup'] 触发 3 次 API 调用（同一世界重复查询 + 重复 upsert）。get_online_friends 多好友同处一个未缓存世界时会放大该行为（旧实现同样存在，非回归）。作为新公共模块建议入口处 `[...new Set(worldIds.filter(Boolean))]` 去重（PR#63 的 `_resolveWorldNames` 已这样做）。"
+    }
+  ]
+}

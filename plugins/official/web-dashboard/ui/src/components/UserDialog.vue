@@ -5,6 +5,7 @@ import { get, post } from '../api.js';
 import { trustColor, trustName, locLabelFull, statusLabels, fmtMin, time, date, avatarLabel } from '../utils.js';
 import { toast } from '../toast.js';
 import TrustBadge from './TrustBadge.vue';
+import { STATUS_COLORS } from '../composables/useFriendGroups.js';
 
 const visible = computed({
   get: () => !!store.userModal,
@@ -32,8 +33,6 @@ function favVisColor(v) {
 function favVisLabel(v) {
   return v === 'public' ? '公开' : v === 'friends' ? '好友可见' : '私密';
 }
-
-const STATUS_COLORS = { active: '#52c41a', 'join me': '#4287f5', 'ask me': '#fa8c16', busy: '#f5222d', offline: '#596778' };
 
 // ── 派生数据 ──
 const pUser = computed(() => (profile.value && profile.value.user) || {});
@@ -443,5 +442,7 @@ const rawJson = computed(() => {
   .ud-status { flex-wrap: wrap; }
   .ud-actions { flex-wrap: wrap; }
   .ev-item { flex-wrap: wrap; row-gap: 2px; }
+  /* C1 触控目标：复制 ID/JSON 按钮移动端加大（30px→36px） */
+  .ud-actions :deep(.p-button), .json-box :deep(.p-button) { min-height: 36px; }
 }
 </style>

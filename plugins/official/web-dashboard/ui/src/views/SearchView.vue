@@ -156,5 +156,8 @@ onUnmounted(() => clearTimeout(debounceTimer));
 @media (max-width: 899px) {
   .sv-types { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; padding-bottom: 2px; }
   .sv-types::-webkit-scrollbar { display: none; }
+  /* C1 触控目标：搜索历史 chips 与清除按钮移动端加大 */
+  .sv-rchip { padding: 5px 13px; font-size: 12px; min-height: 32px; }
+  .sv-rclear { font-size: 12px; padding: 6px 8px; }
 }
 </style>
