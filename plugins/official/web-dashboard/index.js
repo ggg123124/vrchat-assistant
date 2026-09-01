@@ -10,6 +10,17 @@ import { registerSocialRoutes } from './server/routes/social.js';
 import { registerImageProxyRoutes } from './server/routes/image-proxy.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// VRChat file URL → 256 缩略图：/file/{file_id}/[version]/[/file|/] → /image/{file_id}/1/256。
+// 理由：当前 avatarImageUrl 是"穿戴的3D模型外观图"，userIcon 是用户设置的真正头像；
+//       userIcon 的原始 /file/xxx/1/ URL 经代理会返回 SVG 占位，需转成 256 缩略图才显示真图。
+//       已是 /image/ 缩略图则原样返回。
+function avatarThumb(u) {
+  if (!u) return u;
+  const s = String(u);
+  const m = s.match(/\/file\/(file_[a-f0-9-]+)\//);
+  return m ? `https://api.vrchat.cloud/api/1/image/${m[1]}/1/256` : s;
+}
 const indexHtml = readFileSync(path.join(__dirname, 'dashboard.html'), 'utf8')
   .replaceAll('__DASHBOARD_CSS__', readFileSync(path.join(__dirname, 'client', 'dashboard.css'), 'utf8'))
   .replaceAll('__VUE_VENDOR__', readFileSync(path.join(__dirname, 'client', 'vendor', 'vue.global.prod.js'), 'utf8'))
@@ -924,7 +935,7 @@ export default function register(api) {
           travelingToLocation: (me && me.travelingToLocation) || '',
           status,
           statusDescription,
-          avatarUrl: (me && (me.currentAvatarImageUrl || me.currentAvatarThumbnailImageUrl || me.userIcon)) || '',
+          avatarUrl: avatarThumb(me && (me.userIcon || me.currentAvatarThumbnailImageUrl || me.currentAvatarImageUrl)),
           userIcon: (me && me.userIcon) || '',
           trustLevel: (me && me.trustLevel) || '',
           currentAvatar: (me && me.currentAvatar) || '',

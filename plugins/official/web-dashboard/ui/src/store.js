@@ -109,7 +109,9 @@ export function openUser(u) {
   closeMobileDrawers();
   if (typeof u === 'string') {
     const found = store.friends.find((f) => f.userId === u);
-    store.userModal = found || { userId: u, displayName: u, isOnline: false };
+    // 自己不在 friends 表（不是自己的好友）→ 回退到 store.me，保留头像/状态等字段
+    const self = (store.me && store.me.userId === u) ? store.me : null;
+    store.userModal = found || self || { userId: u, displayName: u, isOnline: false };
   } else {
     store.userModal = u;
   }

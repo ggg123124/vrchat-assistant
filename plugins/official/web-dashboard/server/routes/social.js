@@ -254,7 +254,11 @@ export function registerSocialRoutes(api, dashboardState) {
           lastLogin: user.last_login || '',
           lastPlatform: user.last_platform || '',
           tags: Array.isArray(user.tags) ? user.tags : [],
-          avatarImageUrl: user.currentAvatarImageUrl || user.userIcon || '',
+          avatarImageUrl: (() => {
+            const picked = user.userIcon || user.currentAvatarThumbnailImageUrl || user.currentAvatarImageUrl || '';
+            const m = String(picked).match(/\/file\/(file_[a-f0-9-]+)\//);
+            return m ? `https://api.vrchat.cloud/api/1/image/${m[1]}/1/256` : picked;
+          })(),
         });
       } catch (e) {
         sendJson(res, { error: String(e.message || e) });
