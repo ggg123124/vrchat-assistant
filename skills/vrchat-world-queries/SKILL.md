@@ -106,6 +106,10 @@ metadata:
 4. **扫描**：`x_scan_creators` 抓全部博主推文→提取世界链接→逐个查 VRChat API 收藏/浏览入库（限流 ~2.6s/个）。**⚠️ 数十个世界要几分钟，MCP 客户端会超时但服务端照常跑完**——超时后等几分钟直接查 `x_world_recommendations` 表验证，别重发
 5. **查询**：`x_world_digest {days, limit, creator?, refresh?}` 按收藏排序输出，`favoriteVisitRatio ≥ highlightRatio(默认0.2)` 标 ⭐重点。未配置博主（x_creators=[]）返回空 worlds 不是故障
 
+### ⚠️ 世界挖取经验：t.co 短链解包（2026-09 实测，防漏抓核心）
+
+部分博主（探跡家もっけい mokkei_VE、fox_yata9 等）的世界推荐**不是写在推文文本 `World: X By: Y` 里，而是附带 `https://t.co/XXXX` 短链指向 vrchat 世界页**。t.co 现返回 **200 HTML + `<meta http-equiv=refresh content="0;URL=...">`**（非 HTTP 302），必须抓 body 解析 `URL=` 拿真实 wrld_。服务端 `fetchCreatorTweets` 已内置批量解包（`VRC_MONITOR_X_RESOLVE_TCO=0` 关闭）；**若发现某博主"0 推荐"但用户坚持有，先检查推文是否全是 t.co 短链型**，勿用文本匹配结果反驳。
+
 ## 6. 地图列表展示格式（通用推荐）
 
 展示地图列表时按此格式（6 列）：
