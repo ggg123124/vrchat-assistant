@@ -1,3 +1,5 @@
+import { avatarThumb, avatarOf } from './img-util.js';
+
 /**
  * VRChat 好友监控系统 — 事件处理管道
  * 
@@ -11,6 +13,9 @@ export class EventPipeline {
     this._lastSave = Date.now();
     this._flushTimer = null;         // 定时 flush 句柄
     this._flushInterval = 5000;      // 每 5 秒自动持久化
+    // SSE 富化用 friend 行缓存：按 userId 缓存 friends 表行 + 昵称，避免每个事件都查库（活跃时段防高频 DB 负载）
+    this._friendCache = new Map();   // userId -> {row, nickname, at}
+    this._FRIEND_CACHE_TTL = 5000;   // 5s TTL，够覆盖一次事件风暴；超出回源查库
     this._startFlushTimer();
   }
 
@@ -293,7 +298,8 @@ export class EventPipeline {
       this.storage.save();
     }
 
-    // SSE 实时推送：事件已落库
+    // SSE 实时推送：事件已落库。富化 DTO——补上头像/昵称/状态/位置等前端渲染所需字段，
+    // 让前端收到即可增量更新，不必再全量拉 /events /friends /me（2026-09-01 SSE 增量改造）。
     if (typeof this.onStoredEvent === 'function') {
       try {
         const dto = {
@@ -305,6 +311,21 @@ export class EventPipeline {
           createdAt: event.receivedAt,
         };
         if (event.updateType) dto.updateType = event.updateType;
+        // 富化：好友资料行（头像/状态/平台/信任等级/在线）+ 昵称
+        const fr = this._getFriendEnriched(dto.userId);
+        if (fr) {
+          dto.avatarUrl = avatarOf(fr.userIcon, fr.avatar_image_url) || '';
+          dto.userIcon = avatarThumb(fr.userIcon) || '';
+          dto.status = fr.status || '';
+          dto.statusDescription = fr.status_description || '';
+          dto.platform = fr.platform || '';
+          dto.trustLevel = fr.trust_level || '';
+          dto.isOnline = !!fr.is_online;
+          dto.memo = fr.memo || '';
+          dto.bio = fr.bio || '';
+          dto.pronouns = fr.pronouns || '';
+          dto.nickname = fr._nickname || '';
+        }
         this.onStoredEvent(dto);
       } catch {
         // 广播失败不能影响主流程
@@ -320,6 +341,27 @@ export class EventPipeline {
     if (cached) return cached.name;
 
     return '';  // 名字通过外部 API 按需查
+  }
+
+  // 取好友资料行（供 SSE 富化 DTO）+ 昵称，带 5s 内存缓存避免高频事件时反复查库。
+  // 返回 { row 字段..., _nickname }；非好友/无记录返回 null。
+  _getFriendEnriched(userId) {
+    if (!userId) return null;
+    const now = Date.now();
+    const hit = this._friendCache.get(userId);
+    if (hit && (now - hit.at) < this._FRIEND_CACHE_TTL) return hit.row;
+    try {
+      const row = this.storage.getFriend(userId);
+      if (!row) return null;
+      let nickname = '';
+      try {
+        const nk = this.storage.getNicknames({ userId });
+        if (nk && nk[0]) nickname = nk[0].nickname || '';
+      } catch { /* 昵称查不到不影响 */ }
+      const enriched = { ...row, _nickname: nickname };
+      this._friendCache.set(userId, { row: enriched, at: now });
+      return enriched;
+    } catch { return null; }
   }
 
   /** 保存到磁盘 */

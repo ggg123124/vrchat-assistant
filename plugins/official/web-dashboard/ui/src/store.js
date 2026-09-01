@@ -503,10 +503,10 @@ function startSse() {
         store.feedEvents = [ev, ...store.feedEvents];
         refreshFeed(); // 拉富化数据补齐头像/详情
       }
-      // 好友位置/在线状态变化 → 刷新好友列表（房间分组与房间号自动更新）
+      // 好友位置/在线状态变化 → 直接原地更新该好友（服务端已富化，无需全量拉 /friends）
       if (ev.type === 'friend-location' || ev.type === 'friend-online' || ev.type === 'friend-offline'
         || ev.type === 'friend-update' || ev.type === 'friend-active') {
-        refreshFriends();
+        updateFriendFromEvent(ev);
       }
       // 导航徽标：任何通知事件未读+1
       if (ev.type === 'notification' || ev.type === 'notification-v2') {
@@ -539,11 +539,37 @@ function startSse() {
     },
     (st) => {
       store.sseStatus = st;
-      // SSE 重连成功后重算未读徽标（断开期间可能漏计数/多计数）
-      if (st === 'open') loadNotifCount();
+      // SSE 重连成功后重算未读徽标（断开期间可能漏计数/多计数）；补一次全量校准，防丢帧
+      if (st === 'open') { loadNotifCount(); load(true); }
     }
   );
   if (es && es.addEventListener) es.addEventListener('error', () => { store.sseStatus = 'reconnecting'; });
+}
+
+// SSE 事件驱动的"好友原地增量更新"——服务端已富化（昵称/头像/状态/位置/平台/信任等级），
+// 前端收到直接替换 state.friends 里该好友，无需全量拉 /friends（2026-09-01 SSE 增量改造）。
+function updateFriendFromEvent(ev) {
+  const i = store.friends.findIndex((f) => f.userId === ev.userId);
+  if (i < 0) return; // 非好友（如 tracked）用 load() 校准兜底
+  const old = store.friends[i];
+  const nf = { ...old };
+  // 只覆盖 SSE 富化字段已有的；空值不覆盖（保留原值）
+  const map = {
+    displayName: ev.displayName, nickname: ev.nickname, avatarUrl: ev.avatarUrl,
+    userIcon: ev.userIcon, status: ev.status, statusDescription: ev.statusDescription,
+    platform: ev.platform, trustLevel: ev.trustLevel, isOnline: ev.isOnline,
+    bio: ev.bio, pronouns: ev.pronouns,
+  };
+  for (const k of Object.keys(map)) if (map[k] != null && map[k] !== '') nf[k] = map[k];
+  // friend-location → 更新位置字段
+  if (ev.type === 'friend-location') {
+    if (ev.worldId) nf.worldId = ev.worldId;
+    if (ev.worldName) nf.worldName = ev.worldName;
+  }
+  if (ev.type === 'friend-online') nf.isOnline = true;
+  if (ev.type === 'friend-offline') nf.isOnline = false;
+  store.friends[i] = nf;
+  syncRightGroups();
 }
 
 function trackViewport() {
@@ -576,8 +602,7 @@ export function startDashboard() {
   startSse();
   trackViewport();
   initKeyboard();
-  setInterval(() => load(true), 30000);
-  // 兜底：每 10s 拉一次最新"我"（me 端点用本地 events 覆盖 status），
-  // 确保右侧栏"我自己"状态/位置持续同步，不依赖 SSE/load 链路
-  setInterval(refreshMe, 10000);
+  setInterval(() => load(true), 120000);  // 全量校准：120s 一次（SSE 增量主导，全量只防丢帧/断线自愈）
+  // 右侧栏"我自己"状态/位置：由 SSE user-update/user-location 事件直接更新 me + refreshMeFresh() 节流拉取，
+  // 不再需要 10s 定时全量拉 /me（已移除，2026-09-01 SSE 增量改造）
 }

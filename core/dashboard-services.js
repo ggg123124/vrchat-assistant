@@ -10,13 +10,7 @@
  * 纯搬移重构：服务名、owner、实现逐字节一致，无行为变更。
  */
 import { isSafeModeEnabled } from './safe-mode.js';
-
-// 把 VRChat CDN 图片 URL 改写成本地图片代理（浏览器经服务端缓存拉取，避免国内直连 CDN 被墙/慢）
-const imgProxy = (u) => {
-  if (!u) return u;
-  if (!/^https:\/\/(api\.vrchat\.cloud|d348imysud55la\.cloudfront\.net|assets\.vrchat\.com|files\.vrchat\.cloud)\//.test(String(u))) return u;
-  return '/api/dashboard/image-proxy?url=' + encodeURIComponent(u);
-};
+import { imgProxy, avatarThumb, avatarOf } from './img-util.js';
 
 // 自己 userId 的权威推导：user-location/user-update 事件只会是自己的（事件管线保证），
 // 种子导入/列表展示用它排除自己（/auth/user 在启动早期可能失败或缓存未就绪）
@@ -87,23 +81,6 @@ export function registerDashboardServices(loader, ctx) {
   });
   loader.serviceOwners.set('dashboard.friends', 'core');
 
-  // VRChat 完整头像图(file 5MB) → 256px 缩略图(image)，列表显示用缩略图（代理/缓存秒载）
-  // URL 规则（VRChat 真实缩略图）：/file/{file_id}/[version]/[/file|/] → /image/{file_id}/1/256
-  // 注意：VRChat file URL 结尾有 /1/file、/1、/1/ 等变体（user_icon 常为 /1 或 /1/ 结尾），
-  //       legacy 只匹配 /1/file 导致 user_icon 无法转缩略图 → 放宽为匹配 /file/{file_id}/ 前缀。
-  //       生成缩略图固定 version=/1/256（曾错用 /3/256 导致部分 file 404）。
-  //       已是 /image/ 缩略图则原样走代理。
-  const avatarThumb = (u) => {
-    if (!u) return u;
-    const s = String(u);
-    const m = s.match(/\/file\/(file_[a-f0-9-]+)\//);
-    const thumbUrl = m ? `https://api.vrchat.cloud/api/1/image/${m[1]}/1/256` : s;
-    return imgProxy(thumbUrl);
-  };
-  // 用户头像展示统一入口：优先用户资料里设置的图标头像(user_icon)，兜底当前模型外观缩略图(currentAvatar)。
-  // 背景：currentAvatarImageUrl 语义是"穿戴的3D模型外观"，常为默认机器人图而非用户真实头像，
-  //       user_icon 是用户主动设置的头像（XM1023 显示机器人而非金发女仆头像 bug 的根因，2026-09-01）。
-  const avatarOf = (iconUrl, modelUrl) => avatarThumb(iconUrl) || avatarThumb(modelUrl);
   loader.services.set('dashboard.gameSessions', ({ days = 7 } = {}) => {
     const since = new Date(Date.now() - Number(days || 7) * 86400000).toISOString();
     // 取全部 user-location（含离开/传送 world_id=''），用 location 切分会话：
