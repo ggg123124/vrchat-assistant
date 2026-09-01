@@ -65,6 +65,14 @@ export default function register(api) {
 
   // ── 1. 提供全局 http.authenticate 服务 ──
   api.provide('http.authenticate', (req) => {
+    // 图片代理路由豁免：浏览器 <img> 无法带 Authorization header，且只服务白名单公图
+    try {
+      const pathname = new URL(req.url || '', 'http://localhost').pathname;
+      if (pathname === '/api/dashboard/image-proxy') {
+        return { ok: true, enabled: true };
+      }
+    } catch {}
+
     const config = getAuthConfig();
     const configuredToken = config?.token;
     if (!configuredToken) {

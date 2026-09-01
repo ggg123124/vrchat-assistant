@@ -1,4 +1,12 @@
 // VRChat 图片代理与加速缓存：解决公网 / 移动端访问时 api.vrchat.cloud CDN 被阻断或无法直连的问题
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync } from 'node:fs';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
 const ALLOWED_HOSTS = [
   'api.vrchat.cloud',
   'd348imysud55la.cloudfront.net',
@@ -9,6 +17,93 @@ const ALLOWED_HOSTS = [
 // 内存 LRU 简易缓存（最大缓存 100 张最近头像/缩略图，避免重复回源）
 const imageCache = new Map();
 const MAX_CACHE = 120;
+
+// 磁盘缓存：持久化，30 天 TTL
+const CACHE_DIR = path.join(__dirname, '..', '..', '..', '..', '..', 'data', 'img-cache');
+const DISK_TTL = 30 * 24 * 60 * 60 * 1000;
+
+function ensureCacheDir() {
+  if (!existsSync(CACHE_DIR)) {
+    try { mkdirSync(CACHE_DIR, { recursive: true }); } catch {}
+  }
+}
+
+function getCacheHash(url) {
+  return createHash('md5').update(url).digest('hex');
+}
+
+function extFromContentType(ct) {
+  if (!ct) return '';
+  const map = {
+    'image/png': 'png',
+    'image/jpeg': 'jpg',
+    'image/jpg': 'jpg',
+    'image/gif': 'gif',
+    'image/webp': 'webp',
+  };
+  const mime = ct.toLowerCase().split(';')[0].trim();
+  return map[mime] || '';
+}
+
+function detectContentType(buf) {
+  if (!buf || buf.length < 4) return 'application/octet-stream';
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) return 'image/png';
+  if (buf[0] === 0xFF && buf[1] === 0xD8) return 'image/jpeg';
+  if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) return 'image/gif';
+  if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 && buf.length >= 12 && buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50) return 'image/webp';
+  return 'application/octet-stream';
+}
+
+function contentTypeFromExt(p) {
+  const ext = path.extname(p).slice(1).toLowerCase();
+  const map = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' };
+  return map[ext] || '';
+}
+
+async function findCacheFile(hash) {
+  for (const ext of ['png', 'jpg', 'gif', 'webp']) {
+    const p = path.join(CACHE_DIR, `${hash}.${ext}`);
+    try {
+      await fs.access(p);
+      return p;
+    } catch {}
+  }
+  const p = path.join(CACHE_DIR, hash);
+  try {
+    await fs.access(p);
+    return p;
+  } catch {}
+  return null;
+}
+
+async function readDiskCache(url) {
+  try {
+    const hash = getCacheHash(url);
+    const filePath = await findCacheFile(hash);
+    if (!filePath) return null;
+    const stat = await fs.stat(filePath);
+    if (Date.now() - stat.mtime.getTime() > DISK_TTL) return null;
+    const buffer = await fs.readFile(filePath);
+    const contentType = contentTypeFromExt(filePath) || detectContentType(buffer);
+    return { buffer, contentType, time: stat.mtime.getTime() };
+  } catch { return null; }
+}
+
+async function writeDiskCache(url, buffer, contentType) {
+  try {
+    ensureCacheDir();
+    const hash = getCacheHash(url);
+    const ext = extFromContentType(contentType);
+    const fileName = ext ? `${hash}.${ext}` : hash;
+    // 清理同一 hash 的其它扩展名旧文件（content-type 可能变化）
+    for (const e of ['', 'png', 'jpg', 'gif', 'webp']) {
+      const old = e ? `${hash}.${e}` : hash;
+      const oldPath = path.join(CACHE_DIR, old);
+      try { await fs.unlink(oldPath); } catch {}
+    }
+    await fs.writeFile(path.join(CACHE_DIR, fileName), buffer);
+  } catch {}
+}
 
 // 回源并发限制：首次加载大量图片同时回源易触发 VRChat 限流（429/403）→ 最多 4 个并发，其余排队
 let inflight = 0;
@@ -47,6 +142,23 @@ export function registerImageProxyRoutes(api) {
         if (!isAllowed) {
           res.writeHead(403, { 'Content-Type': 'text/plain' });
           return res.end('host not allowed');
+        }
+
+        // 检查磁盘缓存（持久化，30 天）
+        const diskCached = await readDiskCache(targetUrl);
+        if (diskCached) {
+          // 回填内存缓存，下次更快
+          if (imageCache.size >= MAX_CACHE) {
+            const firstKey = imageCache.keys().next().value;
+            imageCache.delete(firstKey);
+          }
+          imageCache.set(targetUrl, { contentType: diskCached.contentType, buffer: diskCached.buffer, time: diskCached.time });
+          res.writeHead(200, {
+            'Content-Type': diskCached.contentType,
+            'Cache-Control': 'public, max-age=86400, immutable',
+            'Content-Length': diskCached.buffer.length,
+          });
+          return res.end(diskCached.buffer);
         }
 
         // 检查内存缓存
@@ -105,7 +217,8 @@ export function registerImageProxyRoutes(api) {
         const contentType = resp.headers.get('content-type') || 'image/jpeg';
         const buffer = Buffer.from(await resp.arrayBuffer());
 
-        // 写入内存缓存
+        // 写入磁盘缓存（持久化）和内存缓存
+        await writeDiskCache(targetUrl, buffer, contentType);
         if (imageCache.size >= MAX_CACHE) {
           const firstKey = imageCache.keys().next().value;
           imageCache.delete(firstKey);

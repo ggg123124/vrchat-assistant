@@ -11,6 +11,13 @@
  */
 import { isSafeModeEnabled } from './safe-mode.js';
 
+// 把 VRChat CDN 图片 URL 改写成本地图片代理（浏览器经服务端缓存拉取，避免国内直连 CDN 被墙/慢）
+const imgProxy = (u) => {
+  if (!u) return u;
+  if (!/^https:\/\/(api\.vrchat\.cloud|d348imysud55la\.cloudfront\.net|assets\.vrchat\.com|files\.vrchat\.cloud)\//.test(String(u))) return u;
+  return '/api/dashboard/image-proxy?url=' + encodeURIComponent(u);
+};
+
 // 自己 userId 的权威推导：user-location/user-update 事件只会是自己的（事件管线保证），
 // 种子导入/列表展示用它排除自己（/auth/user 在启动早期可能失败或缓存未就绪）
 export function getSelfUserId(storage) {
@@ -76,18 +83,27 @@ export function registerDashboardServices(loader, ctx) {
         })();
       }
     } catch { /* 预热失败不影响响应 */ }
-    return rows.map((r) => ({ ...r, avatarUrl: avatarThumb(r.avatarUrl) || r.userIcon || '' }));
+    return rows.map((r) => ({ ...r, avatarUrl: avatarOf(r.userIcon, r.avatarUrl) || '' }));
   });
   loader.serviceOwners.set('dashboard.friends', 'core');
 
   // VRChat 完整头像图(file 5MB) → 256px 缩略图(image)，列表显示用缩略图（代理/缓存秒载）
-  // URL 规则（VRChat 真实缩略图）：/file/{file_id}/1/file → /image/{file_id}/1/256
-  // 注意 version 必须是 /1/（VRChat 返回的 currentAvatarThumbnailImageUrl 是 /1/256；曾错用 /3/256 导致部分 file 404）
+  // URL 规则（VRChat 真实缩略图）：/file/{file_id}/[version]/[/file|/] → /image/{file_id}/1/256
+  // 注意：VRChat file URL 结尾有 /1/file、/1、/1/ 等变体（user_icon 常为 /1 或 /1/ 结尾），
+  //       legacy 只匹配 /1/file 导致 user_icon 无法转缩略图 → 放宽为匹配 /file/{file_id}/ 前缀。
+  //       生成缩略图固定 version=/1/256（曾错用 /3/256 导致部分 file 404）。
+  //       已是 /image/ 缩略图则原样走代理。
   const avatarThumb = (u) => {
     if (!u) return u;
-    const m = String(u).match(/\/file\/(file_[a-f0-9-]+)\/1\/file/);
-    return m ? `https://api.vrchat.cloud/api/1/image/${m[1]}/1/256` : u;
+    const s = String(u);
+    const m = s.match(/\/file\/(file_[a-f0-9-]+)\//);
+    const thumbUrl = m ? `https://api.vrchat.cloud/api/1/image/${m[1]}/1/256` : s;
+    return imgProxy(thumbUrl);
   };
+  // 用户头像展示统一入口：优先用户资料里设置的图标头像(user_icon)，兜底当前模型外观缩略图(currentAvatar)。
+  // 背景：currentAvatarImageUrl 语义是"穿戴的3D模型外观"，常为默认机器人图而非用户真实头像，
+  //       user_icon 是用户主动设置的头像（XM1023 显示机器人而非金发女仆头像 bug 的根因，2026-09-01）。
+  const avatarOf = (iconUrl, modelUrl) => avatarThumb(iconUrl) || avatarThumb(modelUrl);
   loader.services.set('dashboard.gameSessions', ({ days = 7 } = {}) => {
     const since = new Date(Date.now() - Number(days || 7) * 86400000).toISOString();
     // 取全部 user-location（含离开/传送 world_id=''），用 location 切分会话：
@@ -244,7 +260,7 @@ export function registerDashboardServices(loader, ctx) {
             location: loc,
             worldName,
             worldId,
-            worldImageUrl: cj.world?.imageUrl || cj.world?.thumbnailImageUrl || '',
+            worldImageUrl: imgProxy(cj.world?.imageUrl || cj.world?.thumbnailImageUrl || ''),
           };
           break;
         }
@@ -311,13 +327,13 @@ export function registerDashboardServices(loader, ctx) {
         createdAt: row.created_at,
         worldId,
         worldName,
-        worldImageUrl: row.world_image_url || world.imageUrl || world.thumbnailImageUrl || '',
+        worldImageUrl: imgProxy(row.world_image_url || world.imageUrl || world.thumbnailImageUrl || ''),
         groupName: ((content.groupName) || ''),
         // 通知事件字段（notification v1 / notification-v2）：好友申请/邀请/私信/群组消息；
         // 更新类事件（notification*-update）从关联的原通知（src）取群组信息与内容
         senderUserId: content.senderUserId || '',
         senderUsername: content.senderUsername || '',
-        notiImageUrl: src.imageUrl || '',
+        notiImageUrl: imgProxy(src.imageUrl || ''),
         notiMessage: src.message || '',
         notiTitle: src.title || '',
         notiGroupName: ((src.data && src.data.groupName) || gName || (src.title ? String(src.title).split(':')[0].trim() : '') || ''),
@@ -332,8 +348,8 @@ export function registerDashboardServices(loader, ctx) {
         contentItemId: content.itemId || '',
         contentItemTypeLabel: ({ prop: '道具', bundle: '捆绑包', accessory: '配件', shared: '共享物品' }[content.itemType] || content.itemType || '物品'),
         contentItemName: (content.itemId && invItemCache[content.itemId]) ? invItemCache[content.itemId].name || '' : '',
-        contentItemImageUrl: (content.itemId && invItemCache[content.itemId]) ? invItemCache[content.itemId].imageUrl || '' : '',
-        avatarUrl: avatarThumb(row.avatarUrl || row.userIcon || content.avatarImageUrl || user.currentAvatarImageUrl || user.iconUrl || ''),
+        contentItemImageUrl: imgProxy((content.itemId && invItemCache[content.itemId]) ? invItemCache[content.itemId].imageUrl || '' : ''),
+        avatarUrl: avatarOf(row.userIcon || user.iconUrl, row.avatarUrl || content.avatarImageUrl || user.currentAvatarImageUrl),
         location,
         summary: row.type === 'friend-location' ? '位置变化'
           : row.type === 'friend-update' ? ({ avatar: '更换模型', status: '状态变化', bio: '简介变化', user_icon: '更新头像图标', pronouns: '更新代词' }[content.type] || '资料变化')
@@ -371,13 +387,13 @@ export function registerDashboardServices(loader, ctx) {
           } catch { /* ignore */ }
           return '';
         })(),
-        avatarImageUrl: content.avatarImageUrl || user.currentAvatarImageUrl || '',
-        avatarThumbnailUrl: content.avatarThumbnailUrl || user.currentAvatarThumbnailImageUrl || '',
+        avatarImageUrl: imgProxy(content.avatarImageUrl || user.currentAvatarImageUrl || ''),
+        avatarThumbnailUrl: imgProxy(content.avatarThumbnailUrl || user.currentAvatarThumbnailImageUrl || ''),
         avatarTags: Array.isArray(content.avatarTags) ? content.avatarTags : (Array.isArray(user.currentAvatarTags) ? user.currentAvatarTags : []),
-        previousAvatarImageUrl: content.previousAvatarImageUrl || '',
+        previousAvatarImageUrl: imgProxy(content.previousAvatarImageUrl || ''),
         bio: content.bio || user.bio || '',
         previousBio: content.previousBio || '',
-        userIcon: content.userIcon || user.userIcon || '',
+        userIcon: imgProxy(content.userIcon || user.userIcon || ''),
         previousUserIcon: content.previousUserIcon || '',
         pronouns: content.pronouns || user.pronouns || '',
         previousPronouns: content.previousPronouns || '',
@@ -388,7 +404,7 @@ export function registerDashboardServices(loader, ctx) {
         previousLocation: prev ? prev.location : '',
         previousWorldName: prev ? prev.worldName : '',
         previousWorldId: prev ? prev.worldId : '',
-        previousWorldImageUrl: prev ? prev.worldImageUrl : '',
+        previousWorldImageUrl: imgProxy(prev ? prev.worldImageUrl : ''),
         canRequestInvite: !!content.canRequestInvite,
         travelingToLocation: content.travelingToLocation || '',
         // 平台（对齐 VRCX 网页端在线判断：platform === 'web'）：friend-location 事件 content 顶层带 platform
@@ -527,7 +543,7 @@ export function registerDashboardServices(loader, ctx) {
         createdAt: row.created_at,
         worldId: row.world_id || content.worldId || world.id || '',
         worldName: row.world_name || world.name || '',
-        avatarUrl: avatarThumb(friend?.avatarUrl || friend?.userIcon || ''),
+        avatarUrl: avatarOf(friend?.userIcon, friend?.avatarUrl),
         summary: row.type === 'friend-location' ? '位置变化' : row.type === 'friend-online' ? '上线' : row.type === 'friend-offline' ? '离线' : row.type === 'friend-active' ? '状态变化' : row.type === 'friend-update' ? ({ avatar: '更换模型', status: '状态变化', bio: '简介变化', user_icon: '更新头像图标', pronouns: '更新代词', displayName: '改名' }[content.type] || '资料变化') : row.type === 'notification' || row.type === 'notification-v2' ? (content.message || content.title || '通知') : row.type === 'notification-v2-update' || row.type === 'notification-update' ? (content.updates && content.updates.seen ? '通知已读' : '通知状态更新') : row.type === 'user-update' ? ({ status: '状态变化', bio: '简介变化', avatar: '更换模型', user_icon: '更新头像图标', pronouns: '更新代词', displayName: '改名' }[content.type] || '资料变化') : row.type === 'user-location' ? '我的位置变化' : row.type === 'friend-add' ? '新增好友' : row.type === 'friend-delete' ? '已解除好友' : row.type === 'content-refresh' ? ('内容库：' + (content.actionType === 'add' ? '获得' : content.actionType === 'delete' ? '移除' : content.actionType || '更新') + ({ prop: '道具', bundle: '捆绑包' }[content.itemType] || content.itemType || '物品')) : row.type === 'group-joined' ? '加入群组' : row.type === 'group-member-updated' ? '群组成员信息更新' : row.type === 'hide-notification' ? '通知已隐藏' : row.type === 'see-notification' ? '通知已读' : row.type === 'unknown' ? '未知事件' : '未分类事件: ' + row.type,
       };
     });
@@ -596,7 +612,7 @@ export function registerDashboardServices(loader, ctx) {
         senderUsername: n.senderUsername || (n.sender && n.sender.displayName) || '',
         message: n.message || content.message || content.details || '',
         title: n.title || content.title || '',
-        imageUrl: n.imageUrl || (content.data && content.data.imageUrl) || '',
+        imageUrl: imgProxy(n.imageUrl || (content.data && content.data.imageUrl) || ''),
         groupName: (content.data && content.data.groupName) || '',
         groupId: (content.data && content.data.groupId) || '',
       };
@@ -828,7 +844,7 @@ export function registerDashboardServices(loader, ctx) {
   loader.serviceOwners.set('dashboard.activityHeatmap', 'core');
   loader.services.set('dashboard.world', async ({ worldId } = {}) => {
     if (typeof worldId !== 'string' || !worldId.startsWith('wrld_')) return { worldId: worldId || '', name: '' };
-    const pick = (w) => ({ worldId, name: w?.name || '', imageUrl: w?.image_url || w?.imageUrl || '', thumbnailImageUrl: w?.thumbnail_image_url || w?.thumbnailImageUrl || '', authorName: w?.author_name || w?.authorName || '', description: w?.description || '', tags: Array.isArray(w?.tags) ? w.tags : [], featured: !!w?.featured, releaseStatus: w?.release_status || w?.releaseStatus || '', capacity: w?.capacity || 0, recommendedCapacity: w?.recommended_capacity || w?.recommendedCapacity || 0, visits: w?.visits || 0, favorites: w?.favorites || 0, heat: w?.heat || 0, version: w?.version || 0, platforms: Array.isArray(w?.platforms) ? w.platforms : [], occupants: w?.occupants || 0, publicOccupants: w?.public_occupants || w?.publicOccupants || 0, privateOccupants: w?.private_occupants || w?.privateOccupants || 0, instances: Array.isArray(w?.instances) ? w.instances : [], createdAt: w?.created_at || w?.createdAt || '', updatedAt: w?.updated_at || w?.updatedAt || '', publicationDate: w?.publication_date || w?.publicationDate || '', labsPublicationDate: w?.labs_publication_date || w?.labsPublicationDate || '', performance: w?.performance || '' });
+    const pick = (w) => ({ worldId, name: w?.name || '', imageUrl: imgProxy(w?.image_url || w?.imageUrl || ''), thumbnailImageUrl: imgProxy(w?.thumbnail_image_url || w?.thumbnailImageUrl || ''), authorName: w?.author_name || w?.authorName || '', description: w?.description || '', tags: Array.isArray(w?.tags) ? w.tags : [], featured: !!w?.featured, releaseStatus: w?.release_status || w?.releaseStatus || '', capacity: w?.capacity || 0, recommendedCapacity: w?.recommended_capacity || w?.recommendedCapacity || 0, visits: w?.visits || 0, favorites: w?.favorites || 0, heat: w?.heat || 0, version: w?.version || 0, platforms: Array.isArray(w?.platforms) ? w.platforms : [], occupants: w?.occupants || 0, publicOccupants: w?.public_occupants || w?.publicOccupants || 0, privateOccupants: w?.private_occupants || w?.privateOccupants || 0, instances: Array.isArray(w?.instances) ? w.instances : [], createdAt: w?.created_at || w?.createdAt || '', updatedAt: w?.updated_at || w?.updatedAt || '', publicationDate: w?.publication_date || w?.publicationDate || '', labsPublicationDate: w?.labs_publication_date || w?.labsPublicationDate || '', performance: w?.performance || '' });
     const fetchFresh = async () => {
       if (!ctx.api || !ctx.rateLimiter) return null;
       try {
@@ -923,8 +939,8 @@ export function registerDashboardServices(loader, ctx) {
         // 并行拉取（弹窗低频，不走全局限流，8s 超时兜底）；结果 5 分钟内存缓存
         const friendMap = {};
         try {
-          for (const fr of ctx.storage.query('SELECT user_id, display_name, avatar_image_url FROM friends')) {
-            friendMap[fr.user_id] = { name: fr.display_name || '', avatar: avatarThumb(fr.avatar_image_url || '') };
+          for (const fr of ctx.storage.query('SELECT user_id, display_name, avatar_image_url, user_icon FROM friends')) {
+            friendMap[fr.user_id] = { name: fr.display_name || '', avatar: avatarOf(fr.user_icon, fr.avatar_image_url) };
           }
         } catch { /* 好友查询失败不影响实例 */ }
         const instOwnerCache = new Map();
@@ -1019,7 +1035,7 @@ export function registerDashboardServices(loader, ctx) {
           users: Array.isArray(d.users) ? d.users.map((u) => ({
             id: u.id || u.userId || '',
             displayName: u.displayName || u.username || '',
-            avatarUrl: avatarThumb(u.currentAvatarThumbnailImageUrl || u.currentAvatarImageUrl || ''),
+            avatarUrl: avatarOf(u.userIcon, u.currentAvatarThumbnailImageUrl || u.currentAvatarImageUrl),
           })) : [],
           worldId: (d.world && d.world.id) || '',
           worldName: (d.world && d.world.name) || '',
@@ -1078,7 +1094,7 @@ export function registerDashboardServices(loader, ctx) {
                 worlds: (Array.isArray(favs) ? favs : []).map((x) => ({
                   worldId: x.id || x.worldId || '',
                   name: x.name || x.worldName || '',
-                  imageUrl: x.imageUrl || x.thumbnailImageUrl || '',
+                  imageUrl: imgProxy(x.imageUrl || x.thumbnailImageUrl || ''),
                   authorName: x.authorName || '',
                 })),
               };
@@ -1130,7 +1146,8 @@ export function registerDashboardServices(loader, ctx) {
       }
     }
     // 本地 friend 行（最近数据：位置/平台/签名/信任等）
-    const localFriend = q1(`SELECT display_name displayName, is_online isOnline, location, world_name worldName, platform, status, status_description statusDescription, trust_level trustLevel, memo, last_seen lastSeen, avatar_image_url avatarUrl, bio FROM friends WHERE user_id=$u`, { $u: userId })[0] || null;
+    const localFriend = q1(`SELECT display_name displayName, is_online isOnline, location, world_name worldName, platform, status, status_description statusDescription, trust_level trustLevel, memo, last_seen lastSeen, avatar_image_url avatarUrl, user_icon userIcon, bio FROM friends WHERE user_id=$u`, { $u: userId })[0] || null;
+    if (localFriend) localFriend.avatarUrl = avatarOf(localFriend.userIcon, localFriend.avatarUrl);
     // 模型名（currentAvatarImageUrl → file id → planet_cache avatar_name）
     let avatarName = '';
     try {
@@ -1154,15 +1171,15 @@ export function registerDashboardServices(loader, ctx) {
       if (t) currentOnlineMs = Date.now() - new Date(t).getTime();
     }
     const dateFriendedRow = q1(`SELECT MIN(created_at) v FROM events WHERE user_id=$u AND type='friend-add'`, { $u: userId })[0];
-    const pickGroup = (g) => ({ id: g.id || g.groupId || '', name: g.name || '', iconUrl: g.iconUrl || g.$thumbnailUrl || '', memberCount: g.memberCount || 0, shortCode: g.shortCode || '', isRepresenting: !!g.isRepresenting });
-    const pickWorld = (w) => ({ id: w.id || '', name: w.name || '', imageUrl: w.imageUrl || w.thumbnailImageUrl || '', authorName: w.authorName || '', description: w.description || '', capacity: w.capacity || 0, favorites: w.favorites || 0, visits: w.visits || 0, releaseStatus: w.releaseStatus || '', createdAt: w.createdAt || '' });
-    const pickAvatar = (a) => ({ id: a.id || '', name: a.name || '', thumbnailImageUrl: a.thumbnailImageUrl || '', imageUrl: a.imageUrl || '', releaseStatus: a.releaseStatus || '', tags: Array.isArray(a.tags) ? a.tags : [] });
+    const pickGroup = (g) => ({ id: g.id || g.groupId || '', name: g.name || '', iconUrl: imgProxy(g.iconUrl || g.$thumbnailUrl || ''), memberCount: g.memberCount || 0, shortCode: g.shortCode || '', isRepresenting: !!g.isRepresenting });
+    const pickWorld = (w) => ({ id: w.id || '', name: w.name || '', imageUrl: imgProxy(w.imageUrl || w.thumbnailImageUrl || ''), authorName: w.authorName || '', description: w.description || '', capacity: w.capacity || 0, favorites: w.favorites || 0, visits: w.visits || 0, releaseStatus: w.releaseStatus || '', createdAt: w.createdAt || '' });
+    const pickAvatar = (a) => ({ id: a.id || '', name: a.name || '', thumbnailImageUrl: imgProxy(a.thumbnailImageUrl || ''), imageUrl: imgProxy(a.imageUrl || ''), releaseStatus: a.releaseStatus || '', tags: Array.isArray(a.tags) ? a.tags : [] });
     return {
       user,
       avatarName,
       representedGroup: representedGroup ? pickGroup(representedGroup) : null,
       mutualFriendCount: mutualFriends.length,
-      mutualFriends: mutualFriends.map((f) => ({ id: f.id, displayName: f.displayName || '', avatarUrl: f.currentAvatarImageUrl || f.currentAvatarThumbnailImageUrl || '' })),
+      mutualFriends: mutualFriends.map((f) => ({ id: f.id, displayName: f.displayName || '', avatarUrl: avatarOf(f.userIcon, f.currentAvatarImageUrl || f.currentAvatarThumbnailImageUrl) })),
       groups: groupArr.map(pickGroup),
       favoriteWorlds,
       worlds: Array.isArray(worlds) ? worlds.map(pickWorld) : [],
