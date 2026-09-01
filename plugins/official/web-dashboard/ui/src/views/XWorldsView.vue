@@ -4,6 +4,7 @@ import { get, post } from '../api.js';
 import { date } from '../utils.js';
 import { openWorld } from '../store.js';
 import { toast } from '../toast.js';
+import { confirm } from '../confirm.js';
 
 // X 博主世界推荐：本地 x_world_recommendations 表（x_scan_creators 抓取落库）+ 博主清单
 const data = ref(null);
@@ -72,7 +73,7 @@ async function scanCreators() {
 async function removeCreator(c) {
   const screen = c.screen_name || '';
   if (!screen) return;
-  if (!window.confirm('确认移除博主 @' + screen + '？其推荐记录将不再展示')) return;
+    if (!await confirm({ message: '确认移除博主 @' + screen + '？其推荐记录将不再展示', header: '移除博主', acceptLabel: '移除' })) return;
   if (removing.value) return;
   removing.value = screen;
   try {
@@ -148,7 +149,7 @@ onMounted(load);
 .xw-manage { margin-bottom: 12px; display: flex; flex-direction: column; gap: 8px; }
 .xm-add { display: flex; gap: 8px; flex-wrap: wrap; }
 .xm-input { flex: 1 1 200px; }
-.xc-remove { background: none; border: none; color: var(--text-dim); cursor: pointer; padding: 0 2px; font-size: 10px; display: inline-flex; align-items: center; }
+.xc-remove { background: none; border: none; color: var(--text-dim); cursor: pointer; padding: 4px 6px; font-size: 12px; display: inline-flex; align-items: center; min-height: 28px; }
 .xc-remove:hover { color: var(--danger); }
 .xc-remove:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 3px; }
 .xw-creators { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }

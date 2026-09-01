@@ -1,0 +1,13 @@
+{
+  "commit_id": "5f7e44fa3e81e59e1f4ab5017dd0a8b98f3fdc3a",
+  "event": "APPROVE",
+  "body": "审核环境：**实测**（handler 级 mock api._request，13 组断言，未触碰真实账号）；使用者视角：Windows 重度 VRChat 用户 + 仓库维护者，关注不可逆写操作的安全性。\n\n## 结论：APPROVE（3 条 nit 建议，不阻断）\n\n**功能概览**：通知收件箱（旧 v1 通知系统）——读取/已读/隐藏/接受/拒绝好友请求，5 个工具全部带 confirm 护栏（接受=直接加好友不可逆、拒绝=hide 清除），端点与 VRChat API 一致（PUT .../see、.../hide、.../accept），REST 与 WS 的 details 格式差异（JSON 字符串 vs 对象）已统一解码。\n\n**实测 13 组全 PASS**：默认仅未读 + hidden 过滤、hidden=true 反转、types 本地过滤（API type 参数废弃不生效的坑已在文档标注）、details JSON 解码、see/hide PUT 端点正确、accept/decline confirm 护栏（无 confirm 不发起任何写请求）、404 友好报错、URL 参数 n/offset 正确。\n\n**nit（不阻断）**：\n1. notifications.js:47 `total: all.length` 是当前页条数而非总数，分页语义易误导（可标注为页内数或透传响应头总数）。\n2. ARCHITECTURE.md 行数列写的是「2026-08-19 新增」而非行数，与同表其他行（253/282/231…）格式不一致。\n3. MCP 定义中 types 描述漏了 inviteResponse/requestInviteResponse（代码 NOTIFICATION_TYPES 已含）。\n\n## 使用者视角\n接收好友请求通知并一键确认接受/拒绝是高频刚需，confirm 双确认护栏做得到位，符合对不可逆操作的安全预期；拒绝走 hide（对方无明确提示）的说明也已在工具描述中明示，避免误解。功能可直接使用。",
+  "comments": [
+    {
+      "path": "core/handlers/notifications.js",
+      "line": 47,
+      "side": "RIGHT",
+      "body": "nit：`total: all.length` 是当前页条数（n/offset 窗口内）而非通知总数，做分页统计时容易误读。若 API 响应头有 X-Contents-Total 之类总量信息可透传，否则建议改名为 pageSize 或补充说明。"
+    }
+  ]
+}

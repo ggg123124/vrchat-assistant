@@ -47,7 +47,7 @@ metadata:
 | `get_worlds_by_author` | **按作者列出全部世界**：authorId 或 authorName（内部经 /users 解析）→ GET /worlds?userId= 分页拉全该作者发布的全部图（worldId/名称/收藏/浏览/容量/标签/发布时间），顺带写 world_cache（含 author_id）。配合 get_world_name 返回的 authorId 使用（如「当前所在图作者的全部图加权重」） |
 | `set_world_note` | 世界用户备注写入/更新（本地存储，API 刷新不覆盖；空串清除） |
 | `get_world_history` | 世界信息变更历史（name/description/author/image_url/release_status/capacity/tags 字段级记录） |
-| `get_weekly_report` | 一周游戏周报（活跃天数/时长/世界 Top/同屏伙伴带昵称/自己的上线规律/群组活动/圈内活动日历；days 默认 7） |
+| `get_weekly_report` | 一周游戏周报（活跃天数/时长/世界 Top/同屏伙伴带昵称/自己的上线规律/群组活动/圈内活动日历；days 默认 7）。**渲染含两个固化板块**：①每日足迹（每天去了哪些房间+和谁一起，daily 每项带当天 companions[{nickname,matchCount}]）②本周总结（末尾一段连贯叙事评述）。模板见 vrchat-social-queries §9 |
 | `scan_new_worlds` | 扫描最近 N 天新世界（1-30，默认 7），过滤测试/垃圾图后写入 world_kb 表（原 new_worlds），按热度推荐 TOP10；dryRun 只看不写 |
 | `get_new_worlds` | 只读查询已跟踪新世界：onlyUnvisited 只看未逛过、sortBy（favorites/occupants/popularity/created_at）、excludeTheme 排除主题（按 author_tag_* 逗号分隔，SQL 层排除）、limit（默认 10 最大 50） |
 | `rate_world` | **用户反馈**：给世界打好评/烂图标记（rating: 1=好图加权 / -1=烂图降权 / 0=清除），写入 world_kb.user_rating，影响 worldScore 推荐排序 |
@@ -105,7 +105,7 @@ metadata:
 | `x_add_creator` | 添加要追踪的 X 博主（VRChat 世界推荐博主；`screen_name` 不带 @） |
 | `x_remove_creator` | 移除追踪的 X 博主 |
 | `x_worlds` | 查看已收录的推荐世界列表（调试用） |
-| `fetch_community_events` | **[events] VRChat 社区活动聚合**（官方 events 插件）：采集(VRC Search/RLVRC/VRCEve/VRCEvent-KR) → 群组深度挖掘(短码/活动名/世界名反查,补群组热度回填) → 音乐∪虚拟主播筛选 → 结构化 JSON + 落库 plg_events_store。参数：window(week/month/tonight)、focus(all/music/vtuber)、sources(vrcsearch,rlvrc,vrceve,vrckr)、languages、minMembers、maxMine、peekGroups(窥探已挖掘群组公告补充活动,有副作用)、startDate/endDate、limit。返回事件自带规范图标URL/双列时区(start_local/start_bj/tz_label)/中文参加方式(join_info_zh)。用于"最近/今晚有什么活动、哪些可参加、群组热度"。未配置 Google Key 时返回 configStatus 的创建网址指引。PDF 渲染另走管道 |
+| `fetch_community_events` | **[events] VRChat 社区活动聚合**（官方 events 插件）：采集(VRC Search/RLVRC/VRCEve/VRCEvent-KR) → 群组深度挖掘(短码/活动名/世界名反查,补群组热度回填,经 groups.resolve 缓存优先) → 音乐∪虚拟主播筛选 → 结构化 JSON + 落库 plg_events_store。参数：window(week/month/tonight)、focus(all/music/vtuber)、sources(vrcsearch,rlvrc,vrceve,vrckr)、languages、minMembers、maxMine(默认 30,可覆盖)、peekGroups(窥探已挖掘群组公告补充活动,有副作用)、startDate/endDate、limit。返回事件自带规范图标URL/双列时区(start_local/start_bj/tz_label)/中文参加方式(join_info_zh)。用于"最近/今晚有什么活动、哪些可参加、群组热度"。未配置 Google Key 时返回 configStatus 的创建网址指引。PDF 渲染另走管道 |
 | `get_community_events_config` | **[events·配置]** 查看社区活动抓取配置：Google Calendar API Key 是否已配置（值存数据库不回显）；未配置时返回创建 key 的指引网址 |
 | `set_community_events_google_key` | **[events·配置]** 录入/清除使用者的 Google Cloud API Key（存数据库 plg_events_config，仅本插件读）。createKeyUrl=https://console.cloud.google.com/apis/credentials。需要 confirm:true |
 | `submit_totp` | **提交 TOTP 验证码（手动兜底）**：在 credentials.json 配置 `totp_secret` 后，服务自动生成验证码登录，无需调用本工具；仅在自动登录失败（验证码被拒/secret 有误）或未配置 secret 时，账号处于 `needsTotp` 状态（`/health` 的 `auth.needsTotp: true`）才需调用本工具提交当前 6 位验证码（`code` 必填；登录后 WS 自动重连） |

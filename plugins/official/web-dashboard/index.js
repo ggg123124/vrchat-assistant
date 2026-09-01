@@ -10,6 +10,17 @@ import { registerSocialRoutes } from './server/routes/social.js';
 import { registerImageProxyRoutes } from './server/routes/image-proxy.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// VRChat file URL → 256 缩略图：/file/{file_id}/[version]/[/file|/] → /image/{file_id}/1/256。
+// 理由：当前 avatarImageUrl 是"穿戴的3D模型外观图"，userIcon 是用户设置的真正头像；
+//       userIcon 的原始 /file/xxx/1/ URL 经代理会返回 SVG 占位，需转成 256 缩略图才显示真图。
+//       已是 /image/ 缩略图则原样返回。
+function avatarThumb(u) {
+  if (!u) return u;
+  const s = String(u);
+  const m = s.match(/\/file\/(file_[a-f0-9-]+)\//);
+  return m ? `https://api.vrchat.cloud/api/1/image/${m[1]}/1/256` : s;
+}
 const indexHtml = readFileSync(path.join(__dirname, 'dashboard.html'), 'utf8')
   .replaceAll('__DASHBOARD_CSS__', readFileSync(path.join(__dirname, 'client', 'dashboard.css'), 'utf8'))
   .replaceAll('__VUE_VENDOR__', readFileSync(path.join(__dirname, 'client', 'vendor', 'vue.global.prod.js'), 'utf8'))
@@ -655,6 +666,36 @@ export default function register(api) {
     },
   });
 
+  // 收藏/取消收藏模型（VRChat /favorites type=avatar：favorite=true 收藏、false 取消）
+  api.http.registerRoute({
+    method: 'POST',
+    path: '/api/dashboard/avatar/favorite',
+    handler: async (req, res) => {
+      try {
+        const body = await readJsonBody(req);
+        const avatarId = String((body && body.avatarId) || '').trim();
+        const favorite = !!body && body.favorite !== false;
+        if (!avatarId.startsWith('avtr_')) return sendJson(res, { ok: false, error: 'bad-params: 需要 avtr_ 开头的 avatarId' });
+        if (favorite) {
+          const r = await api.vrchat.fetch('/favorites', {
+            method: 'POST',
+            body: { type: 'avatar', favoriteId: avatarId, tags: ['avatars1'] },
+          });
+          sendJson(res, { ok: !!r, avatarId, favorite: true });
+        } else {
+          // 取消收藏：先按 avatarId 查收藏记录 id，再删除
+          const favs = await api.vrchat.fetch('/favorites?type=avatar&n=100').catch(() => []);
+          const hit = (Array.isArray(favs) ? favs : []).find((f) => f.favoriteId === avatarId);
+          if (!hit) return sendJson(res, { ok: true, avatarId, favorite: false, already: true });
+          await api.vrchat.fetch('/favorites/' + encodeURIComponent(hit.id), { method: 'DELETE' });
+          sendJson(res, { ok: true, avatarId, favorite: false });
+        }
+      } catch (e) {
+        sendJson(res, { ok: false, error: String(e.message || e) });
+      }
+    },
+  });
+
   // 上传相册照片（浏览器 base64 → 容器临时文件 → upload_print → 清理；非破坏性）
   api.http.registerRoute({
     method: 'POST',
@@ -815,7 +856,8 @@ export default function register(api) {
     },
   });
 
-  // 社区活动（fetch_community_events；群组挖掘较重，按 window 缓存 10 分钟）
+  // 社区活动（读库：api.consume('events.listStore')，数据由 events 插件每日离线刷新落库；
+  // 页面访问零限流 API 秒回，不再触发群组挖掘。evtCache 内存缓存 + evtInflight 去重保留）
   api.http.registerRoute({
     method: 'GET',
     path: '/api/dashboard/community-events',
@@ -826,14 +868,13 @@ export default function register(api) {
         const ck = `evt:${window}`;
         const hit = evtCache.get(ck);
         if (hit && Date.now() - hit.at < EVT_TTL) return sendJson(res, hit.data);
-        // in-flight 去重：慢请求期间重复点击共享同一 Promise（避免并发多个群组挖掘/外部拉取）
+        // in-flight 去重：重复请求共享同一 Promise（读库很快，主要防并发重复查询）
         if (evtInflight.has(ck)) return sendJson(res, await evtInflight.get(ck));
         const task = (async () => {
-          // 60s 超时保护：群组挖掘/外部源拉取可能很慢或挂起，超时如实返回而非无限等待
-          return Promise.race([
-            api.tools.call('fetch_community_events', { window }),
-            new Promise((_, rej) => setTimeout(() => rej(new Error('社区活动拉取超时（60s），请稍后重试')), 60000)),
-          ]);
+          // events.listStore 返回 { retrievedAt, source, window, counts, events }（字段与 fetch_community_events
+          // 工具返回结构对齐，前端 EventsView 用到蛇形字段 + start_bj/join_info_zh 派生物 + counts.output）
+          const r = await api.consume('events.listStore', { window });
+          return { ...r, source: 'store', window: r.window || window };
         })();
         evtInflight.set(ck, task);
         try {
@@ -924,7 +965,7 @@ export default function register(api) {
           travelingToLocation: (me && me.travelingToLocation) || '',
           status,
           statusDescription,
-          avatarUrl: (me && (me.currentAvatarImageUrl || me.currentAvatarThumbnailImageUrl || me.userIcon)) || '',
+          avatarUrl: avatarThumb(me && (me.userIcon || me.currentAvatarThumbnailImageUrl || me.currentAvatarImageUrl)),
           userIcon: (me && me.userIcon) || '',
           trustLevel: (me && me.trustLevel) || '',
           currentAvatar: (me && me.currentAvatar) || '',
@@ -1203,23 +1244,10 @@ export default function register(api) {
 
   api.log('Web Dashboard (VRCX Vue 3) 已注册：/dashboard');
 
-  // ── 慢路由启动预热：社区活动（首拉 ~48s）与世界推荐（~11s）后台预拉，直接填路由缓存，
-  // 用户首次访问即命中缓存（失败最多重试 3 次，间隔 2 分钟）
-  let warmAttempt = 0;
-  function prewarmSlowRoutes() {
-    const tasks = [
-      api.tools.call('fetch_community_events', { window: 'week' }).then((r) => { evtCache.set('evt:week', { at: Date.now(), data: r }); return true; }),
-      api.tools.call('recommend_worlds', { theme: 'default', limit: 10, detail: true }).then((r) => { recCache.set('rec:default', { at: Date.now(), data: r }); return true; }),
-    ];
-    Promise.allSettled(tasks).then((rs) => {
-      const failed = rs.filter((x) => x.status === 'rejected').length;
-      if (failed > 0 && warmAttempt < 3) {
-        warmAttempt++;
-        setTimeout(prewarmSlowRoutes, 120000);
-      }
-    });
-  }
-  setTimeout(prewarmSlowRoutes, 90000);  // 等登录/WS 就绪后预热
+  // 慢路由懒加载（issue #118）：不再做启动预热——无条件预热 fetch_community_events 会触发
+  // events 插件的群组深度挖掘，持续占满共享 rateLimiter 队列，拖慢所有 API 工具。
+  // 社区活动由路由读库（api.consume('events.listStore')，由 events 插件每日离线刷新落库）；
+  // 世界推荐由前端按需触发，路由缓存 + in-flight 去重保留。
 
   return () => {};
 }

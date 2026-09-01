@@ -4,6 +4,7 @@ import { get, post } from '../api.js';
 import { trustColor, avatarLabel, statusLabels } from '../utils.js';
 import { openUser } from '../store.js';
 import { toast } from '../toast.js';
+import { confirm } from '../confirm.js';
 
 // 屏蔽管理（对齐 VRCX Moderation）：黑名单 / 静音列表，可解除（按 userId+type，
 // VRChat 无按 moderationId 删除端点，PUT /auth/user/unplayermoderate）。
@@ -32,7 +33,7 @@ async function load() {
 
 async function remove(x) {
   const type = tab.value === 'blocked' ? 'block' : 'mute';
-  if (!window.confirm(`确认解除对「${x.displayName || x.userId}」的${kindLabel.value}？`)) return;
+    if (!await confirm({ message: `确认解除对「${x.displayName || x.userId}」的${kindLabel.value}？`, header: '解除屏蔽', acceptLabel: '确认' })) return;
   const key = x.userId + ':' + type;
   if (acting.value === key) return;
   acting.value = key;

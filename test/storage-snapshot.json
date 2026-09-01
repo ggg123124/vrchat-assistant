@@ -698,6 +698,9 @@
       "days": [
         "08-01"
       ],
+      "dayCounts": {
+        "08-01": 2
+      },
       "worlds": [
         "World One"
       ]
@@ -708,6 +711,9 @@
       "days": [
         "08-01"
       ],
+      "dayCounts": {
+        "08-01": 1
+      },
       "worlds": [
         "World Two"
       ]

@@ -386,8 +386,9 @@ export default function register(api) {
     const gid = await shortcodeToGroupId(shortcode);
     if (gid) {
       try {
-        const g = await api.vrchat.fetch(`/groups/${gid}`);
-        if (g && g.id) return { id: gid, name: g.name || '', memberCount: g.memberCount || 0, iconUrl: g.iconUrl || '' };
+        // groups.resolve（core 服务）：缓存优先 + API 回填，命中缓存零限流请求
+        const g = await api.consume('groups.resolve', { groupId: gid });
+        if (g && g.groupId) return { id: gid, name: g.name || '', memberCount: g.memberCount || 0, iconUrl: g.iconUrl || '' };
       } catch (e) {}
       // 详情失败但已确认 gid 存在 → 仍返回占位（后续补热度会重试）
       return { id: gid, name: '', memberCount: 0, iconUrl: '' };
@@ -440,9 +441,10 @@ export default function register(api) {
   // 对单个活动：补全热度(有 group_id) 或三级挖掘群组(无 group_id)
   async function mineGroup(e) {
     // 已有 group_id 但缺 member_count（如 VRC Search 卡片只有 id 无成员数）→ 补热度
+    // （groups.resolve：缓存优先 + API 回填，命中缓存零限流请求）
     if (e.group_id && !(e.member_count || e.group_members)) {
       try {
-        const g = await api.vrchat.fetch(`/groups/${e.group_id}`);
+        const g = await api.consume('groups.resolve', { groupId: e.group_id });
         if (g) {
           e.member_count = e.member_count || g.memberCount || 0;
           if (!e.group_name) e.group_name = g.name || '';
@@ -475,6 +477,10 @@ export default function register(api) {
           if (sc > bestScore) { bestScore = sc; best = g; }
         }
         if (best && bestScore > 0.45) {
+          // /groups?query= 搜索返回的群组对象本身已含 name/memberCount/iconUrl——直接用搜索结果，
+          // 不再额外 groups.resolve（缓存 miss 时反而多打一次 /groups/{id} 限流，违背降限流目标）。
+          // 顺手经 groups.cache 回填 group_cache，后续 other 活动以该 gid 走 groups.resolve 时能缓存命中。
+          try { await api.consume('groups.cache', { groupId: best.id, name: best.name, description: best.description, memberCount: best.memberCount }); } catch (err) {}
           e.group_id = best.id; e.group_name = best.name; e.member_count = best.memberCount || 0; e.icon_url = best.iconUrl || '';
           return e;
         }
@@ -490,6 +496,8 @@ export default function register(api) {
           if (Array.isArray(d)) {
             const g = d.find(x => qualityOk(x) && ((x.name || '').includes(kw) || kw.includes(x.name || '')));
             if (g) {
+              // 搜索结果的 g 已含完整群组信息，直接用并回填 group_cache（避免缓存 miss 时多余 /groups/{id} 限流）
+              try { await api.consume('groups.cache', { groupId: g.id, name: g.name, description: g.description, memberCount: g.memberCount }); } catch (err) {}
               e.group_id = g.id; e.group_name = g.name; e.member_count = g.memberCount || 0; e.icon_url = g.iconUrl || '';
               return e;
             }
@@ -800,7 +808,7 @@ export default function register(api) {
     // 群组深度挖掘（对无 group_id 活动挖掘群组；对有 group_id 但缺热度的补热度）
     // 注意：API 限流 2.6s/个，批量挖掘是耗时瓶颈，用 maxMine 参数截断。
     // 优先级：有 shortcode（可 redirect 反查，最易成功）排在前面，再处理需名字搜索的。
-    let maxMineRaw = (args.maxMine === undefined || args.maxMine === null) ? 60 : parseInt(args.maxMine, 10) || 0;
+    let maxMineRaw = (args.maxMine === undefined || args.maxMine === null) ? 30 : parseInt(args.maxMine, 10) || 0;
     const maxMine = Math.min(Math.max(maxMineRaw, 0), 300);
     const needMine = dedup.filter(e => !e.group_id || !(e.member_count || e.group_members));
     needMine.sort((a, b) => (b.shortcode ? 1 : 0) - (a.shortcode ? 1 : 0));
@@ -913,6 +921,108 @@ export default function register(api) {
     };
   }
 
+  // ════════════ 读库：plg_events_store（零限流消费，不触发重挖）════════════
+  // 供 web-dashboard 路由等经 api.consume('events.listStore') 直接读插件自己的表；
+  // 时间窗口径与 handleFetchCommunityEvents 的抓取区间一致（week: -2d~+8d / month: -2d~+31d / tonight: now~+1d）。
+  function readEventsStore({ window = 'week', limit = 500 } = {}) {
+    const store = api.db.table('store');
+    const now = new Date().toISOString();
+    const msDay = 86400000;
+    let startMin, startMax;
+    if (window === 'tonight') {
+      startMin = now;
+      startMax = new Date(Date.now() + msDay).toISOString();
+    } else if (window === 'month') {
+      startMin = new Date(Date.now() - 2 * msDay).toISOString();
+      startMax = new Date(Date.now() + 31 * msDay).toISOString();
+    } else { // week
+      startMin = new Date(Date.now() - 2 * msDay).toISOString();
+      startMax = new Date(Date.now() + 8 * msDay).toISOString();
+    }
+    const rows = store.all(
+      `SELECT * FROM store
+       WHERE start_iso >= $startMin AND start_iso <= $startMax
+       ORDER BY start_iso ASC LIMIT $limit`,
+      { $startMin: startMin, $startMax: startMax, $limit: Math.max(1, Math.min(limit, 1000)) }
+    );
+    // 字段命名必须与 fetch_community_events 工具返回的 events 数组项完全一致（前端 EventsView
+    // 依赖 snake_case 字段 icon_url/group_name/member_count/desc/group_id/page_url + enrichEvent
+    // 派生的 start_bj/category_zh/join_info_zh），并对每行跑 enrichEvent 补派生字段。
+    const events = rows.map(r => {
+      const e = {
+        source: r.source, name: r.name, start: r.start_iso, end: r.end_iso,
+        category: r.category, lang: r.lang,
+        languages: (() => { try { return JSON.parse(r.languages || '[]'); } catch { return []; } })(),
+        desc: r.desc_raw, desc_zh: r.desc_zh,
+        group_id: r.group_id, group_name: r.group_name, member_count: r.member_count,
+        icon_url: r.icon_url, shortcode: r.shortcode, join_info: r.join_info,
+        page_url: r.page_url, page_label: r.page_label, src: r.src,
+      };
+      return enrichEvent(e);
+    });
+    return { retrievedAt: new Date().toISOString(), source: 'store', window,
+      counts: { output: events.length }, events };
+  }
+
+  api.provide('events.listStore', ({ window, limit } = {}) => readEventsStore({ window, limit }));
+
+  // ════════════ 过期活动清理（每日重挖成功后调用；DELETE 幂等）════════════
+  function cleanupStaleEvents() {
+    try {
+      const now = new Date().toISOString();
+      const store = api.db.table('store');
+      // 只删"明确已结束"(end_iso<now) 或无结束时间且开始超 24h 的活动，避免误删进行中活动
+      const past = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+      const r = store.run(
+        `DELETE FROM store WHERE (end_iso != '' AND end_iso < $now) OR (end_iso = '' AND start_iso < $past)`,
+        { $now: now, $past: past }
+      );
+      api.log(`🗑️ 清理过期活动 ${r.changes} 条`);
+    } catch (e) {
+      api.log(`清理过期活动失败: ${e.message}`);
+    }
+  }
+
+  // ════════════ 每日离线刷新调度器（issue #118）════════════
+  // 自己是否在线由 core 的 dashboard.isSelfOnline 服务判定（core 内查 events 表 user-location
+  // 最新一条；插件只 consume，不直读核心 events 表——插件契约禁止）。
+  // 返回 true（明确在线）/ false（明确离线）/ null（无法判定，保守视为可能在线）。
+  function isSelfOnline() {
+    try {
+      return api.consume('dashboard.isSelfOnline');
+    } catch { return null; }
+  }
+
+  async function runDailyRefresh() {
+    const status = isSelfOnline();
+    if (status !== false) {
+      api.log(status === true
+        ? '⏳ 每日活动刷新：检测到仍在 VRChat 在线，推迟 30 分钟'
+        : '⏳ 每日活动刷新：无法确认离线（可能仍在线/暂无位置记录），保守推迟 30 分钟');
+      scheduleDailyRefresh(30 * 60 * 1000);
+      return;
+    }
+    // status === false 表示明确离线，直接重挖三个窗口并落库
+    api.log('🌙 每日活动刷新：玩家离线，开始重挖社区活动');
+    try {
+      for (const window of ['week', 'month', 'tonight']) {
+        await api.tools.call('fetch_community_events', { window, maxMine: 30 });
+      }
+      cleanupStaleEvents();
+    } catch (e) {
+      api.log(`每日活动刷新失败: ${e.message}`);
+    }
+    // 下一次固定在明天同一时间附近（+0~30min 随机抖动，避免所有实例同一秒打外部源）
+    scheduleDailyRefresh(24 * 60 * 60 * 1000 + Math.floor(Math.random() * 30 * 60 * 1000));
+  }
+
+  let dailyTimer = null;
+  function scheduleDailyRefresh(delayMs) {
+    if (dailyTimer) clearTimeout(dailyTimer);
+    dailyTimer = setTimeout(() => runDailyRefresh().catch(() => {}), delayMs);
+    dailyTimer.unref();
+  }
+
   // ════════════ 配置工具：Google Calendar API Key（使用者的 key，存数据库）════════════
   const GOOGLE_SETUP_GUIDE = {
     createKeyUrl: 'https://console.cloud.google.com/apis/credentials',
@@ -967,7 +1077,7 @@ export default function register(api) {
         sources: { type: 'string', default: 'all', description: '逗号分隔数据源: vrcsearch,rlvrc,vrceve,vrckr,vrcwiki,ru (默认 all 含全部)。注意 vrcwiki 有反爬可能取不到（见返回 sourceBreakdown）' },
         languages: { type: 'string', default: 'all', description: '逗号分隔语言筛: zh,ja,ko,en (默认 all)。注：VRC Search 源活动 lang 标 multi（多语言），视为通配在任何语言筛下都保留' },
                 minMembers: { type: 'number', default: 0, description: '只保留群组人数 ≥ 该值的活动' },
-                maxMine: { type: 'number', default: 60, description: '群组深度挖掘的活动数上限(0~300，受 API 限流约 2.6s/个，短码优先)' },
+                maxMine: { type: 'number', default: 30, description: '群组深度挖掘的活动数上限(0~300，默认 30，受 API 限流约 2.6s/个，短码优先)' },
                 peekGroups: { type: 'boolean', default: false, description: '窥探已挖掘群组的公告作为侧面补充源（有副作用：会加入→读公告→退出，成员可见加入通知）' },
                 startDate: { type: 'string', description: '自定义开始日期 YYYY-MM-DD（与 endDate 成对）。仅作用于 Google Calendar 源(VRCEve/VRCEvent-KR)；VRC Search 固定抓 next-week/month、RLVRC 固定抓全量，不受此 参数约束' },
                 endDate: { type: 'string', description: '自定义结束日期 YYYY-MM-DD（同 startDate，仅作用于 Google Calendar 源）' },
@@ -998,7 +1108,13 @@ export default function register(api) {
     handler: async (args) => handleSetGoogleKey(args),
   });
 
+  // ── 每日离线刷新调度器启动（issue #118）──
+  // 首次延迟 1 小时检查（避免启动即刷，等登录/WS 稳定且错开启动潮）；在线推迟、离线才重挖落库
+  const FIRST_DELAY_MS = 60 * 60 * 1000;
+  scheduleDailyRefresh(FIRST_DELAY_MS);
+
   return function dispose() {
+    if (dailyTimer) clearTimeout(dailyTimer);
     api.log('events 插件卸载');
   };
 }

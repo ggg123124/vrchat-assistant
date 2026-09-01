@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { get, post } from '../api.js';
 import { time, date, trustColor, avatarLabel, notificationTypeLabels } from '../utils.js';
-import { store, openUser, openGroup } from '../store.js';
+import { store, openUser, openGroup, loadNotifCount } from '../store.js';
 import { toast } from '../toast.js';
 
 // 通知中心（对齐 VRCX Notifications）：当前可操作（好友申请接受/拒绝、已读/隐藏）+ 历史回看
@@ -13,6 +13,7 @@ const history = ref(null);
 const loading = ref(false);
 const acting = ref(new Set());
 const kindSel = ref('all');
+const onlyUnseen = ref(false);   // 只看未读
 
 const KINDS = [
   { v: 'all', l: '全部' },
@@ -112,6 +113,16 @@ function friendAvatarOf(userId) {
 function nameOf(x) {
   const f = (store.friends || []).find(fr => fr.userId === (x.senderUserId || x.userId));
   return (f && (f.memo || f.displayName)) || x.senderUsername || x.displayName || '?';
+}
+// 通知类型 → 图标（对齐 VRCX 通知样式：好友申请/邀请/私信/群组/系统）
+function typeIcon(x) {
+  const k = kindOf(x);
+  if (k === 'friendRequest') return 'pi-user-plus';
+  if (k === 'invite') return 'pi-arrow-right-arrow-left';
+  if (k === 'requestInvite') return 'pi-arrow-right';
+  if (k === 'group') return 'pi-users';
+  if (k === 'message') return 'pi-comment';
+  return 'pi-bell';
 }
 
 onMounted(load);

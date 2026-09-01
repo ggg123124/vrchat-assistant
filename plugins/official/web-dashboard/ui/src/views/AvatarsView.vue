@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue';
-import { get } from '../api.js';
+import { get, post } from '../api.js';
 import { toast } from '../toast.js';
 import { openAvatar } from '../store.js';
 
@@ -36,6 +36,26 @@ const filteredList = computed(() => {
 const idOf = (a) => a.avatarId || a.id || '';
 
 const releaseLabel = (s) => (s === 'public' ? '公开' : s === 'private' ? '私有' : s || '');
+
+// 收藏模型操作（收藏/取消收藏；走 /favorites avatar API）
+function isFav(a) {
+  const id = a.avatarId || a.id;
+  return favAvatars.value.some((f) => (f.avatarId || f.id) === id);
+}
+async function toggleFav(a) {
+  const id = a.avatarId || a.id;
+  if (!id) return;
+  const fav = isFav(a);
+  try {
+    const r = await post('/api/dashboard/avatar/favorite', { avatarId: id, favorite: !fav });
+    if (r && r.error) throw new Error(r.error);
+    if (fav) favAvatars.value = favAvatars.value.filter((f) => (f.avatarId || f.id) !== id);
+    else favAvatars.value = [a, ...favAvatars.value];
+    toast(fav ? '已取消收藏' : '已收藏', 'success');
+  } catch (e) {
+    toast('操作失败：' + (e.message || e), 'error');
+  }
+}
 
 // 设为当前模型（selectAvatar；仅我的模型 tab 显示）
 const selecting = ref('');
@@ -123,5 +143,7 @@ onMounted(load);
 @media (max-width: 899px) {
   .av-search { width: 100%; order: 3; }
   .av-grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
+  /* C1 触控目标：模型卡片收藏/选中按钮 26px→34px */
+  .ac-fav { width: 34px; height: 34px; font-size: 15px; }
 }
 </style>

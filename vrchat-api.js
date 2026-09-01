@@ -13,6 +13,10 @@ import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 
 const API_BASE = 'https://api.vrchat.cloud/api/1';
 
+// 单个 VRChat API 请求的 socket 超时（毫秒）。正常请求 1-3s 返回，
+// 网络抖动/代理失效时若不加超时，挂起的请求会锁死 rateLimiter 队列。
+const REQUEST_TIMEOUT_MS = 15000;
+
 export class VrchatApiClient {
   /** @type {Promise|null} single-flight lock for ensureAuth / ensureAuthWithAutoOtp */
   #authLock = null;
@@ -162,9 +166,10 @@ export class VrchatApiClient {
       }
 
       const req = https.request(options, (res) => {
-        let data = '';
-        res.on('data', (chunk) => data += chunk);
+        let chunks = [];
+        res.on('data', (chunk) => chunks.push(chunk));
         res.on('end', () => {
+          const data = Buffer.concat(chunks).toString('utf8');
           try {
             const parsed = JSON.parse(data);
             resolve({ status: res.statusCode, data: parsed, headers: res.headers });
@@ -172,6 +177,15 @@ export class VrchatApiClient {
             resolve({ status: res.statusCode, data, headers: res.headers });
           }
         });
+      });
+
+      // 超时兜底：socket 半通不通（网络抖动/代理失效）时请求可能永挂不返回，
+      // 若不设超时会占住 rateLimiter 队头 -> 锁死整条队列；超时 destroy 触发 error -> reject。
+      // ⚠️ 注：Node req.setTimeout 是「socket 空闲超时」(idle timeout)——仅在 socket 无任何
+      //    活动时触发；「持续小流量但永不 end」的响应不会被它覆盖（由 rateLimiter 的
+      //    任务级超时兜底，见 core/rate-limiter.js）。
+      req.setTimeout(REQUEST_TIMEOUT_MS, () => {
+        req.destroy(new Error(`VRChat API 请求超时 (${REQUEST_TIMEOUT_MS}ms): ${method} ${path}`));
       });
 
       req.on('error', reject);
@@ -303,9 +317,10 @@ export class VrchatApiClient {
         },
       };
       const req = https.request(options, (res) => {
-        let data = '';
-        res.on('data', (chunk) => data += chunk);
+        let chunks = [];
+        res.on('data', (chunk) => chunks.push(chunk));
         res.on('end', () => {
+          const data = Buffer.concat(chunks).toString('utf8');
           try {
             const parsed = JSON.parse(data);
             resolve({ status: res.statusCode, data: parsed, headers: res.headers });
@@ -314,6 +329,15 @@ export class VrchatApiClient {
           }
         });
       });
+      // 超时兜底：socket 半通不通（网络抖动/代理失效）时请求可能永挂不返回，
+      // 若不设超时会占住 rateLimiter 队头 -> 锁死整条队列；超时 destroy 触发 error -> reject。
+      // ⚠️ 注：Node req.setTimeout 是「socket 空闲超时」(idle timeout)——仅在 socket 无任何
+      //    活动时触发；「持续小流量但永不 end」的响应不会被它覆盖（由 rateLimiter 的
+      //    任务级超时兜底，见 core/rate-limiter.js）。
+      req.setTimeout(REQUEST_TIMEOUT_MS, () => {
+        req.destroy(new Error(`VRChat API 请求超时 (${REQUEST_TIMEOUT_MS}ms): ${method} ${path}`));
+      });
+
       req.on('error', reject);
       req.end();
     });
@@ -344,10 +368,19 @@ export class VrchatApiClient {
         },
       };
       const req = https.request(options, (res) => {
-        let data = '';
-        res.on('data', (chunk) => data += chunk);
-        res.on('end', () => resolve({ status: res.statusCode, data, headers: res.headers }));
+        const chunks = [];
+        res.on('data', (chunk) => chunks.push(chunk));
+        res.on('end', () => resolve({ status: res.statusCode, data: Buffer.concat(chunks).toString('utf8'), headers: res.headers }));
       });
+      // 超时兜底：socket 半通不通（网络抖动/代理失效）时请求可能永挂不返回，
+      // 若不设超时会占住 rateLimiter 队头 -> 锁死整条队列；超时 destroy 触发 error -> reject。
+      // ⚠️ 注：Node req.setTimeout 是「socket 空闲超时」(idle timeout)——仅在 socket 无任何
+      //    活动时触发；「持续小流量但永不 end」的响应不会被它覆盖（由 rateLimiter 的
+      //    任务级超时兜底，见 core/rate-limiter.js）。
+      req.setTimeout(REQUEST_TIMEOUT_MS, () => {
+        req.destroy(new Error(`VRChat API 请求超时 (${REQUEST_TIMEOUT_MS}ms): ${method} ${path}`));
+      });
+
       req.on('error', reject);
       if (body) req.write(JSON.stringify(body));
       req.end();
@@ -683,9 +716,10 @@ export class VrchatApiClient {
       };
 
       const req = https.request(options, (res) => {
-        let data = '';
-        res.on('data', (chunk) => data += chunk);
+        let chunks = [];
+        res.on('data', (chunk) => chunks.push(chunk));
         res.on('end', () => {
+          const data = Buffer.concat(chunks).toString('utf8');
           try {
             const parsed = JSON.parse(data);
             resolve({ status: res.statusCode, data: parsed, headers: res.headers });
@@ -693,6 +727,15 @@ export class VrchatApiClient {
             resolve({ status: res.statusCode, data, headers: res.headers });
           }
         });
+      });
+
+      // 超时兜底：socket 半通不通（网络抖动/代理失效）时请求可能永挂不返回，
+      // 若不设超时会占住 rateLimiter 队头 -> 锁死整条队列；超时 destroy 触发 error -> reject。
+      // ⚠️ 注：Node req.setTimeout 是「socket 空闲超时」(idle timeout)——仅在 socket 无任何
+      //    活动时触发；「持续小流量但永不 end」的响应不会被它覆盖（由 rateLimiter 的
+      //    任务级超时兜底，见 core/rate-limiter.js）。
+      req.setTimeout(REQUEST_TIMEOUT_MS, () => {
+        req.destroy(new Error(`VRChat API 请求超时 (${REQUEST_TIMEOUT_MS}ms): ${method} ${path}`));
       });
 
       req.on('error', reject);
@@ -763,6 +806,15 @@ export class VrchatApiClient {
           buffer.contentType = res.headers['content-type'] || null;
           resolve(buffer);
         });
+      });
+
+      // 超时兜底：socket 半通不通（网络抖动/代理失效）时请求可能永挂不返回，
+      // 若不设超时会占住 rateLimiter 队头 -> 锁死整条队列；超时 destroy 触发 error -> reject。
+      // ⚠️ 注：Node req.setTimeout 是「socket 空闲超时」(idle timeout)——仅在 socket 无任何
+      //    活动时触发；「持续小流量但永不 end」的响应不会被它覆盖（由 rateLimiter 的
+      //    任务级超时兜底，见 core/rate-limiter.js）。
+      req.setTimeout(REQUEST_TIMEOUT_MS, () => {
+        req.destroy(new Error(`VRChat API 下载超时 (${REQUEST_TIMEOUT_MS}ms): ${url}`));
       });
 
       req.on('error', reject);

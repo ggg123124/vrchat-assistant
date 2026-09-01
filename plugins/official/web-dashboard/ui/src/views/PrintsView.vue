@@ -5,6 +5,7 @@ import { imgUrl } from '../api.js';
 import { time, date } from '../utils.js';
 import { openWorld } from '../store.js';
 import { toast } from '../toast.js';
+import { confirm } from '../confirm.js';
 
 // 相册（VRChat Plus 照片）：get_prints 工具实时拉取，网格展示 + 点击放大预览
 const tab = ref('prints');           // prints | gallery
@@ -23,7 +24,7 @@ const removingId = ref('');
 async function removeMedia(p) {
   if (removingId.value) return;
   const isPrint = tab.value === 'prints';
-  if (!window.confirm('确认删除这张' + (isPrint ? '照片' : '图片') + '？不可恢复。')) return;
+    if (!await confirm({ message: '确认删除这张' + (isPrint ? '照片' : '图片') + '？不可恢复。', header: '删除图片', acceptLabel: '删除' })) return;
   removingId.value = p.printId || p.fileId;
   try {
     const r = isPrint

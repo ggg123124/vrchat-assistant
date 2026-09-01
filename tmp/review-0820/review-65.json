@@ -1,0 +1,6 @@
+{
+  "commit_id": "156165c45ee961fb60531badace6511199ddd575",
+  "event": "APPROVE",
+  "body": "审核环境：实测（本机仓库 clone + 3000+ 行均衡数据 EXPLAIN QUERY PLAN + DDL 幂等重跑）；使用者视角：仓库维护者 + Windows 重度 VRChat 用户，关注功能质量、数据准确性、跨平台兼容与文档一致性。\n\n[AGENT-REVIEW-DONE] #65 审核完成：APPROVE —— 两条索引实测生效且幂等，world_id IN 查询从全表扫描转为走索引，无阻断项。\n\n## ✅ 通过项（实测证据）\n\n1. **索引创建**：pr-65 版 init-db.sql 初始化后 `sqlite_master` 中 `idx_events_world` 与 `idx_events_user_time_type` 均存在。\n2. **幂等**：对同一库重复执行完整 DDL 无报错（CREATE INDEX IF NOT EXISTS 生效）。\n3. **EXPLAIN QUERY PLAN 实测**（3000 行均衡数据 + ANALYZE）：\n   - `WHERE world_id IN (...)`：main 版 = `SCAN events`（全表扫描）→ pr-65 版 = `SEARCH events USING INDEX idx_events_world`（PR 主收益确认，对应 findFriendPairScreen / getFriendGroupStats / getGroupHeat 场景）；\n   - `WHERE user_id=? AND created_at>=? AND type=?`：pr-65 版用 `idx_events_user_time_type` 实现 **COVERING**（仅读索引页不回表），main 版仅能用 `idx_events_user_time`（需回表）——对 150MB+ 事件表是真实收益；\n   - 注：首轮测试因我把 3000 行全塞给同一 user_id（选择性≈0）导致规划器选 SCAN，属测试数据偏差；均衡数据下索引正常生效，非 PR 缺陷。\n4. **结构安全**：events 表 world_id/user_id/created_at/type 列均存在；索引名与既有 4 条索引无冲突；DDL 变更不涉及表结构，无迁移风险。\n5. **合并兼容**：与 #63/#64/#66 两两 `git merge-tree` 实测均干净合并（#63 的 storage 查询路径正好受益于 idx_events_world）。\n\n## 💡 备注（非阻断）\n\n- 既有 `idx_events_user_time (user_id, created_at)` 已覆盖「按用户+时间」前缀查询；新复合索引的增量价值主要在 type 参与过滤时的 COVERING 读取与索引大小权衡，无功能问题。",
+  "comments": []
+}

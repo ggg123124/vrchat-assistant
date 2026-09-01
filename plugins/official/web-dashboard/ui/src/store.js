@@ -21,6 +21,7 @@ export const store = reactive({
   isMobile: false,
   navOpen: false,
   friendsOpen: false,   // 移动端右侧好友抽屉（A1：桌面右侧栏在手机上改由抽屉打开）
+  quickSearchOpen: false, // 快速搜索弹窗（Ctrl+K / Cmd+K）
   previewUrl: null,
 
   feedFilter: [],          // 多选类型数组（空 = 所有）
@@ -109,7 +110,9 @@ export function openUser(u) {
   closeMobileDrawers();
   if (typeof u === 'string') {
     const found = store.friends.find((f) => f.userId === u);
-    store.userModal = found || { userId: u, displayName: u, isOnline: false };
+    // 自己不在 friends 表（不是自己的好友）→ 回退到 store.me，保留头像/状态等字段
+    const self = (store.me && store.me.userId === u) ? store.me : null;
+    store.userModal = found || self || { userId: u, displayName: u, isOnline: false };
   } else {
     store.userModal = u;
   }
@@ -384,12 +387,26 @@ export async function loadMoreFeed({ target = 50, countMatch = null } = {}) {
   }
 }
 
+function applyHash(hp) {
+  if (hp.get('view')) store.view = hp.get('view');
+  if (hp.has('filter')) store.feedFilter = hp.get('filter') ? hp.get('filter').split(',').filter(Boolean) : [];
+  if (hp.has('fav')) store.feedOnlyFav = hp.get('fav') === '1';
+}
+
 function initFromHash() {
   const hp = new URLSearchParams(location.hash.replace(/^#/, ''));
-  if (hp.get('view')) store.view = hp.get('view');
-  if (hp.get('filter')) store.feedFilter = hp.get('filter').split(',').filter(Boolean);
-  if (hp.get('fav') === '1') store.feedOnlyFav = true;
+  applyHash(hp);
   setView(store.view);
+}
+
+// 同页 hash 变化（手动改 URL / 浏览器前进后退）同步视图——SPA 标准行为，无需整页重载
+function bindHashChange() {
+  window.addEventListener('hashchange', () => {
+    const hp = new URLSearchParams(location.hash.replace(/^#/, ''));
+    const prev = store.view;
+    applyHash(hp);
+    if (store.view !== prev) setView(store.view);
+  });
 }
 
 // SSE 推的是极简 DTO（无 eventId/头像/富化详情），新事件先即时显示，随后用富化列表合并补齐。
@@ -501,10 +518,10 @@ function startSse() {
         store.feedEvents = [ev, ...store.feedEvents];
         refreshFeed(); // 拉富化数据补齐头像/详情
       }
-      // 好友位置/在线状态变化 → 刷新好友列表（房间分组与房间号自动更新）
+      // 好友位置/在线状态变化 → 直接原地更新该好友（服务端已富化，无需全量拉 /friends）
       if (ev.type === 'friend-location' || ev.type === 'friend-online' || ev.type === 'friend-offline'
         || ev.type === 'friend-update' || ev.type === 'friend-active') {
-        refreshFriends();
+        updateFriendFromEvent(ev);
       }
       // 导航徽标：任何通知事件未读+1
       if (ev.type === 'notification' || ev.type === 'notification-v2') {
@@ -537,11 +554,37 @@ function startSse() {
     },
     (st) => {
       store.sseStatus = st;
-      // SSE 重连成功后重算未读徽标（断开期间可能漏计数/多计数）
-      if (st === 'open') loadNotifCount();
+      // SSE 重连成功后重算未读徽标（断开期间可能漏计数/多计数）；补一次全量校准，防丢帧
+      if (st === 'open') { loadNotifCount(); load(true); }
     }
   );
   if (es && es.addEventListener) es.addEventListener('error', () => { store.sseStatus = 'reconnecting'; });
+}
+
+// SSE 事件驱动的"好友原地增量更新"——服务端已富化（昵称/头像/状态/位置/平台/信任等级），
+// 前端收到直接替换 state.friends 里该好友，无需全量拉 /friends（2026-09-01 SSE 增量改造）。
+function updateFriendFromEvent(ev) {
+  const i = store.friends.findIndex((f) => f.userId === ev.userId);
+  if (i < 0) return; // 非好友（如 tracked）用 load() 校准兜底
+  const old = store.friends[i];
+  const nf = { ...old };
+  // 只覆盖 SSE 富化字段已有的；空值不覆盖（保留原值）
+  const map = {
+    displayName: ev.displayName, nickname: ev.nickname, avatarUrl: ev.avatarUrl,
+    userIcon: ev.userIcon, status: ev.status, statusDescription: ev.statusDescription,
+    platform: ev.platform, trustLevel: ev.trustLevel, isOnline: ev.isOnline,
+    bio: ev.bio, pronouns: ev.pronouns,
+  };
+  for (const k of Object.keys(map)) if (map[k] != null && map[k] !== '') nf[k] = map[k];
+  // friend-location → 更新位置字段
+  if (ev.type === 'friend-location') {
+    if (ev.worldId) nf.worldId = ev.worldId;
+    if (ev.worldName) nf.worldName = ev.worldName;
+  }
+  if (ev.type === 'friend-online') nf.isOnline = true;
+  if (ev.type === 'friend-offline') nf.isOnline = false;
+  store.friends[i] = nf;
+  syncRightGroups();
 }
 
 function trackViewport() {
@@ -550,10 +593,40 @@ function trackViewport() {
   window.addEventListener('resize', update);
 }
 
+// 视图快捷键映射：Alt+数字 或 Ctrl+数字 快速切换（数字 = 导航顺序，避开输入框聚焦态）
+const VIEW_HOTKEYS = ['feed', 'friends', 'tracked', 'players', 'notifications', 'search', 'favorites', 'worlds', 'avatars'];
+const isTyping = (t) => {
+  const tag = (t && t.tagName || '').toLowerCase();
+  return tag === 'input' || tag === 'textarea' || tag === 'select' || (t && t.isContentEditable);
+};
+
 function initKeyboard() {
-  // Esc 关闭弹窗（Ctrl+K 快速搜索已按用户要求移除）
+  // Esc 关闭弹窗；Ctrl/Cmd+K 打开快速搜索
   window.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+      e.preventDefault();
+      store.quickSearchOpen = !store.quickSearchOpen;
+      return;
+    }
+    // Alt/Ctrl + 数字 切换视图（输入框中不响应）
+    if (e.altKey && /^[1-9]$/.test(e.key) && !isTyping(e.target)) {
+      e.preventDefault();
+      const v = VIEW_HOTKEYS[Number(e.key) - 1];
+      if (v && store.view !== v) setView(v);
+      return;
+    }
+    // 动态页 "/" 聚焦搜索（输入框中不响应；按两次 Esc 依次关弹窗→取消聚焦）
+    if (e.key === '/' && !isTyping(e.target) && !(e.ctrlKey || e.metaKey || e.altKey)) {
+      const input = document.querySelector('.search-input, .ft-search input');
+      if (input) {
+        e.preventDefault();
+        input.focus();
+        input.select();
+      }
+      return;
+    }
     if (e.key === 'Escape') {
+      if (store.quickSearchOpen) { store.quickSearchOpen = false; return; }
       if (store.userModal) { store.userModal = null; return; }
       if (store.worldModal) { store.worldModal = null; return; }
       if (store.avatarModal) { store.avatarModal = null; return; }
@@ -574,8 +647,8 @@ export function startDashboard() {
   startSse();
   trackViewport();
   initKeyboard();
-  setInterval(() => load(true), 30000);
-  // 兜底：每 10s 拉一次最新"我"（me 端点用本地 events 覆盖 status），
-  // 确保右侧栏"我自己"状态/位置持续同步，不依赖 SSE/load 链路
-  setInterval(refreshMe, 10000);
+  bindHashChange();
+  setInterval(() => load(true), 120000);  // 全量校准：120s 一次（SSE 增量主导，全量只防丢帧/断线自愈）
+  // 右侧栏"我自己"状态/位置：由 SSE user-update/user-location 事件直接更新 me + refreshMeFresh() 节流拉取，
+  // 不再需要 10s 定时全量拉 /me（已移除，2026-09-01 SSE 增量改造）
 }

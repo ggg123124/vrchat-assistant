@@ -499,11 +499,13 @@ export class SocialAnalytics {
       const dayLabel = new Date(dayStart + BJ_OFFSET).toISOString().slice(5, 10); // MM-DD 北京
       for (const c of (r.companions || [])) {
         if (!merged.has(c.userId)) {
-          merged.set(c.userId, { displayName: c.displayName, matchCount: 0, days: new Set(), worlds: new Set() });
+          merged.set(c.userId, { displayName: c.displayName, matchCount: 0, days: new Set(), dayCounts: {}, worlds: new Set() });
         }
         const m = merged.get(c.userId);
         m.matchCount += c.matchCount || 0;
         m.days.add(dayLabel);
+        // 按北京日累计同屏次数（供周报每日足迹展示）
+        m.dayCounts[dayLabel] = (m.dayCounts[dayLabel] || 0) + (c.matchCount || 0);
         for (const w of (c.worlds || [])) m.worlds.add(w);
       }
       dayStart += 86400000;

@@ -1,0 +1,256 @@
+diff --git a/AGENTS.md b/AGENTS.md
+index 0cf6e53..54b47ff 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -145,7 +145,7 @@ cp desktop/plugin.js "$HERMES_HOME/desktop-plugins/vrc-monitor/"
+ 
+ ### 6. 配置 MCP 接口（可选但推荐）
+ 
+-服务通过 MCP 协议暴露以下工具（get_online_friends / get_friend_info / get_friend_events / get_companions / get_online_pattern / get_nicknames / set_nickname / get_world_name / get_worlds_by_author / set_world_note / get_world_history / get_weekly_report / scan_new_worlds / get_new_worlds / get_mutual_friends / search_users / search_groups / search_worlds / search_planet_worlds / recommend_planet_worlds / search_booth_items / get_booth_item / get_booth_history / get_booth_searches / backup_database / get_user_groups / get_group_info / get_group_instances / get_group_announcement / get_group_heat / join_group / leave_group / peek_group_announcement / send_boop / get_boop_emojis / upload_emoji / upload_print / upload_gallery_image / download_print / download_gallery_image / send_friend_request / remove_friend / create_instance / invite_myself / open_world / rate_world / mark_world_visited / add_to_backlog / get_backlog / remove_from_backlog / recommend_worlds / favorite_world / get_favorite_friends_locations / recommend_join / set_join_preference / get_join_preference / record_join_choice / get_join_learning / x_world_digest / x_scan_creators / x_creators / x_add_creator / x_remove_creator / x_worlds / get_my_favorite_worlds / get_my_favorite_groups / submit_totp 等，完整清单与参数见 `skills/vrc-monitor-agent/SKILL.md`「MCP 工具」章节），Hermes Agent 可直接调用，无需 curl 手写 JSON-RPC。
++服务通过 MCP 协议暴露以下工具（get_online_friends / get_friend_info / get_friend_events / get_companions / get_online_pattern / get_nicknames / set_nickname / get_world_name / get_worlds_by_author / set_world_note / get_world_history / get_weekly_report / scan_new_worlds / get_new_worlds / get_mutual_friends / search_users / search_groups / search_worlds / search_planet_worlds / recommend_planet_worlds / search_booth_items / get_booth_item / get_booth_history / get_booth_searches / backup_database / get_user_groups / get_group_info / get_group_instances / get_group_announcement / get_group_heat / join_group / leave_group / peek_group_announcement / send_boop / get_boop_emojis / upload_emoji / upload_print / upload_gallery_image / download_print / download_gallery_image / send_friend_request / remove_friend / create_instance / invite_myself / open_world / rate_world / mark_world_visited / add_to_backlog / get_backlog / remove_from_backlog / recommend_worlds / favorite_world / get_favorite_friends_locations / recommend_join / set_join_preference / get_join_preference / record_join_choice / get_join_learning / x_world_digest / x_scan_creators / x_creators / x_add_creator / x_remove_creator / x_worlds / get_my_favorite_worlds / get_my_favorite_groups / get_notifications / see_notification / hide_notification / accept_friend_request / decline_friend_request / submit_totp 等，完整清单与参数见 `skills/vrc-monitor-agent/SKILL.md`「MCP 工具」章节），Hermes Agent 可直接调用，无需 curl 手写 JSON-RPC。
+ 
+ 在 Hermes 配置文件（`$HERMES_HOME/config.yaml`，Windows 为 `%LOCALAPPDATA%\hermes\config.yaml`）中添加：
+ 
+diff --git a/ARCHITECTURE.md b/ARCHITECTURE.md
+index b00aa7e..e5b9217 100644
+--- a/ARCHITECTURE.md
++++ b/ARCHITECTURE.md
+@@ -65,6 +65,7 @@ VRChat WebSocket (wss://pipeline.vrchat.cloud)
+ | `groups.js` | 253 | 群组操作（查询/搜索/加入/退出/窥探公告） | 9 |
+ | `media.js` | 282 | 媒体（Boop emoji/Print 相册/Gallery 图库上传下载） | 10 |
+ | `misc.js` | 231 | 杂项（数据库统计/服务状态/新世界扫描/关注名单/同屏/上线规律/昵称/备份） | 12 |
++| `notifications.js` | 2026-08-19 新增 | 通知收件箱（读取/已读/隐藏/接受/拒绝好友请求，旧 v1 通知系统） | 5 |
+ 
+ ## start-monitor.js 内部分区
+ 
+diff --git a/core/handlers/notifications.js b/core/handlers/notifications.js
+new file mode 100644
+index 0000000..c53f0cf
+--- /dev/null
++++ b/core/handlers/notifications.js
+@@ -0,0 +1,98 @@
++/**
++ * 通知收件箱 handler — 读取 / 标记已读 / 隐藏 / 接受/拒绝好友请求
++ *
++ * 基于 VRChat 旧 v1 通知系统（/auth/user/notifications）。
++ * 注意：type 查询参数已废弃不生效，客户端过滤；群组邀请/活动属 NotificationV2（/notifications 端点），本模块不覆盖。
++ */
++
++import { ctx, log } from '../server-context.js';
++
++// 通知类型枚举（旧 v1 系统）
++const NOTIFICATION_TYPES = ['boop', 'friendRequest', 'invite', 'inviteResponse', 'message', 'requestInvite', 'requestInviteResponse', 'votetokick'];
++
++// REST 响应中 details 是 JSON 编码字符串（WS 才是对象），统一解码
++function parseDetails(details) {
++  if (details === null || details === undefined) return null;
++  if (typeof details === 'object') return details;
++  try { return JSON.parse(details); } catch { return null; }
++}
++
++function formatNotification(n) {
++  return {
++    id: n.id,
++    type: n.type,
++    message: n.message || '',
++    senderUserId: n.senderUserId || null,
++    senderUsername: n.senderUsername || null,
++    details: parseDetails(n.details),
++    createdAt: n.created_at || null,
++    hidden: n.hidden ?? null,
++  };
++}
++
++export async function handleGetNotifications({ limit = 30, offset = 0, types, hidden = false }) {
++  const { api } = ctx;
++  const n = Math.min(Math.max(parseInt(limit, 10) || 30, 1), 100);
++  const off = Math.max(parseInt(offset, 10) || 0, 0);
++  const params = `n=${n}&offset=${off}`;
++  const r = await api._request('GET', `/auth/user/notifications?${params}`);
++  if (r.status !== 200) throw new Error(`API error: ${r.status}`);
++  const all = Array.isArray(r.data) ? r.data : [];
++  let list = all.filter(x => hidden ? !!x.hidden : !x.hidden);
++  if (types) {
++    const typeSet = new Set(String(types).split(',').map(t => t.trim()));
++    list = list.filter(x => typeSet.has(x.type));
++  }
++  return {
++    total: all.length,
++    shown: list.length,
++    limit: n,
++    offset: off,
++    filteredByTypes: types ? String(types).split(',').map(t => t.trim()) : null,
++    notifications: list.map(formatNotification),
++  };
++}
++
++export async function handleSeeNotification({ notificationId }) {
++  if (!notificationId) throw new Error('notificationId is required');
++  const { api } = ctx;
++  const r = await api._request('PUT', `/auth/user/notifications/${notificationId}/see`);
++  if (r.status !== 200) throw new Error(`API error: ${r.status}`);
++  return { notificationId, seen: true, ok: true };
++}
++
++export async function handleHideNotification({ notificationId }) {
++  if (!notificationId) throw new Error('notificationId is required');
++  const { api } = ctx;
++  const r = await api._request('PUT', `/auth/user/notifications/${notificationId}/hide`);
++  if (r.status !== 200) throw new Error(`API error: ${r.status}`);
++  return { notificationId, hidden: true, ok: true };
++}
++
++// 接受好友请求 = 加好友（不可逆，必须 confirm）
++export async function handleAcceptFriendRequest({ notificationId, confirm }) {
++  if (!notificationId) throw new Error('notificationId is required');
++  if (!confirm) {
++    return { notificationId, confirmRequired: true, message: '接受好友请求会直接加为好友，请传 confirm: true 确认执行' };
++  }
++  const { api } = ctx;
++  // 先校验该通知确为好友请求，避免误操作
++  const r = await api._request('PUT', `/auth/user/notifications/${notificationId}/accept`);
++  if (r.status === 404) throw new Error('该好友请求不存在或已处理');
++  if (r.status !== 200) throw new Error(`API error: ${r.status}`);
++  log(`✅ accept_friend_request: ${notificationId}`);
++  return { notificationId, accepted: true, ok: true };
++}
++
++// 拒绝好友请求 = 隐藏（清除）该通知；旧 v1 无独立拒绝端点，hide 即清除
++export async function handleDeclineFriendRequest({ notificationId, confirm }) {
++  if (!notificationId) throw new Error('notificationId is required');
++  if (!confirm) {
++    return { notificationId, confirmRequired: true, message: '拒绝好友请求会清除该通知（对方不会收到明确拒绝提示），请传 confirm: true 确认执行' };
++  }
++  const { api } = ctx;
++  const r = await api._request('PUT', `/auth/user/notifications/${notificationId}/hide`);
++  if (r.status !== 200) throw new Error(`API error: ${r.status}`);
++  log(`✅ decline_friend_request: ${notificationId}`);
++  return { notificationId, declined: true, ok: true };
++}
+\ No newline at end of file
+diff --git a/core/mcp-definitions.js b/core/mcp-definitions.js
+index d4b050f..7a4bacf 100644
+--- a/core/mcp-definitions.js
++++ b/core/mcp-definitions.js
+@@ -899,4 +899,64 @@ export const CUSTOM_TOOLS = [
+       required: ['code'],
+     },
+   },
++  // ── 通知收件箱（2026-08-19 新增）──
++  {
++    name: 'get_notifications',
++    description: '[query·通知] 通知收件箱：读取当前账号的未读通知（旧 v1 系统）。limit(1-100)/offset 分页；types 逗号分隔过滤（friendRequest/invite/message/boop/requestInvite/votetokick/inviteResponse/requestInviteResponse）；hidden=true 查看已隐藏通知。注意：API 的 type 查询参数已废弃不生效，过滤在本地完成；seen/receiverUserId 仅 WebSocket 推送有，REST 不返回。',
++    inputSchema: {
++      type: 'object',
++      properties: {
++        limit: { type: 'number', default: 30, description: 'Max results (1-100, default 30)' },
++        offset: { type: 'number', default: 0 },
++        types: { type: 'string', description: 'Comma-separated types: friendRequest/invite/message/boop/requestInvite/votetokick (default all)' },
++        hidden: { type: 'boolean', default: false, description: 'List hidden notifications instead of active ones' },
++      },
++    },
++  },
++  {
++    name: 'see_notification',
++    description: '[write·通知] 标记通知为已读。notificationId 必填。',
++    inputSchema: {
++      type: 'object',
++      properties: {
++        notificationId: { type: 'string', description: 'Notification ID (not_... / frq_...)' },
++      },
++      required: ['notificationId'],
++    },
++  },
++  {
++    name: 'hide_notification',
++    description: '[write·通知] 隐藏/清除一条通知（旧 v1 系统 hide 即删除）。notificationId 必填。',
++    inputSchema: {
++      type: 'object',
++      properties: {
++        notificationId: { type: 'string', description: 'Notification ID (not_... / frq_...)' },
++      },
++      required: ['notificationId'],
++    },
++  },
++  {
++    name: 'accept_friend_request',
++    description: '[write·社交] 接受好友请求（PUT /auth/user/notifications/{id}/accept）——接受即直接加为好友，不可逆，必须传 confirm: true 才执行，否则只返回预览。',
++    inputSchema: {
++      type: 'object',
++      properties: {
++        notificationId: { type: 'string', description: 'Friend request notification ID (frq_...)' },
++        confirm: { type: 'boolean', description: 'Must be true to actually accept (adds the user as friend). Default false returns preview only.' },
++      },
++      required: ['notificationId'],
++    },
++  },
++  {
++    name: 'decline_friend_request',
++    description: '[write·社交] 拒绝好友请求（旧 v1 无独立拒绝端点，hide 即清除该通知）。对方不会收到明确拒绝提示，必须传 confirm: true 才执行，否则只返回预览。',
++    inputSchema: {
++      type: 'object',
++      properties: {
++        notificationId: { type: 'string', description: 'Friend request notification ID (frq_...)' },
++        confirm: { type: 'boolean', description: 'Must be true to actually decline (clears the notification). Default false returns preview only.' },
++      },
++      required: ['notificationId'],
++    },
++  },
+ ];
+diff --git a/core/rpc-router.js b/core/rpc-router.js
+index 9d4948a..8cea4df 100644
+--- a/core/rpc-router.js
++++ b/core/rpc-router.js
+@@ -34,6 +34,14 @@ import {
+   handleOpenWorld,
+ } from './handlers/instance.js';
+ 
++import {
++  handleGetNotifications,
++  handleSeeNotification,
++  handleHideNotification,
++  handleAcceptFriendRequest,
++  handleDeclineFriendRequest,
++} from './handlers/notifications.js';
++
+ import {
+   handleGetFriendEvents,
+   handleGetRecentEvents,
+@@ -177,6 +185,22 @@ export async function handleRpc(rpc, session, res) {
+             result = await handleSubmitTotp(args);
+             break;
+           }
++          // 通知收件箱（2026-08-19 新增）
++          case 'get_notifications':
++            result = await rateLimiter.execute(() => handleGetNotifications(args));
++            break;
++          case 'see_notification':
++            result = await rateLimiter.execute(() => handleSeeNotification(args));
++            break;
++          case 'hide_notification':
++            result = await rateLimiter.execute(() => handleHideNotification(args));
++            break;
++          case 'accept_friend_request':
++            result = await rateLimiter.execute(() => handleAcceptFriendRequest(args));
++            break;
++          case 'decline_friend_request':
++            result = await rateLimiter.execute(() => handleDeclineFriendRequest(args));
++            break;
+           case 'get_boop_emojis': {
+             result = await rateLimiter.execute(() => handleGetBoopEmojis());
+             break;
+diff --git a/skills/vrc-monitor-agent/SKILL.md b/skills/vrc-monitor-agent/SKILL.md
+index bff39d4..ac36fdc 100644
+--- a/skills/vrc-monitor-agent/SKILL.md
++++ b/skills/vrc-monitor-agent/SKILL.md
+@@ -97,6 +97,10 @@ metadata:
+ | `x_remove_creator` | 移除追踪的 X 博主 |
+ | `x_worlds` | 查看已收录的推荐世界列表（调试用） |
+ | `submit_totp` | **提交 TOTP 验证码**：账号启用 Authenticator 两步验证（`/health` 的 `auth.needsTotp: true`）时，提交当前 6 位验证码完成登录（`code` 必填；登录后 WS 自动重连）。`needsTotp` 出现于：启动/重连需要 2FA 且邮箱 OTP 不可用，或**运行中 API 401 自动重登录需要 TOTP**（无需重启服务） |
++| `get_notifications` | **通知收件箱**（2026-08-19 新增）：读取当前账号未读通知（旧 v1 系统）。limit/offset 分页；types 过滤（friendRequest/invite/message/boop/requestInvite/votetokick/inviteResponse/requestInviteResponse）；hidden=true 查已隐藏。注意：API 的 type 查询参数已废弃不生效（本地过滤）；seen/receiverUserId 仅 WS 推送有，REST 不返回 |
++| `see_notification` / `hide_notification` | **通知已读/隐藏**：标记已读 PUT .../see；隐藏清除 PUT .../hide（旧 v1 hide 即删除）。notificationId 必填 |
++| `accept_friend_request` | **接受好友请求**（2026-08-19 新增）：PUT /auth/user/notifications/{id}/accept，**接受即直接加为好友**，不可逆，必须 confirm: true 才执行，否则只预览 |
++| `decline_friend_request` | **拒绝好友请求**（2026-08-19 新增）：旧 v1 无独立拒绝端点，hide 即清除该通知（对方不会收到明确拒绝提示），必须 confirm: true 才执行，否则只预览 |
+ 
+ 调用方式（HTTP SSE JSON-RPC）：
+ 

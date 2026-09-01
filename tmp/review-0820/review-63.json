@@ -1,0 +1,12 @@
+{
+  "commit_id": "951829355fbe3e4e93b0aaba11ebc7ba4be75f56",
+  "event": "APPROVE",
+  "body": "审核环境：实测（本机仓库 clone + 合成数据端到端，main 与 pr-63 双版本对照）；使用者视角：仓库维护者 + Windows 重度 VRChat 用户，关注功能质量、数据准确性、跨平台兼容与文档一致性。\n\n[AGENT-REVIEW-DONE] #63 审核完成：APPROVE —— 重构等价性端到端实测通过，limit 语义正确，无阻断项。\n\n## ✅ 通过项（实测证据）\n\n1. **重构等价性**：合成数据（2 用户 × 11 事件，含 private/offline/traveling 排除用例）分别灌入 main 与 pr-63 版本 Storage，`findFriendPairScreen` / `findFriendPairMeetings` 全字段比对一致：matchCount=8、totalSeconds=2400、totalMinutes=40、worldDuration、worlds、displayName、meetings 结构（worldId/instanceId/startTime/endTime/durationMinutes）全部相同。matches 集合（顺序无关）一致。\n2. **limit 语义**：limit=3 → matches=3，且 matchCount=8 / totalMinutes=40 / worldDuration 均不变（统计口径未受影响，与 PR 描述一致）；limit=0/undefined → 全量。\n3. **helper 提取正确性**：`_collectPairScreen` 的 instRanges 计算（段首 min/段尾 max 累加逻辑）与旧 `instTimes`/`meetingsByInst` 逐行等价；`_resolveWorldNames` 保留旧语义（Set 去重 + `GROUP BY world_id, world_name ORDER BY MAX(created_at) DESC` 取最近名）；`_getDisplayNames` 与旧两次查询等价。\n4. **文档同步**：mcp-definitions.js 与 SKILL.md 的 limit 参数/口径说明一致；`node --check` 全部通过；`check-doc-drift.py` 无漂移（工具数 91）。\n5. **合并兼容**：与 #64/#65/#66 两两 `git merge-tree` 实测均干净合并，无冲突。\n\n## 💡 建议（非阻断）\n\n- matches 排序行为变化：旧实现为事件表插入序，新实现按 bt 升序（确定性更好，属改进）。建议在 SKILL.md 提一句「matches 按匹配时间升序」，避免下游假设旧顺序。\n\n（inline 见 storage.js L1009）",
+  "comments": [
+    {
+      "path": "core/storage.js",
+      "line": 1009,
+      "body": "💡 建议（非阻断）：`limit ? pairs.slice(0, limit) : pairs` 对负值/非数值输入无防御——实测 limit=-3 时 slice(0,-3) 会从尾部静默丢条（8 条变 5 条），非数值 limit（如 \"abc\"）经 slice 强转 NaN 后 matches 变空数组。建议 `const lim = Number.isFinite(+limit) && +limit > 0 ? Math.floor(+limit) : null` 后 `lim ? pairs.slice(0, lim) : pairs`。MCP 调用方传正整数的常规路径无影响。"
+    }
+  ]
+}

@@ -914,3 +914,14 @@ git diff --check
 
 - 素材收藏按名称排序（中文感知）；足迹排序偏好 localStorage 持久化
 - 会话累计 192 提交全部签名
+
+## 2026-09-01 社区活动读库化 + 每日离线刷新（issue #118）
+
+- **问题**：启动 90s 无条件预热 `fetch_community_events` 触发群组深挖，持续占满共享 rateLimiter（queueLength 恒满 47~50），所有 API 工具变慢
+- **修复**：
+  - 删除 web-dashboard `prewarmSlowRoutes` 无条件预热（慢路由改懒加载）
+  - `/api/dashboard/community-events` 改读库：`api.consume('events.listStore')` 直读 `plg_events_store`（零限流 API 秒回），evtCache/evtInflight 保留
+  - events 插件新增 `readEventsStore` + `api.provide('events.listStore')`（按 window 过滤 start_iso，字段与工具返回兼容）
+  - core 新增 `groups.resolve` 服务（group_cache 缓存优先 TTL 7 天 + API 回填）；events 挖掘改 consume 该服务，maxMine 默认 60→30
+  - core 新增 `dashboard.isSelfOnline` 服务（events 表 user-location 最新一条判定；超 1h 无新事件的在线记录保守返回 null）
+  - events 插件每日离线刷新调度器：首次 1h 后检查，在线/无法判定推迟 30min，离线重挖 week/month/tonight（maxMine=30）+ 清理 `start_iso < now` 过期活动；setTimeout 链 + unref + dispose 清理

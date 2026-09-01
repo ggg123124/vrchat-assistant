@@ -1,0 +1,6 @@
+{
+  "commit_id": "f6b7257e1f77557c3bf98fde7a811323b941e856",
+  "event": "APPROVE",
+  "body": "审核环境：实测（本机仓库 clone + mock API 驱动 handleGetNotifications 字段语义矩阵）；使用者视角：仓库维护者 + Windows 重度 VRChat 用户，关注功能质量、数据准确性、跨平台兼容与文档一致性。\n\n[AGENT-REVIEW-DONE] #66 审核完成：APPROVE —— total → returned/hasMore 语义修正实测符合文档描述，无阻断项。\n\n## ✅ 通过项（实测证据）\n\n1. **字段语义**：mock API 驱动全矩阵实测：\n   - 不满页（2 条 < limit 30）→ `returned=2` / `shown=2` / `hasMore=false` / `limit=30`，响应中**无 `total` 字段残留**；\n   - 取满 limit（30 条）→ `hasMore=true`（分页推断正确）；\n   - `types=invite,boop` → `returned=3`（过滤前）/ `shown=2`（过滤后）/ `filteredByTypes` 正确；\n   - hidden 过滤：默认排除 hidden、`hidden=true` 只看隐藏，均正确。\n2. **hasMore 计算在类型过滤之前**：`all.length >= n` 基于 API 原始返回，符合「本页取满 limit 时可能还有下一页」的文档语义（hidden/types 过滤不影响分页推断）。\n3. **无下游破坏**：grep 全库无其他代码引用 `get_notifications` 的 `total` 字段；rpc-router 仅透传。\n4. **文档同步**：mcp-definitions.js 与 SKILL.md 的 returned/shown/hasMore 说明一致；`node --check` 通过；`check-doc-drift.py` 无漂移。\n5. **合并兼容**：与 #63/#64/#65 两两 `git merge-tree` 实测均干净合并（#63 同改 mcp-definitions.js 但不同工具条目，hunk 不重叠）。\n\n## 💡 备注（非阻断）\n\n- `hasMore` 是启发式：若 API 恰好在页边界返回满条数（实际已是最后一页）会误报 true，下游分页时多取一页空结果即可发现——文档已用「可能」措辞，可接受。",
+  "comments": []
+}

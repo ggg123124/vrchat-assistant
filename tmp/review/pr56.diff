@@ -1,0 +1,319 @@
+diff --git a/AGENTS.md b/AGENTS.md
+index 0cf6e53..96601a6 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -145,7 +145,7 @@ cp desktop/plugin.js "$HERMES_HOME/desktop-plugins/vrc-monitor/"
+ 
+ ### 6. 配置 MCP 接口（可选但推荐）
+ 
+-服务通过 MCP 协议暴露以下工具（get_online_friends / get_friend_info / get_friend_events / get_companions / get_online_pattern / get_nicknames / set_nickname / get_world_name / get_worlds_by_author / set_world_note / get_world_history / get_weekly_report / scan_new_worlds / get_new_worlds / get_mutual_friends / search_users / search_groups / search_worlds / search_planet_worlds / recommend_planet_worlds / search_booth_items / get_booth_item / get_booth_history / get_booth_searches / backup_database / get_user_groups / get_group_info / get_group_instances / get_group_announcement / get_group_heat / join_group / leave_group / peek_group_announcement / send_boop / get_boop_emojis / upload_emoji / upload_print / upload_gallery_image / download_print / download_gallery_image / send_friend_request / remove_friend / create_instance / invite_myself / open_world / rate_world / mark_world_visited / add_to_backlog / get_backlog / remove_from_backlog / recommend_worlds / favorite_world / get_favorite_friends_locations / recommend_join / set_join_preference / get_join_preference / record_join_choice / get_join_learning / x_world_digest / x_scan_creators / x_creators / x_add_creator / x_remove_creator / x_worlds / get_my_favorite_worlds / get_my_favorite_groups / submit_totp 等，完整清单与参数见 `skills/vrc-monitor-agent/SKILL.md`「MCP 工具」章节），Hermes Agent 可直接调用，无需 curl 手写 JSON-RPC。
++服务通过 MCP 协议暴露以下工具（get_online_friends / get_friend_info / get_friend_events / get_friend_profile_changes / get_companions / get_online_pattern / get_nicknames / set_nickname / get_world_name / get_worlds_by_author / set_world_note / get_world_history / get_weekly_report / scan_new_worlds / get_new_worlds / get_mutual_friends / search_users / search_groups / search_worlds / search_planet_worlds / recommend_planet_worlds / search_booth_items / get_booth_item / get_booth_history / get_booth_searches / backup_database / get_user_groups / get_group_info / get_group_instances / get_group_announcement / get_group_heat / join_group / leave_group / peek_group_announcement / send_boop / get_boop_emojis / upload_emoji / upload_print / upload_gallery_image / download_print / download_gallery_image / send_friend_request / remove_friend / create_instance / invite_myself / open_world / rate_world / mark_world_visited / add_to_backlog / get_backlog / remove_from_backlog / recommend_worlds / favorite_world / get_favorite_friends_locations / recommend_join / set_join_preference / get_join_preference / record_join_choice / get_join_learning / x_world_digest / x_scan_creators / x_creators / x_add_creator / x_remove_creator / x_worlds / get_my_favorite_worlds / get_my_favorite_groups / submit_totp 等，完整清单与参数见 `skills/vrc-monitor-agent/SKILL.md`「MCP 工具」章节），Hermes Agent 可直接调用，无需 curl 手写 JSON-RPC。
+ 
+ 在 Hermes 配置文件（`$HERMES_HOME/config.yaml`，Windows 为 `%LOCALAPPDATA%\hermes\config.yaml`）中添加：
+ 
+diff --git a/core/event-pipeline.js b/core/event-pipeline.js
+index ee91dbe..9c4b342 100644
+--- a/core/event-pipeline.js
++++ b/core/event-pipeline.js
+@@ -158,11 +158,84 @@ export class EventPipeline {
+     const userId = event.userId;
+     const displayName = event.displayName;
+ 
+-    this.storage.upsertFriend({
+-      userId,
+-      displayName,
+-      lastSeen: event.receivedAt,
+-    });
++    // 好友资料变更追踪（2026-08-19）：friend-update 推送完整 user 对象
++    // （currentAvatarImageUrl/bio/statusDescription/userIcon/pronouns 等），
++    // 与 friends 表当前快照 diff，变化写入 events（type 与 VRCX 迁移脚本一致：
++    // 顶层 friend-update + content_json.type=avatar/status/bio/user_icon/pronouns）。
++    // 无历史快照（首次采集）或字段无基线值时只初始化，不误报变更。
++    const userObj = event.content && event.content.user ? event.content.user : null;
++    if (userObj) {
++      const prev = this.storage.getFriend(userId);
++      if (prev && prev.user_id) {
++        const changes = [];
++        const avatarChanged = prev.avatar_image_url
++          && (prev.avatar_image_url || '') !== (userObj.currentAvatarImageUrl || '');
++        if (avatarChanged) {
++          changes.push({ type: 'avatar', payload: {
++            avatarName: userObj.currentAvatarName || '',
++            avatarImageUrl: userObj.currentAvatarImageUrl || '',
++            avatarThumbnailUrl: userObj.currentAvatarThumbnailImageUrl || '',
++            previousAvatarImageUrl: prev.avatar_image_url || '',
++            previousAvatarThumbnailUrl: prev.avatar_image_url || '',
++          }});
++        }
++        const bioChanged = prev.bio
++          && (prev.bio || '') !== (userObj.bio || '');
++        if (bioChanged) {
++          changes.push({ type: 'bio', payload: { bio: userObj.bio || '', previousBio: prev.bio || '' } });
++        }
++        const statusChanged = (prev.status && (prev.status || '') !== (userObj.status || ''))
++          || (prev.status_description && (prev.status_description || '') !== (userObj.statusDescription || ''));
++        if (statusChanged) {
++          changes.push({ type: 'status', payload: {
++            status: userObj.status || '',
++            statusDescription: userObj.statusDescription || '',
++            previousStatus: prev.status || '',
++            previousStatusDescription: prev.status_description || '',
++          }});
++        }
++        const iconChanged = prev.user_icon
++          && (prev.user_icon || '') !== (userObj.userIcon || '');
++        if (iconChanged) {
++          changes.push({ type: 'user_icon', payload: { userIcon: userObj.userIcon || '', previousUserIcon: prev.user_icon || '' } });
++        }
++        const pronounsChanged = prev.pronouns
++          && (prev.pronouns || '') !== (userObj.pronouns || '');
++        if (pronounsChanged) {
++          changes.push({ type: 'pronouns', payload: { pronouns: userObj.pronouns || '', previousPronouns: prev.pronouns || '' } });
++        }
++        for (const c of changes) {
++          this.storage.insertEvent({
++            type: 'friend-update',
++            userId,
++            displayName,
++            contentJson: { userId, displayName, type: c.type, ...c.payload },
++            worldId: '',
++            worldName: '',
++            createdAt: event.receivedAt,
++            source: 'websocket',
++          });
++        }
++      }
++
++      this.storage.upsertFriend({
++        userId,
++        displayName,
++        status: userObj.status || '',
++        statusDescription: userObj.statusDescription || '',
++        avatarImageUrl: userObj.currentAvatarImageUrl || '',
++        bio: userObj.bio || '',
++        userIcon: userObj.userIcon || '',
++        pronouns: userObj.pronouns || '',
++        lastSeen: event.receivedAt,
++      });
++    } else {
++      this.storage.upsertFriend({
++        userId,
++        displayName,
++        lastSeen: event.receivedAt,
++      });
++    }
+ 
+     this._storeEvent(event);
+   }
+diff --git a/core/handlers/events.js b/core/handlers/events.js
+index aafdf0a..a65a7cf 100644
+--- a/core/handlers/events.js
++++ b/core/handlers/events.js
+@@ -157,6 +157,39 @@ export function handleGetWorldHistory({ worldId, limit = 50 }) {
+   return { worldId, history: storage.getWorldHistory(worldId, limit) };
+ }
+ 
++// 好友资料变更历史（2026-08-19 新增，配合事件管道 friend-profile 变更追踪）。
++// 查询 events 表中 content_json.type ∈ {avatar,status,bio,user_icon,pronouns} 的记录。
++// userId 可选（省略 = 全部好友），types 逗号分隔过滤，limit/offset 分页。
++export function handleGetFriendProfileChanges({ userId, limit = 50, offset = 0, types }) {
++  const { storage } = ctx;
++  const cap = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 200);
++  const off = Math.max(parseInt(offset, 10) || 0, 0);
++  const rows = storage.getFriendProfileChanges(userId || '', { limit: cap, offset: off, types });
++  const total = storage.getFriendProfileChangeCount(userId || '', { types });
++  const changes = rows.map(r => {
++    let c = {};
++    try { c = JSON.parse(r.content_json); } catch {}
++    const payload = { ...c };
++    delete payload.userId; delete payload.displayName; delete payload.type; delete payload.vrcxId;
++    return {
++      userId: r.user_id,
++      displayName: r.display_name,
++      changeType: c.type,
++      source: r.source,
++      createdAt: r.created_at,
++      change: payload,
++    };
++  });
++  return {
++    userId: userId || null,
++    types: types ? String(types).split(',').map(t => t.trim()) : null,
++    total,
++    limit: cap,
++    offset: off,
++    changes,
++  };
++}
++
+ export async function handleGetWeeklyReport({ days = 7 }) {
+   const { storage, api, serverState } = ctx;
+   if (!days || days < 1 || days > 90) days = 7;
+diff --git a/core/init-db.sql b/core/init-db.sql
+index e3c9299..fbff55d 100644
+--- a/core/init-db.sql
++++ b/core/init-db.sql
+@@ -33,6 +33,9 @@ CREATE TABLE IF NOT EXISTS friends (
+   status TEXT,
+   status_description TEXT,
+   avatar_image_url TEXT,
++  bio TEXT,                        -- 个人简介（friend-profile 变更追踪用）
++  user_icon TEXT,                  -- 头像小图标 URL（friend-profile 变更追踪用）
++  pronouns TEXT,                   -- 人称代词（friend-profile 变更追踪用）
+   last_seen TEXT,                  -- 最后一次见到（任意活动）
+   last_online TEXT,                -- 最后一次上线
+   last_offline TEXT,               -- 最后一次下线
+diff --git a/core/mcp-definitions.js b/core/mcp-definitions.js
+index d4b050f..bae4430 100644
+--- a/core/mcp-definitions.js
++++ b/core/mcp-definitions.js
+@@ -309,6 +309,19 @@ export const CUSTOM_TOOLS = [
+       },
+     },
+   },
++{
++    name: 'get_friend_profile_changes',
++    description: '[query·资料] 好友资料变更历史（Avatar/Bio/状态/头像图标/代词）：事件管道实时采集 friend-update 的 user 对象 diff 落库，与 VRCX 迁移的 feed_avatar/feed_status/feed_bio 同 type 打通。userId 可选（省略=全部好友）；types 逗号分隔过滤（avatar/status/bio/user_icon/pronouns，默认全部）；limit(1-200)/offset 分页。返回每条 { userId, displayName, changeType, source, createdAt, change:{当前值, 旧值} }。',
++    inputSchema: {
++      type: 'object',
++      properties: {
++        userId: { type: 'string', description: 'Friend ID (usr_...). Omit to query all friends' },
++        limit: { type: 'number', default: 50, description: 'Max rows (1-200, default 50)' },
++        offset: { type: 'number', default: 0 },
++        types: { type: 'string', description: 'Comma-separated change types: avatar/status/bio/user_icon/pronouns (default all)' },
++      },
++    },
++  },
+ {
+     name: 'get_world_name',
+     description: '[query] Get world name by worldId. Checks local cache first, falls back to API.',
+diff --git a/core/rpc-router.js b/core/rpc-router.js
+index 9d4948a..a562eb4 100644
+--- a/core/rpc-router.js
++++ b/core/rpc-router.js
+@@ -37,6 +37,7 @@ import {
+ import {
+   handleGetFriendEvents,
+   handleGetRecentEvents,
++  handleGetFriendProfileChanges,
+   handleGetWorldName,
+   handleGetWorldsByAuthor,
+   handleSetWorldNote,
+@@ -282,6 +283,9 @@ export async function handleRpc(rpc, session, res) {
+           case 'get_recent_events':
+             result = handleGetRecentEvents(args);
+             break;
++          case 'get_friend_profile_changes':
++            result = handleGetFriendProfileChanges(args);
++            break;
+           case 'get_world_name':
+             result = await rateLimiter.execute(() => handleGetWorldName(args));
+             break;
+diff --git a/core/storage.js b/core/storage.js
+index 6193ef2..2801c5e 100644
+--- a/core/storage.js
++++ b/core/storage.js
+@@ -102,6 +102,17 @@ export class Storage {
+     }
+     // 迁移：历史 tags='' 脏数据统一为 '[]'（json_each 对空串抛 malformed JSON，Review R2）
+     this._run(`UPDATE world_kb SET tags = '[]' WHERE tags IS NULL OR tags = ''`);
++    // 迁移：旧库 friends 缺 bio/user_icon/pronouns 列（friend-profile 变更追踪用，幂等）
++    const friendCols = this._query(`PRAGMA table_info(friends)`);
++    if (!friendCols.some(c => c.name === 'bio')) {
++      this._run(`ALTER TABLE friends ADD COLUMN bio TEXT`);
++    }
++    if (!friendCols.some(c => c.name === 'user_icon')) {
++      this._run(`ALTER TABLE friends ADD COLUMN user_icon TEXT`);
++    }
++    if (!friendCols.some(c => c.name === 'pronouns')) {
++      this._run(`ALTER TABLE friends ADD COLUMN pronouns TEXT`);
++    }
+     return this;
+   }
+ 
+@@ -266,6 +277,9 @@ export class Storage {
+       $status: friend.status || '',
+       $statusDescription: friend.statusDescription || '',
+       $avatarImageUrl: friend.avatarImageUrl || '',
++      $bio: friend.bio || '',
++      $userIcon: friend.userIcon || '',
++      $pronouns: friend.pronouns || '',
+       $lastSeen: friend.lastSeen || '',
+       $lastOnline: friend.lastOnline || '',
+       $lastOffline: friend.lastOffline || '',
+@@ -274,9 +288,11 @@ export class Storage {
+     this._run(
+       `INSERT INTO friends (user_id, display_name, memo, trust_level, is_online, location,
+         world_id, world_name, platform, status, status_description, avatar_image_url,
++        bio, user_icon, pronouns,
+         last_seen, last_online, last_offline)
+        VALUES ($userId, $displayName, $memo, $trustLevel, $isOnline, $location,
+         $worldId, $worldName, $platform, $status, $statusDescription, $avatarImageUrl,
++        $bio, $userIcon, $pronouns,
+         $lastSeen, $lastOnline, $lastOffline)
+        ON CONFLICT(user_id) DO UPDATE SET
+         display_name=COALESCE($displayName, display_name),
+@@ -290,6 +306,9 @@ export class Storage {
+         status=COALESCE($status, status),
+         status_description=COALESCE($statusDescription, status_description),
+         avatar_image_url=COALESCE($avatarImageUrl, avatar_image_url),
++        bio=COALESCE($bio, bio),
++        user_icon=COALESCE($userIcon, user_icon),
++        pronouns=COALESCE($pronouns, pronouns),
+         last_seen=COALESCE($lastSeen, last_seen),
+         last_online=COALESCE($lastOnline, last_online),
+         last_offline=COALESCE($lastOffline, last_offline),
+@@ -311,6 +330,41 @@ export class Storage {
+     return rows[0] || null;
+   }
+ 
++  // 好友资料变更历史（friend-profile 变更追踪，2026-08-19 新增）
++  // 查询 events 表中 content_json.type 为 avatar/status/bio/user_icon/pronouns 的记录。
++  // 与 VRCX 迁移脚本（feed_avatar/feed_status/feed_bio）写入格式一致：顶层 type='friend-update'，
++  // 实际变更类型在 content_json.type 里。types 参数逗号分隔过滤（默认全部）。
++  getFriendProfileChanges(userId, { limit = 50, offset = 0, types } = {}) {
++    const validTypes = ['avatar', 'status', 'bio', 'user_icon', 'pronouns'];
++    let typesArr = validTypes;
++    if (types) {
++      typesArr = String(types).split(',').map(t => t.trim()).filter(t => validTypes.includes(t));
++      if (typesArr.length === 0) typesArr = validTypes;
++    }
++    const params = { $limit: limit, $offset: offset };
++    const placeholders = typesArr.map((t, i) => { params[`$t${i}`] = t; return `$t${i}`; }).join(',');
++    let sql = `SELECT * FROM events WHERE type = 'friend-update'
++               AND json_extract(content_json, '$.type') IN (${placeholders})`;
++    if (userId) { sql += ` AND user_id = $userId`; params.$userId = userId; }
++    sql += ` ORDER BY created_at DESC LIMIT $limit OFFSET $offset`;
++    return this._query(sql, params);
++  }
++
++  getFriendProfileChangeCount(userId, { types } = {}) {
++    const validTypes = ['avatar', 'status', 'bio', 'user_icon', 'pronouns'];
++    let typesArr = validTypes;
++    if (types) {
++      typesArr = String(types).split(',').map(t => t.trim()).filter(t => validTypes.includes(t));
++      if (typesArr.length === 0) typesArr = validTypes;
++    }
++    const params = {};
++    const placeholders = typesArr.map((t, i) => { params[`$t${i}`] = t; return `$t${i}`; }).join(',');
++    let sql = `SELECT COUNT(*) n FROM events WHERE type = 'friend-update'
++               AND json_extract(content_json, '$.type') IN (${placeholders})`;
++    if (userId) { sql += ` AND user_id = $userId`; params.$userId = userId; }
++    return this._query(sql, params)[0].n;
++  }
++
+   searchFriends(query) {
+     return this._query(
+       `SELECT * FROM friends WHERE display_name LIKE $q OR memo LIKE $q ORDER BY display_name LIMIT 50`,
+diff --git a/skills/vrc-monitor-agent/SKILL.md b/skills/vrc-monitor-agent/SKILL.md
+index bff39d4..d5c0652 100644
+--- a/skills/vrc-monitor-agent/SKILL.md
++++ b/skills/vrc-monitor-agent/SKILL.md
+@@ -97,6 +97,7 @@ metadata:
+ | `x_remove_creator` | 移除追踪的 X 博主 |
+ | `x_worlds` | 查看已收录的推荐世界列表（调试用） |
+ | `submit_totp` | **提交 TOTP 验证码**：账号启用 Authenticator 两步验证（`/health` 的 `auth.needsTotp: true`）时，提交当前 6 位验证码完成登录（`code` 必填；登录后 WS 自动重连）。`needsTotp` 出现于：启动/重连需要 2FA 且邮箱 OTP 不可用，或**运行中 API 401 自动重登录需要 TOTP**（无需重启服务） |
++| `get_friend_profile_changes` | **好友资料变更历史**（2026-08-19 新增）：Avatar/Bio/状态/头像图标/代词变更记录。事件管道实时采集 friend-update 的 user 对象 diff 落库，与 VRCX 迁移数据（feed_avatar/feed_status/feed_bio）同 type 打通。userId 可选（省略=全部好友）；types 逗号分隔过滤（avatar/status/bio/user_icon/pronouns）；limit(1-200)/offset 分页。每次变更返回 change 含当前值+旧值 |
+ 
+ 调用方式（HTTP SSE JSON-RPC）：
+ 

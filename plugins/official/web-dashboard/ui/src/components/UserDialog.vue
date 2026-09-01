@@ -5,6 +5,7 @@ import { get, post } from '../api.js';
 import { trustColor, trustName, locLabelFull, statusLabels, fmtMin, time, date, avatarLabel } from '../utils.js';
 import { toast } from '../toast.js';
 import TrustBadge from './TrustBadge.vue';
+import { STATUS_COLORS } from '../composables/useFriendGroups.js';
 
 const visible = computed({
   get: () => !!store.userModal,
@@ -13,7 +14,9 @@ const visible = computed({
 
 const user = computed(() => store.userModal || {});
 // 非好友（不在本地好友列表）→ 简化弹窗：隐藏依赖他人 API 的 tab（共同好友/群组/世界/模型可能 403/受限）
-const isFriend = computed(() => !!(store.friends || []).find((f) => f.userId === user.value.userId));
+// 自己不算"非好友"：自己不在 friends 表（不是自己的好友），但 VRChat 允许查自己的群组/世界/模型 → 自己也按好友展示
+const isFriend = computed(() => !!(store.friends || []).find((f) => f.userId === user.value.userId)
+  || (store.me && store.me.userId === user.value.userId));
 const activeTab = ref('info');
 const profile = ref(null);   // /api/dashboard/user-profile 聚合结果
 const loading = ref(false);
@@ -30,8 +33,6 @@ function favVisColor(v) {
 function favVisLabel(v) {
   return v === 'public' ? '公开' : v === 'friends' ? '好友可见' : '私密';
 }
-
-const STATUS_COLORS = { active: '#52c41a', 'join me': '#4287f5', 'ask me': '#fa8c16', busy: '#f5222d', offline: '#596778' };
 
 // ── 派生数据 ──
 const pUser = computed(() => (profile.value && profile.value.user) || {});
@@ -441,5 +442,7 @@ const rawJson = computed(() => {
   .ud-status { flex-wrap: wrap; }
   .ud-actions { flex-wrap: wrap; }
   .ev-item { flex-wrap: wrap; row-gap: 2px; }
+  /* C1 触控目标：复制 ID/JSON 按钮移动端加大（30px→36px） */
+  .ud-actions :deep(.p-button), .json-box :deep(.p-button) { min-height: 36px; }
 }
 </style>

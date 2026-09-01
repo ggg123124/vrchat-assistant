@@ -145,6 +145,8 @@ export async function handleSearchUsers({ query, limit = 10 }) {
       bio: (u.bio || '').slice(0, 100),
       status: u.status,
       isFriend: u.isFriend,
+      userIcon: u.userIcon || '',
+      currentAvatarThumbnailImageUrl: u.currentAvatarThumbnailImageUrl || '',
     }));
 
   // API 无匹配时回退：优先在本地好友库模糊搜索（display_name / memo 含查询字眼）。
@@ -278,7 +280,7 @@ export const tools = [
       "type": "object",
       "properties": {}
     },
-    handler: async (args) => ctx.rateLimiter.execute(() => handleGetOnlineFriends(args))
+    handler: async (args) => ctx.rateLimiter.execute(() => handleGetOnlineFriends(args), { taskTimeoutMs: 90000 })
   },
   {
     "name": "get_friend_info",

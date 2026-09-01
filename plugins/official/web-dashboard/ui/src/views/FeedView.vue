@@ -1,7 +1,11 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
-import { store, openUser, openWorld, openPreview, loadMoreFeed, copyText, openGroup, resetFeed } from '../store.js';
+import { store, setView, openUser, openWorld, openPreview, loadMoreFeed, copyText, openGroup, resetFeed } from '../store.js';
 import { time, date, locLabel, statusLabels, trustColor, instanceLabel, avatarLabel } from '../utils.js';
+import { post } from '../api.js';
+import { toast } from '../toast.js';
+import { statusColor } from '../composables/useFriendGroups.js';
+import { typeOf, isNotiUpdate, TYPE_LABELS, TYPE_ICONS, TYPE_SEVERITIES } from '../constants/event-types.js';
 
 const datePop = ref(null);
 
@@ -43,6 +47,22 @@ const dateLabel = computed(() => {
   return store.feedDateFrom ? `${fmt(store.feedDateFrom)} 起` : `至 ${fmt(store.feedDateTo)}`;
 });
 const hasDateFilter = computed(() => !!(store.feedDateFrom || store.feedDateTo));
+// 任一筛选激活（类型/日期/星标/关注/我的/此世界/此人/追踪）
+const hasAnyFilter = computed(() => store.feedFilter.length > 0 || hasDateFilter.value || store.feedOnlyFav || store.feedOnlyWatch || store.feedOnlyMe || store.feedOnlyWorld || store.feedOnlyUser || store.feedOnlyTracked);
+function clearAllFilters() {
+  store.feedFilter = [];
+  store.feedDateFrom = '';
+  store.feedDateTo = '';
+  store.feedOnlyFav = false;
+  store.feedOnlyWatch = false;
+  store.feedOnlyMe = false;
+  store.feedOnlyWorld = '';
+  store.feedOnlyUser = '';
+  store.feedOnlyTracked = false;
+  dateRange.value = [];
+  setView(store.view);   // 同步 URL hash（清除 filter/fav 参数，刷新不再恢复旧筛选）
+  // 筛选字段变化由下方 watch 自动触发 resetFeed（避免双重加载）
+}
 // 日历范围选满两个端点才可应用
 const canApplyRange = computed(() => Array.isArray(dateRange.value) && dateRange.value.length === 2 && !!dateRange.value[0] && !!dateRange.value[1]);
 
@@ -73,63 +93,8 @@ function clearDateRange() {
 }
 
 /* ── 类型判定 ── */
-function typeOf(x) {
-  if (x.type === 'friend-location' || x.type === 'user-location') return 'location';
-  if (x.type === 'friend-online') return 'online';
-  if (x.type === 'friend-offline') return 'offline';
-  if (x.type === 'friend-active') return 'status';
-  if (x.type === 'friend-update') {
-    if (x.updateType === 'avatar') return 'avatar';
-    if (x.updateType === 'bio') return 'bio';
-    if (x.updateType === 'status') return 'status';
-    if (x.updateType === 'user_icon') return 'userIcon';
-    if (x.updateType === 'pronouns') return 'pronouns';
-    if (x.updateType === 'displayName') return 'displayName';
-    return 'other';
-  }
-  // 自己的资料/状态更新：与 friend-update 一致显示（状态灯/简介/模型）；
-  // 旧格式（无 updateType）默认按状态变动——用户视角就是"在线状态更新"
-  if (x.type === 'user-update') {
-    if (x.updateType === 'avatar') return 'avatar';
-    if (x.updateType === 'bio') return 'bio';
-    if (x.updateType === 'user_icon') return 'userIcon';
-    if (x.updateType === 'pronouns') return 'pronouns';
-    if (x.updateType === 'displayName') return 'displayName';
-    return 'status';
-  }
-  if (x.type === 'friend-add') return 'friendAdd';
-  if (x.type === 'friend-delete') return 'friendDelete';
-  if (x.type === 'unknown') return 'unknown';
-  if (x.type === 'content-refresh') return 'contentRefresh';
-  if (x.type === 'group-joined') return 'groupJoined';
-  if (x.type === 'group-member-updated') return 'groupMemberUpdated';
-  if (x.type === 'hide-notification' || x.type === 'see-notification') return 'notificationUpdate';
-  if (x.type === 'notification' || x.type === 'notification-v2') {
-    const t = x.updateType || x.notificationType || '';
-    if (t === 'friendRequest') return 'friendRequest';
-    if (t === 'invite' || t === 'requestInvite') return 'invite';
-    if (t === 'message') return 'message';
-    if (String(t).startsWith('group.')) return 'group';
-    return 'notification';
-  }
-  // 通知状态更新：关联到群组通知的归入"群组通知"，否则"通知更新"
-  if (x.type === 'notification-v2-update' || x.type === 'notification-update') {
-    return x.notiGroupId ? 'group' : 'notificationUpdate';
-  }
-  return 'other';
-}
-const typeLabels = { location: '位置变动', online: '上线', offline: '下线', status: '状态变动', avatar: '模型变动', bio: '简介变更', userIcon: '头像图标', pronouns: '代词变更', displayName: '改名', friendRequest: '好友申请', invite: '邀请', message: '私信', group: '群组通知', notification: '通知', notificationUpdate: '通知更新', friendAdd: '新增好友', friendDelete: '删除好友', unknown: '未知事件', contentRefresh: '内容库', groupJoined: '加入群组', groupMemberUpdated: '群组更新', other: '资料变动' };
-const typeIcons = { location: 'pi-map-marker', online: 'pi-sign-in', offline: 'pi-sign-out', status: 'pi-heart', avatar: 'pi-user-edit', bio: 'pi-file-edit', userIcon: 'pi-id-card', pronouns: 'pi-user', displayName: 'pi-pencil', friendRequest: 'pi-user-plus', invite: 'pi-arrow-right-arrow-left', message: 'pi-comment', group: 'pi-users', notification: 'pi-bell', notificationUpdate: 'pi-bell', friendAdd: 'pi-user-plus', friendDelete: 'pi-user-minus', unknown: 'pi-question-circle', contentRefresh: 'pi-refresh', groupJoined: 'pi-users', groupMemberUpdated: 'pi-users', other: 'pi-user' };
-const typeSeverities = { location: 'info', online: 'success', offline: 'secondary', status: 'warning', avatar: 'warn', bio: 'contrast', userIcon: 'secondary', pronouns: 'contrast', displayName: 'warn', friendRequest: 'success', invite: 'info', message: 'secondary', group: 'warn', notification: 'secondary', notificationUpdate: 'secondary', friendAdd: 'success', friendDelete: 'danger', unknown: 'secondary', contentRefresh: 'info', groupJoined: 'success', groupMemberUpdated: 'warn', other: 'secondary' };
-function isNotiUpdate(x) {
-  return x.type === 'notification-v2-update' || x.type === 'notification-update';
-}
 
-/* ── 状态灯颜色（VRChat 官方状态色）── */
-const STATUS_COLORS = { active: '#52c41a', 'join me': '#4287f5', 'ask me': '#fa8c16', busy: '#f5222d', offline: '#596778' };
-function statusColor(s) {
-  return STATUS_COLORS[s] || '#596778';
-}
+/* ── 状态灯颜色（VRChat 官方状态色，共享自 useFriendGroups）── */
 function statusText(s) {
   return statusLabels[s] || s || '';
 }
@@ -342,9 +307,15 @@ function fillFeed() {
 // 有筛选时列表匹配不足自动补齐（无筛选靠触底/按钮手动加载，避免死循环）
 watch(rows, () => { if (hasFilter()) fillFeed(); });
 // 筛选条件变化 → 重置列表（只留当前筛选下的最新数据，不堆积为凑数加载的无关事件）再补齐
+// 筛选/搜索变化：搜索输入防抖 300ms（避免每键请求），其它筛选即时
+let filterTimer = null;
 watch(() => [store.feedFilter, store.feedSearch, store.feedDateFrom, store.feedDateTo, store.feedOnlyFav, store.feedOnlyWatch, store.feedOnlyMe, store.feedOnlyUser, store.feedOnlyTracked, store.feedOnlyWorld], () => {
-  if (store.feedLoading) return;
-  resetFeed().then(() => fillFeed());
+  clearTimeout(filterTimer);
+  filterTimer = setTimeout(() => {
+    if (store.feedLoading) return;
+    setView(store.view);   // 筛选变化同步 URL hash（刷新后保持筛选状态）
+    resetFeed().then(() => fillFeed());
+  }, 300);
 });
 let observer = null;
 let onScroll = null;
@@ -369,6 +340,7 @@ onMounted(() => {
   }
 });
 onUnmounted(() => {
+  if (filterTimer) clearTimeout(filterTimer); // 筛选防抖定时器卸载清理（评审建议）
   if (observer) observer.disconnect();
   const rootEl = document.querySelector('.main-viewport');
   if (rootEl && onScroll) rootEl.removeEventListener('scroll', onScroll);
@@ -388,8 +360,9 @@ onUnmounted(() => {
       </div>
     </Popover>
 
-    <div class="view-title">
-      动态
+    <div class="feed-head">
+      <h2><i class="pi pi-bolt"></i> 动态</h2>
+      <span class="feed-sub">{{ store.feedTotal ? '数据库共 ' + store.feedTotal + ' 条' : '好友活动实时记录' }}</span>
       <Tag v-if="store.feedLoading" value="同步中…" severity="secondary" rounded />
       <!-- 日期+星标在标题行（双端统一）；弹层锚定到点击的按钮 -->
       <span class="vt-actions">
@@ -407,6 +380,7 @@ onUnmounted(() => {
           <i :class="store.feedOnlyMe ? 'pi pi-user-check' : 'pi pi-user'"></i>
         </button>
         <button class="chip star-btn" title="导出当前筛选结果（JSON）" aria-label="导出当前筛选结果" @click="exportRows"><i class="pi pi-download"></i></button>
+        <button v-if="hasAnyFilter" class="chip star-btn" title="清除全部筛选" aria-label="清除全部筛选" @click="clearAllFilters"><i class="pi pi-filter-slash"></i> 清除全部</button>
         <button v-if="store.feedOnlyWorld" class="chip star-btn star-on" @click="clearWorldFilter" :title="'清除「只看此世界」筛选'" aria-label="清除只看此世界筛选">
           <i class="pi pi-globe"></i> 只看此世界{{ worldNameOf() ? '：' + worldNameOf().slice(0, 16) : '' }}
         </button>
@@ -423,7 +397,7 @@ onUnmounted(() => {
     <!-- 类型筛选横条 + 搜索（所有元素弹性收缩换行） -->
     <div class="feed-toolbar">
       <div class="ft-row">
-        <div class="ft-chips">
+        <div class="ft-chips" role="group" aria-label="事件类型筛选">
           <button v-for="o in filterOptions" :key="o.value" class="chip" :class="{ active: isFilterActive(o.value) }" @click="toggleFilter(o.value)">{{ o.label }}</button>
         </div>
         <div class="ft-search">
@@ -459,7 +433,7 @@ onUnmounted(() => {
       <div v-else class="ev-row" :class="{ open: expanded === rowId(x) }" role="button" tabindex="0" @click="toggleRow(x)" @keydown.enter="toggleRow(x)">
         <div v-if="!store.isMobile" class="c-time mono">{{ time(x.createdAt) }}<small>{{ date(x.createdAt) }}</small></div>
         <div v-else class="c-time mono">{{ date(x.createdAt) }}</div>
-        <div class="c-type"><Tag :value="typeLabels[typeOf(x)]" :severity="typeSeverities[typeOf(x)]" rounded><i class="pi ctype-ico" :class="typeIcons[typeOf(x)] || 'pi-circle'"></i></Tag></div>
+        <div class="c-type"><Tag :value="TYPE_LABELS[typeOf(x)]" :severity="TYPE_SEVERITIES[typeOf(x)]" rounded><i class="pi ctype-ico" :class="TYPE_ICONS[typeOf(x)] || 'pi-circle'"></i></Tag></div>
         <div class="c-player" @click.stop="playerOpen(x)" role="button" tabindex="0" @keydown.enter="playerOpen(x)">
           <Avatar :image="playerAvatarOf(x)" shape="circle" size="small" :label="avatarLabel(playerAvatarOf(x), playerNameOf(x))" />
           <span class="pl-name" :style="{ color: trustColor(x.trustLevel) }">{{ playerNameOf(x) }}</span>
@@ -541,7 +515,7 @@ onUnmounted(() => {
 
           <!-- 邀请 / 私信 -->
           <template v-else-if="typeOf(x) === 'invite' || typeOf(x) === 'message'">
-            <span class="dim">{{ x.notiMessage || x.notiTitle || x.summary || (x.senderUsername + ' 发来一条' + typeLabels[typeOf(x)]) }}</span>
+            <span class="dim">{{ x.notiMessage || x.notiTitle || x.summary || (x.senderUsername + ' 发来一条' + TYPE_LABELS[typeOf(x)]) }}</span>
           </template>
 
           <!-- 群组通知：显示群组名+内容；更新类显示"通知已读：内容"，点击打开群组 -->
@@ -689,6 +663,7 @@ onUnmounted(() => {
 
       <div class="feed-more">
         <Button v-if="store.feedHasMore && store.feedEvents.length < feedHardCap" :label="store.feedLoadingMore ? '加载中…' : '加载更多'" text size="small" icon="pi pi-angle-down" @click="loadMoreFeed()" />
+        <span v-else-if="store.feedEvents.length" class="feed-end">— 已加载全部动态 —</span>
         <!-- 哨兵始终渲染（条件渲染会导致 onMounted 拿不到元素、observer 失效） -->
         <div id="feed-sentinel" class="feed-sentinel"></div>
       </div>
@@ -697,7 +672,17 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.feed-toolbar { margin-bottom: 12px; }
+.feed-view { padding: 4px; }
+.feed-toolbar {
+  margin-bottom: 12px;
+  /* 长列表滚动时筛选工具栏吸顶（相对 .main-viewport 滚动容器），随时切换筛选不用滚回顶部 */
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: linear-gradient(var(--surface) 85%, transparent);
+  padding-top: 4px;
+  padding-bottom: 8px;
+}
 .ft-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .ft-chips { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex: 1 1 320px; min-width: 0; }
 .ft-search {
@@ -721,6 +706,7 @@ onUnmounted(() => {
 .ft-search > .pi-search { font-size: 11px; color: var(--text-dim); flex: none; }
 .search-clear { font-size: 10px; color: var(--text-dim); cursor: pointer; padding: 2px; flex: none; }
 .search-clear:hover { color: var(--text); }
+.feed-sub { font-size: 11px; color: var(--text-dim); flex: 1; min-width: 80px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .feed-count { margin-left: auto; color: var(--text-dim); font-size: 11px; font-variant-numeric: tabular-nums; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* C4 窄窗口：计数保持行内、贴最右（不换行独占） */
 @media (min-width: 900px) and (max-width: 1280px) {
@@ -729,49 +715,23 @@ onUnmounted(() => {
 
 /* C4 桌面窄窗口：标题行与工具栏所有元素一起弹性收缩换行，不再只有 chips 独自动 */
 @media (min-width: 900px) and (max-width: 1280px) {
-  .view-title { flex-wrap: wrap; row-gap: 4px; }
+  .feed-head { flex-wrap: wrap; row-gap: 4px; }
   .vt-actions .chip { padding: 4px 8px; }
   .ft-row { row-gap: 6px; }
   .ft-chips { flex-basis: auto; }
   .ft-search { max-width: none; min-width: 140px; flex: 1 1 150px; }
 }
 
-/* 筛选 chip（多选 + 日期/星标统一为同一视觉语言） */
-.chip {
-  border: 1px solid var(--border);
-  background: var(--surface-2);
-  color: var(--text-dim);
-  border-radius: 999px;
-  padding: 4px 13px;
-  font-size: 12px;
-  height: 28px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  cursor: pointer;
-  transition: all 0.12s;
-  white-space: nowrap;
-  font-family: inherit;
-  line-height: 1;
-}
-
-.chip.active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-}
-
+/* 筛选 chip：视觉语言统一走全局 .chip（style.css），此处仅保留本页私有覆盖 */
 .date-btn i { font-size: 11px; }
 .date-btn.active { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
 .star-btn { width: 30px; padding: 0; justify-content: center; }
 .star-btn i { font-size: 12px; }
-.star-btn.star-on { color: #ffca28; border-color: color-mix(in srgb, #ffca28 40%, var(--border)); }
-.date-opts { display: flex; flex-direction: column; gap: 2px; padding: 4px; }
-.date-opts .chip { text-align: left; border-radius: 6px; }
+.star-btn.star-on { color: var(--star); border-color: color-mix(in srgb, var(--star) 40%, var(--border)); }
 .date-cal { padding: 6px; }
 .dc-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; padding: 8px 6px 2px 0; }
-.star-on { color: #ffca28 !important; }
-.star-on .pi { color: #ffca28 !important; }
+.star-on { color: var(--star) !important; }
+.star-on .pi { color: var(--star) !important; }
 
 .feed-loading { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 60px 0; }
 
@@ -825,7 +785,7 @@ onUnmounted(() => {
 }
 .c-player:hover { background: var(--surface-3); }
 .pl-name { font-weight: 600; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pl-star { font-size: 9px; color: #ffca28; flex: none; }
+.pl-star { font-size: 9px; color: var(--star); flex: none; }
 .pl-watch { font-size: 9px; color: var(--text-dim); flex: none; margin-left: 3px; }
 
 /* 详细信息列：桌面禁止换行（单行省略）；移动端卡片流仍允许换行 */
@@ -916,6 +876,14 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 100%;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+/* 移动端：简介变更允许换行完整显示（父级 .c-detail 已 wrap），避免长文本横向溢出 */
+@media (max-width: 899px) {
+  .bio-text { white-space: normal; overflow: visible; text-overflow: clip; word-break: break-word; }
+  /* C1 触控目标：世界链接行内元素加大点击区域（16px→inline-flex + padding） */
+  .world-link { display: inline-flex; align-items: center; padding: 4px 8px; }
 }
 
 /* 通知：消息内容（可点击打开群组） */
@@ -961,7 +929,7 @@ onUnmounted(() => {
 .noti-read-wrap.noti-msg-link .noti-msg-inline { color: var(--accent-2); }
 
 .feed-more { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 12px 0; }
-.feed-cap-hint { font-size: 11px; }
+.feed-end { font-size: 11px; color: var(--text-dim); opacity: 0.7; }
 
 /* B3 展开详情 */
 .ev-chev { display: none; }
@@ -983,15 +951,17 @@ onUnmounted(() => {
 .ed-ellip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ed-id { font-size: 10.5px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ed-link { color: var(--accent-2); cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ev-detail :deep(.p-button) { width: 20px; height: 20px; flex: none; }
+.ev-detail :deep(.p-button) { width: 24px; height: 24px; flex: none; }
 
 /* 移动端：卡片化 */
 @media (max-width: 899px) {
+  .feed-head { flex-wrap: wrap; row-gap: 4px; }
   .ft-head { display: none; }
   .ft-row { gap: 8px; }
-  /* 筛选 chips 与标题行日期/星标按钮同大小（用户要求统一） */
-  .chip { height: 26px; padding: 4px 10px; font-size: 11px; }
+  /* 筛选 chips 移动端尺寸走全局（style.css @media .chip） */
   .search-input { font-size: 12.5px; }
+  /* C1 触控目标：加载更多按钮移动端加大（30px→36px） */
+  .feed-more :deep(.p-button) { min-height: 36px; padding: 6px 16px; }
   /* 右上角计数三段在手机上收窄（完整值在 title 提示） */
   .feed-count { font-size: 10px; max-width: 56%; }
   /* B1：类型筛选 chips 单行横向滚动，不再全宽换行占半屏 */
