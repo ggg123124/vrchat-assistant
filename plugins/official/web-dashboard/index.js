@@ -315,7 +315,8 @@ export default function register(api) {
     path: '/api/dashboard/friends',
     handler: async (req, res) => {
       const url = new URL(req.url, 'http://localhost');
-      const limit = parseLimit(url.searchParams.get('limit') || 100, 100, 200);
+      // issue #127：路由层 limit 上限需与 handler/front 一致提到 1000，否则仍被钳制到 200
+      const limit = parseLimit(url.searchParams.get('limit') || 100, 100, 1000);
       sendJson(res, { friends: await api.consume('dashboard.friends', { limit }) });
     },
   });
