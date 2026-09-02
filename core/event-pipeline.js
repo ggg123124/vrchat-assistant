@@ -272,6 +272,12 @@ export class EventPipeline {
 
   async _handleDelete(event) {
     this._storeEvent(event);
+    // issue #127 补漏：friend-delete 只存事件不移除好友 → 解友的用户（如维护者删除某人）残留在
+    // friends 表，继续显示在 dashboard 好友列表（名字常为空显示 '?'）。friend-delete 应同步从
+    // friends 表移除该好友（事件历史/同屏数据在 events 表，不受影响；若日后重新加好友，friend-add 会重建）。
+    try {
+      if (event.userId) this.storage.run('DELETE FROM friends WHERE user_id = $u', { $u: event.userId });
+    } catch { /* 移除失败不影响事件记录 */ }
   }
 
   async _handleNotification(event) {
