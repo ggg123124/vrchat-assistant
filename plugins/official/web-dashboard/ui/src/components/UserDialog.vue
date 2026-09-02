@@ -16,7 +16,10 @@ const user = computed(() => store.userModal || {});
 // 非好友（不在本地好友列表）→ 简化弹窗：隐藏依赖他人 API 的 tab（共同好友/群组/世界/模型可能 403/受限）
 // 自己不算"非好友"：自己不在 friends 表（不是自己的好友），但 VRChat 允许查自己的群组/世界/模型 → 自己也按好友展示
 const isFriend = computed(() => !!(store.friends || []).find((f) => f.userId === user.value.userId)
-  || (store.me && store.me.userId === user.value.userId));
+  || (store.me && store.me.userId === user.value.userId)
+  // issue #127：store.friends 是有上限的展示缓存，离线/字母靠后好友不在其中 →
+  // 误判"非好友"。改用权威数据：user-profile 的 localFriend（本地 friends 表）+ user.isFriend（VRChat API）
+  || !!(profile.value && (profile.value.localFriend || (profile.value.user && profile.value.user.isFriend))));
 const activeTab = ref('info');
 const profile = ref(null);   // /api/dashboard/user-profile 聚合结果
 const loading = ref(false);

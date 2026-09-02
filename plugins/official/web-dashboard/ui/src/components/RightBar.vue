@@ -39,7 +39,7 @@ const coSecOpen = ref(true);
 const coAll = ref(false);
 const coShown = computed(() => { const l = store.coPlay || []; return coAll.value ? l : l.slice(0, 8); });
 const friendMap = computed(() => { const m = new Map(); for (const f of friends.value) m.set(f.userId, f); return m; });
-function coAvatar(c) { const f = friendMap.value.get(c.userId); return (f && (f.avatarUrl || f.userIcon)) || ''; }
+function coAvatar(c) { const f = friendMap.value.get(c.userId); return (f && (f.avatarUrl || f.userIcon)) || c.avatarUrl || c.userIcon || ''; }
 function coName(c) { return store.nicknameMap[c.userId] || c.displayName || '?'; }
 function meStatusText() {
   const me = store.me;
@@ -232,7 +232,7 @@ async function submitStatus() {
         <i class="pi co-arrow" :class="coSecOpen ? 'pi-chevron-up' : 'pi-chevron-down'"></i>
       </div>
       <div v-if="coSecOpen" class="rb-groups">
-        <div v-for="c in coShown" :key="c.userId" class="rb-friend" @click="openUser(c.userId)" role="button" tabindex="0" @keydown.enter="openUser(c.userId)">
+        <div v-for="c in coShown" :key="c.userId" class="rb-friend" @click="openUser(c)" role="button" tabindex="0" @keydown.enter="openUser(c)">
           <Avatar :image="coAvatar(c)" shape="circle" size="small" :label="avatarLabel(coAvatar(c), c.displayName)" />
           <div class="rf-text">
             <b>{{ coName(c) }}</b>

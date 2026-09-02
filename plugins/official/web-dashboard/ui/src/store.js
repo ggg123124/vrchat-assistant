@@ -112,7 +112,9 @@ export function openUser(u) {
     const found = store.friends.find((f) => f.userId === u);
     // 自己不在 friends 表（不是自己的好友）→ 回退到 store.me，保留头像/状态等字段
     const self = (store.me && store.me.userId === u) ? store.me : null;
-    store.userModal = found || self || { userId: u, displayName: u, isOnline: false };
+    // 找不到（离线/字母靠后的好友不在 store.friends 缓存）→ 不造裸对象，
+    // 仅保留 userId，UserDialog 用 /user-profile 的 localFriend/user.isFriend 判定好友关系（issue #127）
+    store.userModal = found || self || { userId: u };
   } else {
     store.userModal = u;
   }
