@@ -63,7 +63,10 @@ export function registerDashboardServices(loader, ctx) {
       f.last_seen AS lastSeen, f.last_online AS lastOnline, f.last_offline AS lastOffline
       FROM friends f LEFT JOIN world_cache wc ON wc.world_id = f.world_id
       ORDER BY f.is_online DESC, f.display_name COLLATE NOCASE LIMIT $limit`,
-    { $limit: Math.min(Math.max(Number(limit) || 100, 1), 200) });
+    // issue #127：limit 上限提高到 1000，好友列表全量进 store.friends——
+    // 「最近一起玩」按历史同屏聚合（与在线状态无关），排序靠后的好友此前被前 100/200 截断
+    // → 点开误判「非好友」，共同好友/群组/世界/模型信息丢失。
+    { $limit: Math.min(Math.max(Number(limit) || 100, 1), 1000) });
     // 后台预热：在线好友所在世界缺缓存时拉取填充 world_cache（限流+10s 超时，不阻塞响应；
     // 填充后下次请求 worldName/worldImageUrl 即有值，右侧栏显示世界名+头图）
     try {

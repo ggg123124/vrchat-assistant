@@ -376,8 +376,14 @@ export class Storage {
     const params = { $userId: userId };
     for (const [col, key] of Object.entries(columns)) {
       if (friend[key] === undefined) continue;  // 未传 → 不更新该列
-      params[`$${col}`] = norm[key](friend[key]);
-      setCols.push(`${col}=COALESCE($${col}, ${col})`);
+      const v = norm[key](friend[key]);
+      // display_name 空串不覆盖已有名字（issue #127）：offline/空 payload 事件会以 ''
+      // 覆盖已存名字，导致离线好友显示 '?'。UPDATE 时 CASE WHEN 非空才更新；参数始终设置供 INSERT。
+      const setExpr = col === 'display_name'
+        ? `display_name=CASE WHEN $display_name <> '' THEN $display_name ELSE display_name END`
+        : `${col}=COALESCE($${col}, ${col})`;
+      params[`$${col}`] = v;
+      setCols.push(setExpr);
     }
     if (setCols.length === 0) return;
 

@@ -12,7 +12,7 @@ async function syncNow() {
   if (syncing.value) return;
   syncing.value = true;
   try {
-    const f = await get('/api/dashboard/friends?limit=100');
+    const f = await get('/api/dashboard/friends?limit=1000');  // issue #127：同步也全量
     if (f && Array.isArray(f.friends)) {
       store.friends = f.friends;
       toast(`已同步好友列表（${f.friends.length} 人）`, 'success');

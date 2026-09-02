@@ -323,6 +323,21 @@ test('dashboard.events avatar 事件带缩略图时仍走 imgProxy 代理', asyn
   assert.equal(decoded, rawThumb, '解码后应为原始缩略图 URL');
 });
 
+// ── issue #127 Bug2：upsertFriend 空串不覆盖已有 display_name ──
+// offline/空 payload 事件会以 '' 覆盖已存名字，导致离线好友显示 '?'
+test('upsertFriend 空串不覆盖已有 display_name', () => {
+  const FID = 'usr_test-0000-0000-0000-0000000000e1';
+  ctx.storage.upsertFriend({ userId: FID, displayName: '真实名字', isOnline: 1 });
+  // 再 upsert 一个空 displayName 的事件（模拟 offline/缺名 payload）→ 不应清空名字
+  ctx.storage.upsertFriend({ userId: FID, displayName: '', isOnline: 0 });
+  const row = ctx.storage.query(`SELECT display_name AS dn FROM friends WHERE user_id=$u`, { $u: FID })[0];
+  assert.equal(row.dn, '真实名字', '空 displayName 不应覆盖已有名字，实际: ' + row.dn);
+  // 非空名字正常更新
+  ctx.storage.upsertFriend({ userId: FID, displayName: '新名字', isOnline: 1 });
+  const row2 = ctx.storage.query(`SELECT display_name AS dn FROM friends WHERE user_id=$u`, { $u: FID })[0];
+  assert.equal(row2.dn, '新名字', '非空 displayName 应正常更新');
+});
+
 // ── 清理 ──
 after(() => {
   for (const f of [tmpDb, tmpDb + '-wal', tmpDb + '-shm']) { try { rmSync(f, { force: true }); } catch {} }
