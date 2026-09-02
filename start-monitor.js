@@ -222,8 +222,12 @@ async function _syncFriendAvatars() {
         const tl = f.trustLevel || inferTrustFromTags(f.tags);
         if (!av && !ic && !tl) continue;
         const ex = storage.getFriend(f.id);
-        if (ex && (ex.avatar_image_url || ex.user_icon) && ex.trust_level) continue; // 头像+信任等级都有则不覆盖
-        storage.upsertFriend({ userId: f.id, avatarImageUrl: av, userIcon: ic, trustLevel: tl });
+        // issue #127 补漏：好友列表 API 响应带 f.displayName，但此前 upsert 未传 displayName，
+        // 离线好友（无 WS 事件带名字）的 display_name 永远为空 → 前端显示 '?'。故：
+        // ① 跳过条件要求 display_name 也已填（否则名字空的好友被 continue 漏掉）；
+        // ② upsert 补传 displayName，下次头像同步即回填离线好友名字。
+        if (ex && (ex.avatar_image_url || ex.user_icon) && ex.trust_level && ex.display_name) continue; // 头像+信任等级+display_name 都有则不覆盖
+        storage.upsertFriend({ userId: f.id, displayName: f.displayName, avatarImageUrl: av, userIcon: ic, trustLevel: tl });
         updated++;
       }
       offset += r.data.length;
