@@ -99,7 +99,8 @@ export function upsertNote(db, args = {}) {
     if (a.length > 100) throw new Error('单个别名超长（上限 100 字符）');
   }
 
-  if (!note && aliases.length === 0) {
+  // 软删只有在 note/aliases/tags/category 全为空时才触发；只补 tags/category 不误删（review ⚠️ 修复）
+  if (!note && aliases.length === 0 && tags.length === 0 && !category) {
     db.run(`UPDATE notes SET deleted = 1, updated_at = datetime('now') WHERE emoji_id = $id`, { id: emojiId });
     corpusCache.delete(db);
     const row = db.get('SELECT * FROM notes WHERE emoji_id = $id', { id: emojiId });

@@ -12,7 +12,7 @@ export default function register(api) {
   api.registerTool({
     name: 'set_emoji_note',
     description:
-      '[manage] 给 emojiId（内置 default_xxx 或自定义 fileId）设备注/别名，存本地。note 与 aliases 都为空时清除该条。',
+      '[manage] 给 emojiId（内置 default_xxx 或自定义 fileId）设备注/别名，存本地。note/aliases/tags/category 均为空时软删除该条；任一非空则整表替换（覆盖 note/aliases/tags/category 全量，如只传 tags 会清空其它字段）。',
     inputSchema: {
       type: 'object',
       properties: {
