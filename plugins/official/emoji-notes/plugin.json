@@ -1,0 +1,7 @@
+{
+  "name": "emoji-notes",
+  "version": "0.1.0",
+  "description": "自定义/内置 boop emoji 个性化备注与中文 STT 噪声鲁棒检索：set_emoji_note / get_emoji_notes / resolve_emoji",
+  "author": "AI Agent",
+  "depends": []
+}

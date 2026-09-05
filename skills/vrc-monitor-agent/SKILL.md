@@ -67,6 +67,9 @@ metadata:
 | `get_watchlist` / `add_to_watchlist` / `remove_from_watchlist` | 关注名单 |
 | `send_boop` | 戳一戳好友（Boop），对方收到戳戳通知（参数：userId 必填、emojiId 可选） |
 | `get_boop_emojis` | 列出内置 boop 表情（65 个）及 emojiId 格式（`default_<name>`） |
+| `set_emoji_note` | [manage] 给 emojiId（内置 default_xxx 或自定义 fileId）设备注/别名，存本地；note 与 aliases 都为空时软删除该条 |
+| `get_emoji_notes` | [query] 列出 emoji 备注（可按 emojiId / kind 过滤，默认只返回有效项） |
+| `resolve_emoji` | [query] 把口语化/可能带 STT 噪声的中文表情描述解析成 emojiId，支持别名/拼音同音/分词重叠/编辑距离；歧义时返回候选不瞎猜 |
 | `upload_emoji` | 上传自定义 boop 表情（需 VRChat Plus；imagePath 必填，animated/animationStyle 可选） |
 | `upload_print` | 上传照片到 VRChat 相册 Prints（需 VRC+；imagePath 必填，note 可选备注） |
 | `upload_gallery_image` | 上传图片到 VRC+ 图库 Gallery（需 VRC+；imagePath 必填） |

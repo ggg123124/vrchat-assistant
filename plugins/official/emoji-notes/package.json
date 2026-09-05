@@ -1,0 +1,9 @@
+{
+  "name": "vrc-monitor-plugin-emoji-notes",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "dependencies": {
+    "pinyin-pro": "^3.26.0"
+  }
+}

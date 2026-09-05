@@ -2,6 +2,9 @@
   "tool_order": [
     "send_boop",
     "get_boop_emojis",
+    "set_emoji_note",
+    "get_emoji_notes",
+    "resolve_emoji",
     "upload_emoji",
     "upload_print",
     "upload_gallery_image",
