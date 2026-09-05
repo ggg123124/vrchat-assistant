@@ -36,7 +36,8 @@ metadata:
 | `get_my_favorite_groups` | **我的收藏分组**：世界收藏分组（`world` + `vrcPlusWorld` 两种类型，**含 VRC+ 专属收藏夹**），返回 tag/显示名/类型/可见性/容量 `capacity`（来自 `/auth/user/favoritelimits`）/已用数/分组 id；`type` 参数可按类型过滤 |
 | `backup_database` | 立即备份数据库（WAL 在线备份，保留最近 2 份到 data/backups/）；服务启动 + 每 24h 自动备份 |
 | `get_friend_events` | 某好友的事件历史（本地库） |
-| `get_recent_events` | 最新事件流 |
+| `get_recent_events` | 事件流查询：无 typeFilter 时返回最新事件窗口；带 typeFilter 为 **SQL 层按类型检索**（返回该类型最近事件，可查任意历史类型，如 `typeFilter="friend-delete"`） |
+| `get_friend_removals` | **[friend-removals 插件] 谁把我删了**：列出历史上解除好友的人（friend-delete 事件）。userId 省略=全部；days=最近 N 天；返回 userId/displayName（回填最后使用名）/nickname/createdAt |
 | `get_companions` | **同屏交叉查询**（指定时间窗口内同实例的好友；可查自己或任意好友）。**默认不返回 userTimeline**（位置事件多时输出会过大被截断），仅返回 companions 汇总；需逐条位置明细时传 `includeTimeline=true` |
 | `get_recent_cooplay` | **最近一起玩**（最近 N 天与自己同屏过的全部好友，按同屏次数降序）：companions[{userId, displayName, matchCount, daysCount, lastDay}]；days(1-90 默认 7)、limit(默认 30)。与 get_friend_pair_screen（两人版带逐条 matches）互补——面向自己的全好友批量版 |
 | `get_ops_log` | **运维日志**（认证/WS/运维生命周期事件，保留最近 500 条）：返回 items[{id, kind, level, message, createdAt}]；limit(1-1000 默认 200)、kind(可选 'auth'\|'ws'\|'ops') |
@@ -180,6 +181,12 @@ curl -s http://127.0.0.1:8799/mcp -X POST \
 ### boop 通知在 notification-v2 里
 
 boop 通知落库的顶层事件类型是 `notification-v2`（不是 boop），boop 在 content_json.type 里。`get_recent_events(typeFilter="boop")` 查不到，用 `typeFilter="notification-v2"`。
+
+### 好友删除事件 friend-delete（谁把我删了）
+
+- VRChat **对方解除好友**时，你的 WS 会收到 `friend-delete` 事件（本地已实时落库并自动把该好友移出 friends 表）；自己主动删人走 `remove_friend`，不产生此事件。
+- 该事件 **display_name 为空**（解除后 VRChat 不再下发对方信息）——判断"是谁"需靠 userId，可用 `get_friend_events(userId)` 回溯其历史事件中的显示名，或直接调用 `get_friend_removals`（friend-removals 插件已封装名字回填）。
+- 查询历史：`get_recent_events(typeFilter="friend-delete")`（2026-09-06 起 typeFilter 为 **SQL 层类型检索**，可查全史）；或 `get_friend_events(userId, types="friend-delete")`。语义化入口推荐 `get_friend_removals()`（插件）。
 
 ### 存储引擎：better-sqlite3（WAL 模式，2026-08-09 起）
 

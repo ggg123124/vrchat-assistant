@@ -1,0 +1,6 @@
+{
+  "name": "friend-removals",
+  "version": "0.1.0",
+  "description": "查询「被解除好友」记录（friend-delete 事件，即谁把我删了）：get_friend_removals 工具；数据经 api.tools.call 复用核心事件流查询，无需自有持久化",
+  "author": "AI Agent"
+}

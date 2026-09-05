@@ -100,16 +100,27 @@ export function handleGetOpsLog({ limit = 200, kind } = {}) {
 
 export function handleGetRecentEvents({ limit = 30, offset = 0, typeFilter, userIdFilter }) {
   const { storage } = ctx;
+  const types = typeFilter ? String(typeFilter).split(',').map(t => t.trim()).filter(Boolean) : [];
+  if (types.length > 0) {
+    // SQL 层类型过滤（2026-09-06 修复）：原实现先取最近 limit+offset 条再内存过滤，
+    // 低频类型（friend-delete 等）被高频事件挤出滚动窗口后永远查不到历史；
+    // 改走 WHERE type IN(...) 全史检索，typeFilter 语义 =「该类型最近 N 条」而非「全局窗口内命中」。
+    const events = storage.getEventsFiltered({
+      types,
+      userId: userIdFilter || '',
+      limit,
+      offset,
+    });
+    return { total: events.length, events };
+  }
+  // 无类型过滤：保持原「最新事件流」语义
   let events;
   if (userIdFilter) {
-    events = storage.getEventsByUser(userIdFilter, { limit, offset });
+    events = storage.getEventsByUser(userIdFilter, { limit: limit + offset });
+    if (offset > 0) events = events.slice(offset);
   } else {
     events = storage.getRecentEvents({ limit: limit + offset });
     if (offset > 0) events = events.slice(offset);
-  }
-  if (typeFilter) {
-    const typeSet = new Set(typeFilter.split(',').map(t => t.trim()));
-    events = events.filter(e => typeSet.has(e.type));
   }
   return { total: events.length, events };
 }
@@ -447,7 +458,7 @@ export const tools = [
   },
   {
     "name": "get_recent_events",
-    "description": "[query] Get the latest event stream from local database.",
+    "description": "[query] 事件流查询：无 typeFilter 时返回最新事件（最近滚动窗口）；带 typeFilter 时为 SQL 层按类型检索——返回该类型最近的事件（可查任意历史，非仅当前窗口），如 typeFilter='friend-delete' 可查被删除好友记录。",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -461,7 +472,7 @@ export const tools = [
         },
         "typeFilter": {
           "type": "string",
-          "description": "Comma-separated event types to filter"
+          "description": "Comma-separated event types to filter (SQL-level history search)"
         },
         "userIdFilter": {
           "type": "string",

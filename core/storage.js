@@ -315,6 +315,32 @@ export class Storage {
     return this._query(sql, params);
   }
 
+  /**
+   * 按类型（可多值）/用户/起始时间在 SQL 层过滤查事件（分页，时间倒序）。
+   * 与 getRecentEvents 的区别：type 过滤发生在 WHERE（非「先取最近 N 条再内存过滤」），
+   * 低频类型（如 friend-delete）不会被高频事件挤出滚动窗口——历史类型可全史检索
+   * （2026-09-06：get_recent_events(typeFilter='friend-delete') 查不到历史即此因）。
+   * types: 非空数组（至少一个元素）；userId/since 可选；limit/offset 分页。
+   */
+  getEventsFiltered({ types = [], userId = '', since = '', limit = 50, offset = 0 } = {}) {
+    const where = [];
+    const params = {};
+    if (types.length > 0) {
+      const ph = types.map((_, i) => `$t${i}`).join(',');
+      types.forEach((t, i) => { params[`$t${i}`] = t; });
+      where.push(`type IN (${ph})`);
+    }
+    if (userId) { where.push(`user_id = $userId`); params.$userId = userId; }
+    if (since) { where.push(`created_at >= $since`); params.$since = since; }
+    const wsql = where.length > 0 ? ` WHERE ${where.join(' AND ')}` : '';
+    params.$limit = limit;
+    params.$offset = offset;
+    return this._query(
+      `SELECT * FROM events${wsql} ORDER BY created_at DESC LIMIT $limit OFFSET $offset`,
+      params
+    );
+  }
+
   getEventsByTimeRange(start, end, { limit = 1000 } = {}) {
     return this._query(
       `SELECT * FROM events WHERE created_at >= $start AND created_at <= $end ORDER BY created_at DESC LIMIT $limit`,
