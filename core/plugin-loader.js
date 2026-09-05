@@ -243,7 +243,10 @@ export class PluginLoader {
     const tableRe = /((?:CREATE TABLE|ALTER TABLE)\s+(?:IF\s+NOT\s+EXISTS\s+)?)([a-zA-Z0-9_]+)/gi;
     sql = sql.replace(tableRe, (match, pre, tableName) => {
       if (tableName.startsWith('plg_')) return match;
-      return `${pre}"${prefix}${tableName}"`;
+      const full = prefix + tableName;
+      // 仅当完整表名含非标识符字符（连字符插件名）才加双引号，避免非必需引号
+      const needsQuote = /[^a-zA-Z0-9_]/.test(full);
+      return `${pre}${needsQuote ? `"${full}"` : full}`;
     });
 
     ctx.storage.exec(sql);

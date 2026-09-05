@@ -116,7 +116,11 @@ function buildDbNamespace({ pluginName, prefix, ctx }) {
     const sorted = Array.from(aliases).sort((a, b) => b.length - a.length);
     for (const alias of sorted) {
       const actual = getActual(alias);
-      sql = sql.replace(new RegExp(`\\b${alias}\\b`, 'g'), `"${actual}"`);
+      // 仅当实际表名含非标识符字符（如连字符插件的 plg_emoji-notes_notes）才加双引号；
+      // 否则不加——避免把 SQL 里已带引号的别名（如 events 的 "store"）套成双重引号导致语法错误。
+      const needsQuote = /[^a-zA-Z0-9_]/.test(actual);
+      const replacement = needsQuote ? `"${actual}"` : actual;
+      sql = sql.replace(new RegExp(`\\b${alias}\\b`, 'g'), replacement);
     }
     return sql;
   }
