@@ -70,6 +70,10 @@ export default function register(api) {
     // API 路径(/api//health/mcp)仍严格鉴权。图片代理豁免：<img> 无法带 Authorization header，只服务白名单公图。
     try {
       const pathname = new URL(req.url || '', 'http://localhost').pathname;
+      // 根路径豁免：配合 web-dashboard 的 GET / → 302 /dashboard 重定向，裸域名访问不再返回裸 401 JSON
+      if (req.method === 'GET' && pathname === '/') {
+        return { ok: true, enabled: true };
+      }
       if (req.method === 'GET' && (pathname === '/dashboard' || pathname.startsWith('/dashboard/'))) {
         return { ok: true, enabled: true };
       }
