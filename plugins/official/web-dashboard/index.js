@@ -74,6 +74,16 @@ export default function register(api) {
   const { homeFavorites: homeFavCache } = dashboardState;
   const HOME_FAV_TTL = CACHE_TTLS.homeFavorites;
 
+  // 根路径 → /dashboard（裸域名访问不再看到 401 JSON；auth-guard 已豁免 GET /）
+  api.http.registerRoute({
+    method: 'GET',
+    path: '/',
+    handler: async (_req, res) => {
+      res.writeHead(302, { Location: '/dashboard' });
+      res.end();
+    },
+  });
+
   api.http.registerRoute({
     method: 'GET',
     path: '/dashboard',
