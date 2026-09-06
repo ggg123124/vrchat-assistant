@@ -431,8 +431,8 @@ onUnmounted(() => {
       <template v-for="x in feedRows" :key="x.__sep ? 'sep-' + x.__sep : rowId(x)">
       <div v-if="x.__sep" class="ev-daysep"><span>{{ x.__sep }}</span></div>
       <div v-else class="ev-row" :class="{ open: expanded === rowId(x) }" role="button" tabindex="0" @click="toggleRow(x)" @keydown.enter="toggleRow(x)">
-        <div v-if="!store.isMobile" class="c-time mono">{{ time(x.createdAt) }}<small>{{ date(x.createdAt) }}</small></div>
-        <div v-else class="c-time mono">{{ date(x.createdAt) }}</div>
+        <div v-if="!store.isMobile" class="c-time mono"><span class="ct-hm">{{ time(x.createdAt) }}</span><small>{{ date(x.createdAt) }}</small></div>
+        <div v-else class="c-time mono"><span class="ct-hm">{{ time(x.createdAt) }}</span><small>{{ date(x.createdAt) }}</small></div>
         <div class="c-type"><Tag :value="TYPE_LABELS[typeOf(x)]" :severity="TYPE_SEVERITIES[typeOf(x)]" rounded><i class="pi ctype-ico" :class="TYPE_ICONS[typeOf(x)] || 'pi-circle'"></i></Tag></div>
         <div class="c-player" @click.stop="playerOpen(x)" role="button" tabindex="0" @keydown.enter="playerOpen(x)">
           <Avatar :image="playerAvatarOf(x)" shape="circle" size="small" :label="avatarLabel(playerAvatarOf(x), playerNameOf(x))" />
@@ -784,6 +784,8 @@ onUnmounted(() => {
 
 .c-time { font-size: 12px; color: var(--text-dim); line-height: 1.25; }
 .c-time small { display: block; font-size: 10px; opacity: 0.7; }
+/* 时间主体加大加深（用户反馈：PC 时间看不清、手机缺时间） */
+.ct-hm { font-size: 13.5px; color: var(--text); font-weight: 600; }
 .c-type { display: flex; align-items: center; }
 .c-type :deep(.p-tag) { font-size: 10.5px; }
 .c-player {
@@ -894,8 +896,8 @@ onUnmounted(() => {
 /* 移动端：简介变更允许换行完整显示（父级 .c-detail 已 wrap），避免长文本横向溢出 */
 @media (max-width: 899px) {
   .bio-text { white-space: normal; overflow: visible; text-overflow: clip; word-break: break-word; }
-  /* C1 触控目标：世界链接行内元素加大点击区域（16px→inline-flex + padding） */
-  .world-link { display: inline-flex; align-items: center; padding: 4px 8px; }
+  /* C1 触控目标：世界链接行内元素加大点击区域（16px→inline-flex + padding，min-height 32 达标） */
+  .world-link { display: inline-flex; align-items: center; padding: 4px 8px; min-height: 32px; }
 }
 
 /* 通知：消息内容（可点击打开群组） */
@@ -1001,10 +1003,10 @@ onUnmounted(() => {
     margin-bottom: 7px;
     background: var(--surface);
   }
-  /* 第一行：玩家(左) ｜ 日期单行(中) ｜ 类型(右) */
-  .c-time { grid-area: time; align-self: center; white-space: nowrap; font-size: 12px; }
+  /* 第一行：玩家(左) ｜ 时间+日期竖排(中) ｜ 类型(右) */
+  .c-time { grid-area: time; align-self: center; white-space: nowrap; font-size: 12px; text-align: center; }
   .c-type { grid-area: type; justify-self: end; align-self: center; }
-  .c-player { grid-area: player; align-self: center; min-width: 0; }
+  .c-player { grid-area: player; align-self: center; min-width: 0; min-height: 32px; }
   /* 第二行：详情全宽 */
   .c-detail { grid-area: detail; padding-top: 3px; border-top: 1px dashed var(--border-soft); }
   /* 移动端禁用展开：隐藏 chevron、去掉手型与展开高亮 */

@@ -113,6 +113,24 @@ test('dashboard.trackedChanges 返回 avatar 变化形状（前后缩略图字�
   assert.ok(av.previousAvatarImageUrl);
 });
 
+test('dashboard.trackedChanges 返回 location 变化（上下线/换世界透传，PR #149）', () => {
+  ctx.storage.insertEvent({
+    type: 'friend-update', userId: UID, displayName: '测试用户',
+    contentJson: { userId: UID, displayName: '测试用户', type: 'location',
+      location: 'wrld_44a2b6c8-83c5-4a5e-a5cf-99a5dbf8b8c3:12345', previousLocation: 'offline',
+      worldId: 'wrld_44a2b6c8-83c5-4a5e-a5cf-99a5dbf8b8c3', worldName: '测试世界' },
+    worldId: 'wrld_44a2b6c8-83c5-4a5e-a5cf-99a5dbf8b8c3', worldName: '测试世界',
+    createdAt: new Date().toISOString(), source: 'poll',
+  });
+  const r = services.get('dashboard.trackedChanges')({ userId: UID, limit: 20 });
+  const loc = r.changes.find((c) => c.type === 'location');
+  assert.ok(loc, 'location 变化在时间线中');
+  assert.equal(loc.previousLocation, 'offline', '旧位置（离线）透传');
+  assert.ok(loc.location.startsWith('wrld_'), '新位置透传');
+  assert.equal(loc.worldId, 'wrld_44a2b6c8-83c5-4a5e-a5cf-99a5dbf8b8c3', 'worldId 透传');
+  assert.equal(loc.worldName, '测试世界', 'worldName 透传（前端 locLabel 附加显示用）');
+});
+
 test('dashboard.trackedChanges 对非法 userId 返回空', () => {
   const r = services.get('dashboard.trackedChanges')({ userId: 'bad', limit: 10 });
   assert.deepEqual(r, { changes: [] });
@@ -232,13 +250,14 @@ test('dashboard.trackedAdd 幂等 + 拒绝自己 + trackedRemove 标记', () => 
 });
 
 test('dashboard.groupAnnouncementsAll 汇总跨群组公告', () => {
-  const ev = (gid, gname, title, msg, dt) => ctx.storage.insertEvent({
+  const ev = (gid, gname, title, msg, dt, imageUrl) => ctx.storage.insertEvent({
     type: 'notification-v2', userId: 'usr_ann', displayName: '公告',
     contentJson: { id: 'not_' + gid, type: 'group.announcement', title: gname + ': ' + title, message: msg,
+      ...(imageUrl ? { imageUrl } : {}),
       data: { groupId: gid, groupName: gname, announcementTitle: title } },
     worldId: '', worldName: '', createdAt: new Date(Date.now() - dt).toISOString(), source: 'ws',
   });
-  ev('grp_ann1', '群组A', '公告一', '内容一', 300000);
+  ev('grp_ann1', '群组A', '公告一', '内容一', 300000, 'https://api.vrchat.cloud/api/1/file/file_ann1cover/1/file');
   ev('grp_ann2', '群组B', '公告二', '内容二', 600000);
   const r = services.get('dashboard.groupAnnouncementsAll')({ limit: 50 });
   assert.ok(r.total >= 2, '至少汇总 2 条公告');
@@ -247,6 +266,11 @@ test('dashboard.groupAnnouncementsAll 汇总跨群组公告', () => {
   assert.equal(a1.title, '公告一');
   assert.equal(a1.groupName, '群组A');
   assert.equal(a1.text, '内容一');
+  // PR #149：公告封面图解析（content 顶层 imageUrl 经本地代理）；无图公告为空串
+  assert.ok(a1.imageUrl && a1.imageUrl.startsWith('/api/dashboard/image-proxy?url='), '封面图经本地代理');
+  assert.ok(decodeURIComponent(a1.imageUrl).includes('file_ann1cover'), '代理 URL 还原后含原始 file id');
+  const a2 = r.announcements.find((a) => a.groupId === 'grp_ann2');
+  assert.equal(a2.imageUrl, '', '无图公告 imageUrl 为空串（不产生空代理 URL）');
   // 降序（最新在前）
   const ts = r.announcements.map((a) => a.createdAt);
   const sorted = [...ts].sort().reverse();
