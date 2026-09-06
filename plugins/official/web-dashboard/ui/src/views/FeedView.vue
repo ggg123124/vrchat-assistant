@@ -896,8 +896,8 @@ onUnmounted(() => {
 /* 移动端：简介变更允许换行完整显示（父级 .c-detail 已 wrap），避免长文本横向溢出 */
 @media (max-width: 899px) {
   .bio-text { white-space: normal; overflow: visible; text-overflow: clip; word-break: break-word; }
-  /* C1 触控目标：世界链接行内元素加大点击区域（16px→inline-flex + padding） */
-  .world-link { display: inline-flex; align-items: center; padding: 4px 8px; }
+  /* C1 触控目标：世界链接行内元素加大点击区域（16px→inline-flex + padding，min-height 32 达标） */
+  .world-link { display: inline-flex; align-items: center; padding: 4px 8px; min-height: 32px; }
 }
 
 /* 通知：消息内容（可点击打开群组） */
@@ -1006,7 +1006,7 @@ onUnmounted(() => {
   /* 第一行：玩家(左) ｜ 时间+日期竖排(中) ｜ 类型(右) */
   .c-time { grid-area: time; align-self: center; white-space: nowrap; font-size: 12px; text-align: center; }
   .c-type { grid-area: type; justify-self: end; align-self: center; }
-  .c-player { grid-area: player; align-self: center; min-width: 0; }
+  .c-player { grid-area: player; align-self: center; min-width: 0; min-height: 32px; }
   /* 第二行：详情全宽 */
   .c-detail { grid-area: detail; padding-top: 3px; border-top: 1px dashed var(--border-soft); }
   /* 移动端禁用展开：隐藏 chevron、去掉手型与展开高亮 */
