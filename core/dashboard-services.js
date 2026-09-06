@@ -630,6 +630,15 @@ export function registerDashboardServices(loader, ctx) {
       }
     }
     if (cur) { cur.end = cur.lastSeen; addMin(cur); }
+    // 补名：world_cache 无记录（事件与缓存皆无名字）的世界，fire-and-forget 走 dashboard.world
+    // （自带限流+10s 超时+upsert 缓存）拉取资料落库——本次响应不阻塞，下次查询即有名字。
+    // 触发频率天然受限：仅名单里缺名字的世界会触发一次，拉到后 world_cache 命中不再重复。
+    const worldSvc = loader.services.get('dashboard.world');
+    for (const w of worlds) {
+      if (!w.worldName && String(w.worldId).startsWith('wrld_') && worldSvc) {
+        Promise.resolve(worldSvc({ worldId: w.worldId })).catch(() => { /* 补名失败静默，下次再试 */ });
+      }
+    }
     return worlds.map((w) => ({ ...w, visits: segCount.get(w.worldId) || 0, minutes: minutes.get(w.worldId) || 0 }));  // 保持数组契约（路由层再包 {worlds: [...]}）；visits 统一为进入段数
   });
   loader.serviceOwners.set('dashboard.recentWorlds', 'core');
