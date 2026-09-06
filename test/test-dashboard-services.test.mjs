@@ -113,6 +113,24 @@ test('dashboard.trackedChanges 返回 avatar 变化形状（前后缩略图字�
   assert.ok(av.previousAvatarImageUrl);
 });
 
+test('dashboard.trackedChanges 返回 location 变化（上下线/换世界透传，PR #149）', () => {
+  ctx.storage.insertEvent({
+    type: 'friend-update', userId: UID, displayName: '测试用户',
+    contentJson: { userId: UID, displayName: '测试用户', type: 'location',
+      location: 'wrld_44a2b6c8-83c5-4a5e-a5cf-99a5dbf8b8c3:12345', previousLocation: 'offline',
+      worldId: 'wrld_44a2b6c8-83c5-4a5e-a5cf-99a5dbf8b8c3', worldName: '测试世界' },
+    worldId: 'wrld_44a2b6c8-83c5-4a5e-a5cf-99a5dbf8b8c3', worldName: '测试世界',
+    createdAt: new Date().toISOString(), source: 'poll',
+  });
+  const r = services.get('dashboard.trackedChanges')({ userId: UID, limit: 20 });
+  const loc = r.changes.find((c) => c.type === 'location');
+  assert.ok(loc, 'location 变化在时间线中');
+  assert.equal(loc.previousLocation, 'offline', '旧位置（离线）透传');
+  assert.ok(loc.location.startsWith('wrld_'), '新位置透传');
+  assert.equal(loc.worldId, 'wrld_44a2b6c8-83c5-4a5e-a5cf-99a5dbf8b8c3', 'worldId 透传');
+  assert.equal(loc.worldName, '测试世界', 'worldName 透传（前端 locLabel 附加显示用）');
+});
+
 test('dashboard.trackedChanges 对非法 userId 返回空', () => {
   const r = services.get('dashboard.trackedChanges')({ userId: 'bad', limit: 10 });
   assert.deepEqual(r, { changes: [] });
