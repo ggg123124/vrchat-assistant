@@ -19,6 +19,7 @@ import BoothView from './views/BoothView.vue';
 import AnnouncementsView from './views/AnnouncementsView.vue';
 import ModerationView from './views/ModerationView.vue';
 import ToolsView from './views/ToolsView.vue';
+import SettingsView from './views/SettingsView.vue';
 import OpenView from './views/OpenView.vue';
 import WeeklyReportView from './views/WeeklyReportView.vue';
 import XWorldsView from './views/XWorldsView.vue';
@@ -74,6 +75,7 @@ const NAV_GROUPS = [
   { g: '管理', items: [
     { view: 'moderation', ico: 'pi pi-ban', label: '屏蔽' },
     { view: 'tools', ico: 'pi pi-wrench', label: '工具' },
+    { view: 'settings', ico: 'pi pi-cog', label: '设置' },
     { view: 'open', ico: 'pi pi-external-link', label: '直接打开' },
   ]},
 ];
@@ -198,6 +200,7 @@ async function refresh() {
           <WeeklyReportView v-else-if="store.view === 'report'" key="report" />
           <ModerationView v-else-if="store.view === 'moderation'" key="moderation" />
           <ToolsView v-else-if="store.view === 'tools'" key="tools" />
+          <SettingsView v-else-if="store.view === 'settings'" key="settings" />
           <OpenView v-else-if="store.view === 'open'" key="open" />
           <PlaceholderView v-else :view="store.view" key="placeholder" />
         </Transition>
