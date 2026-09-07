@@ -81,7 +81,7 @@ export class DynamicStatusSync {
       return { action: 'skipped', reason: 'cooldown', nextInMs: MIN_INTERVAL_MS - (now - this._lastAt) };
     }
 
-    const ok = await this._putStatus(text, me.status);
+    const ok = await this._putStatus(me.id, text, me.status);
     if (ok) {
       this._lastAt = now;
       this._lastSent = text;
@@ -98,12 +98,17 @@ export class DynamicStatusSync {
     } catch { return null; }
   }
 
-  /** PUT /auth/user 只更新 statusDescription；保留原 status 种类，不改变在线形态。失败原因透传 _lastPutError */
-  async _putStatus(desc, keepStatus) {
+  /**
+   * 更新自己的自定义状态：**PUT /users/{userId}**（VRChat 现行端点；容器内实测
+   * PUT /auth/user 返回 405 Method Not Allowed——该路径已不接受更新方法）。
+   * 只改 statusDescription；保留原 status 种类，不改变在线形态。失败原因透传 _lastPutError。
+   */
+  async _putStatus(selfId, desc, keepStatus) {
     try {
+      if (!selfId) { this._lastPutError = 'no self id'; return false; }
       const body = { statusDescription: desc };
       if (keepStatus) body.status = keepStatus;
-      const r = await this.ctx.api._request('PUT', '/auth/user', body);
+      const r = await this.ctx.api._request('PUT', `/users/${encodeURIComponent(selfId)}`, body);
       if (r.status !== 200) this._lastPutError = `HTTP ${r.status}: ${JSON.stringify(r.data || {}).slice(0, 200)}`;
       return r.status === 200;
     } catch (e) {
