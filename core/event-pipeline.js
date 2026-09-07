@@ -268,6 +268,16 @@ export class EventPipeline {
 
   async _handleAdd(event) {
     this._storeEvent(event);
+    // 加好友联动：该人已是好友 → 从非好友追踪移出（软删除 removed_at 标记）。
+    // 与 _handleDelete 的重新激活成对：加好友移出、删好友激活，tracked 列表始终只含"非好友"。
+    // 不在 tracked 则无操作（好友不需要追踪条目）。
+    try {
+      if (event.userId && String(event.userId).startsWith('usr_')) {
+        this.storage.run(
+          `UPDATE tracked_non_friends SET removed_at = datetime('now') WHERE user_id = $u AND removed_at = ''`,
+          { $u: event.userId });
+      }
+    } catch { /* 联动失败不影响事件记录 */ }
   }
 
   async _handleDelete(event) {
@@ -278,6 +288,17 @@ export class EventPipeline {
     try {
       if (event.userId) this.storage.run('DELETE FROM friends WHERE user_id = $u', { $u: event.userId });
     } catch { /* 移除失败不影响事件记录 */ }
+    // 删好友联动：被删好友即时进入非好友追踪（此前需等重启自动导入，运行期存在追踪空窗）。
+    // ① 从未 tracked → 新增；② 手动移除过（removed_at != ''）→ 重新激活（重新成为"历史非好友"）。
+    // display_name 用事件携带值，后续定时刷新会以 /users/{id} 资料覆盖。
+    try {
+      if (event.userId && String(event.userId).startsWith('usr_')) {
+        this.storage.run(
+          `INSERT INTO tracked_non_friends (user_id, display_name) VALUES ($u, $d)
+           ON CONFLICT(user_id) DO UPDATE SET removed_at = ''`,
+          { $u: event.userId, $d: event.displayName || '' });
+      }
+    } catch { /* 联动失败不影响事件记录 */ }
   }
 
   async _handleNotification(event) {
