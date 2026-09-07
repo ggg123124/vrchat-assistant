@@ -590,9 +590,16 @@ function updateFriendFromEvent(ev) {
 }
 
 function trackViewport() {
-  const update = () => { store.isMobile = window.innerWidth < 900; };
+  // 移动布局判定：宽度 < 900，或触控设备（pointer: coarse）且宽度 < 1100。
+  // 后者覆盖 Android Chrome「桌面版网站」/高 DPR 大屏手机——innerWidth 可能 ≥900，
+  // 但触屏设备渲染桌面布局会导致底部导航栏缺失（用户实测：手机上 tabbar 消失）。
+  const update = () => {
+    const coarse = window.matchMedia('(pointer: coarse)').matches;
+    store.isMobile = window.innerWidth < 900 || (coarse && window.innerWidth < 1100);
+  };
   update();
   window.addEventListener('resize', update);
+  window.matchMedia('(pointer: coarse)')?.addEventListener?.('change', update);
 }
 
 // 视图快捷键映射：Alt+数字 或 Ctrl+数字 快速切换（数字 = 导航顺序，避开输入框聚焦态）
