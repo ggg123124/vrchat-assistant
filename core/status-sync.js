@@ -88,7 +88,7 @@ export class DynamicStatusSync {
       this.log(`[状态] 动态状态已更新（在线 ${online} 人）: ${text}`);
       return { action: 'synced', statusDescription: text, online };
     }
-    return { action: 'failed', reason: 'put-failed', statusDescription: text, online };
+    return { action: 'failed', reason: 'put-failed', detail: this._lastPutError || '', statusDescription: text, online };
   }
 
   async _fetchMe() {
@@ -98,13 +98,17 @@ export class DynamicStatusSync {
     } catch { return null; }
   }
 
-  /** PUT /auth/user 只更新 statusDescription；保留原 status 种类，不改变在线形态 */
+  /** PUT /auth/user 只更新 statusDescription；保留原 status 种类，不改变在线形态。失败原因透传 _lastPutError */
   async _putStatus(desc, keepStatus) {
     try {
       const body = { statusDescription: desc };
       if (keepStatus) body.status = keepStatus;
       const r = await this.ctx.api._request('PUT', '/auth/user', body);
+      if (r.status !== 200) this._lastPutError = `HTTP ${r.status}: ${JSON.stringify(r.data || {}).slice(0, 200)}`;
       return r.status === 200;
-    } catch { return false; }
+    } catch (e) {
+      this._lastPutError = String(e.message || e).slice(0, 200);
+      return false;
+    }
   }
 }
