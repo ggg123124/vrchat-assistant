@@ -11,6 +11,7 @@ const REPO = new URL('.', import.meta.url).pathname.replace(/test\/$/, '');
 const { DynamicStatusSync } = await import(new URL('../core/status-sync.js', import.meta.url).href);
 
 /** 构造 mock ctx:onlineCount 可变,PUT/GET 拦截记录 */
+const selfId = 'usr_self-0000-0000-0000-000000000000';
 function makeCtx({ online = 3, remoteDesc = '', remoteStatus = 'active' } = {}) {
   const calls = { get: 0, put: [], putBodies: [] };
   const cfgStore = new Map();
@@ -24,9 +25,9 @@ function makeCtx({ online = 3, remoteDesc = '', remoteStatus = 'active' } = {}) 
       _request: async (method, path, body) => {
         if (method === 'GET' && path === '/auth/user') {
           calls.get++;
-          return { status: 200, data: { status: remoteStatus, statusDescription: remoteDesc } };
+          return { status: 200, data: { id: selfId, status: remoteStatus, statusDescription: remoteDesc } };
         }
-        if (method === 'PUT' && path === '/auth/user') {
+        if (method === 'PUT' && path === `/users/${selfId}`) {
           calls.put.push(body);
           remoteDesc = body.statusDescription ?? remoteDesc;
           remoteStatus = body.status ?? remoteStatus;
