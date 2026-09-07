@@ -9,7 +9,7 @@
  *
  * 用法：node test/test-plugin-db-sandbox.mjs
  */
-import { buildPluginApi as buildApi } from '../core/plugin-api.js';
+import { buildPluginApi as buildApi, rewritePluginTableNames } from '../core/plugin-api.js';
 
 let pass = true;
 const errors = [];
@@ -121,6 +121,82 @@ function makeApi(pluginName = 'testplugin') {
   assert(calls.length >= 8, '全部合法 SQL 应放行');
   assertThrows(() => items.all('WITH t AS (SELECT * FROM friends) SELECT * FROM t'), /friends/, 'CTE 内部读取核心表仍应被拒');
   console.log('  ✅ 不误报：字符串/注释/CTE/ON CONFLICT/合法关键字组合放行');
+}
+
+// ── 6. schema.sql 白名单（_applySchema 路径）──
+{
+  const prefix = 'plg_schema_test_';
+
+  // 拒绝：核心表名出现在各种表名位置
+  assertThrows(() => rewritePluginTableNames('INSERT INTO friends (id) VALUES (1)', 'schema_test', prefix), /friends/, 'schema INSERT INTO 核心表');
+  assertThrows(() => rewritePluginTableNames('SELECT * FROM friends', 'schema_test', prefix), /friends/, 'schema SELECT FROM 核心表');
+  assertThrows(() => rewritePluginTableNames('UPDATE friends SET x = 1', 'schema_test', prefix), /friends/, 'schema UPDATE 核心表');
+  assertThrows(() => rewritePluginTableNames('DELETE FROM events WHERE id = 1', 'schema_test', prefix), /events/, 'schema DELETE FROM 核心表');
+  assertThrows(() => rewritePluginTableNames('CREATE TABLE friends (id INTEGER)', 'schema_test', prefix), /friends/, 'schema CREATE TABLE 核心表');
+  assertThrows(() => rewritePluginTableNames('ALTER TABLE friends ADD COLUMN x', 'schema_test', prefix), /friends/, 'schema ALTER TABLE 核心表');
+  assertThrows(() => rewritePluginTableNames('PRAGMA table_info(friends)', 'schema_test', prefix), /friends/, 'schema PRAGMA table_info 核心表');
+  assertThrows(() => rewritePluginTableNames('CREATE INDEX idx ON friends(col)', 'schema_test', prefix), /friends/, 'schema CREATE INDEX ON 核心表');
+
+  // 拒绝：其他插件前缀
+  assertThrows(() => rewritePluginTableNames('SELECT * FROM plg_otherplugin_notes', 'schema_test', prefix), /plg_otherplugin_/, 'schema 访问其他插件表');
+
+  // 合法：本插件裸表名在 CREATE/ALTER 后定义，并在 DML/DDL 位置重写
+  const rewritten = rewritePluginTableNames(
+    "CREATE TABLE notes (id INTEGER PRIMARY KEY, note TEXT); INSERT INTO notes (note) VALUES ('hello');",
+    'schema_test',
+    prefix
+  );
+  assert(rewritten.includes('CREATE TABLE plg_schema_test_notes'), 'schema CREATE TABLE 裸表名应被重写');
+  assert(rewritten.includes('INSERT INTO plg_schema_test_notes'), 'schema INSERT INTO 裸表名应被重写');
+
+  // CREATE INDEX / ALTER TABLE / DROP TABLE 引用本插件裸表名也允许
+  const rewritten2 = rewritePluginTableNames(
+    'CREATE TABLE logs (id INTEGER); CREATE INDEX idx ON logs(col); ALTER TABLE logs RENAME TO logs_v2;',
+    'schema_test',
+    prefix
+  );
+  assert(rewritten2.includes('CREATE TABLE plg_schema_test_logs'), 'schema CREATE TABLE logs 应被重写');
+  assert(rewritten2.includes('CREATE INDEX idx ON plg_schema_test_logs'), 'schema CREATE INDEX ON logs 应被重写');
+
+  // 带 IF NOT EXISTS 的 CREATE TABLE 同样识别为插件表定义
+  const rewritten3 = rewritePluginTableNames(
+    'CREATE TABLE IF NOT EXISTS items (id INTEGER); SELECT * FROM items;',
+    'schema_test',
+    prefix
+  );
+  assert(rewritten3.includes('CREATE TABLE IF NOT EXISTS plg_schema_test_items'), 'schema CREATE TABLE IF NOT EXISTS 应被重写');
+  assert(rewritten3.includes('SELECT * FROM plg_schema_test_items'), 'schema SELECT FROM 插件表应被重写');
+
+  // 字符串/注释中的核心表名不误报
+  const rewritten4 = rewritePluginTableNames(
+    "CREATE TABLE items (note TEXT); INSERT INTO items (note) VALUES ('friends'); -- from events\n/* select friends */",
+    'schema_test',
+    prefix
+  );
+  assert(rewritten4.includes("INSERT INTO plg_schema_test_items"), 'schema INSERT INTO 插件表应被重写');
+  assert(!rewritten4.includes('plg_schema_test_friends'), '字符串/注释中的 friends 不应被重写');
+
+  // 引号包裹裸表名 + 表名含空格（加前缀后仍需引号）：不应输出双重引号（review #161 修复）
+  const rewritten5 = rewritePluginTableNames(
+    'CREATE TABLE "my items" (id INTEGER); INSERT INTO "my items" (id) VALUES (1);',
+    'schema_test',
+    prefix
+  );
+  assert(rewritten5.includes('CREATE TABLE "plg_schema_test_my items"'), 'schema 引号裸表名(空格) CREATE 应重写为单层引号');
+  assert(rewritten5.includes('INSERT INTO "plg_schema_test_my items"'), 'schema 引号裸表名(空格) DML 应重写为单层引号');
+  assert(!rewritten5.includes('""'), '引号包裹表名不应出现双重引号');
+
+  // 插件名含连字符 → prefix 含连字符 → 表名需加引号（词分支也应正确）
+  const hPrefix = 'plg_emoji-notes_';
+  const rewritten6 = rewritePluginTableNames(
+    'CREATE TABLE notes (id INTEGER); INSERT INTO notes (id) VALUES (1);',
+    'emoji-notes',
+    hPrefix
+  );
+  assert(rewritten6.includes('CREATE TABLE "plg_emoji-notes_notes"'), '连字符插件名 CREATE 表名应带引号');
+  assert(rewritten6.includes('INSERT INTO "plg_emoji-notes_notes"'), '连字符插件名 DML 表名应带引号');
+
+  console.log('  ✅ schema.sql 白名单：核心表/其他插件表拒绝，本插件裸表名重写');
 }
 
 if (pass) {

@@ -19,7 +19,7 @@ import {
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { buildPluginApi } from './plugin-api.js';
+import { buildPluginApi, rewritePluginTableNames } from './plugin-api.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -359,33 +359,14 @@ export class PluginLoader {
     return { order, cyclePlugins };
   }
 
-  /** 执行 schema.sql（支持裸表名自动重写为 plg_<name>_<tbl>） */
+  /** 执行 schema.sql（白名单校验 + 裸表名自动重写为 plg_<name>_<tbl>） */
   _applySchema(plugin) {
     const { ctx } = this;
     if (!plugin.schemaFile || !existsSync(plugin.schemaFile)) return;
-    let sql = readFileSync(plugin.schemaFile, 'utf-8');
-
-    // 拒绝访问其他插件的 plg_ 前缀
+    const sql = readFileSync(plugin.schemaFile, 'utf-8');
     const prefix = `plg_${plugin.name}_`;
-    const foreignRe = /\bplg_[a-zA-Z0-9_-]+_/g;
-    let m;
-    while ((m = foreignRe.exec(sql)) !== null) {
-      if (m[0] !== prefix) {
-        throw new Error(`schema.sql 中表前缀 ${m[0]} 不属于本插件 ${plugin.name}`);
-      }
-    }
-
-    // 把 CREATE TABLE / ALTER TABLE 后的裸表名重写为带前缀的表名
-    const tableRe = /((?:CREATE TABLE|ALTER TABLE)\s+(?:IF\s+NOT\s+EXISTS\s+)?)([a-zA-Z0-9_]+)/gi;
-    sql = sql.replace(tableRe, (match, pre, tableName) => {
-      if (tableName.startsWith('plg_')) return match;
-      const full = prefix + tableName;
-      // 仅当完整表名含非标识符字符（连字符插件名）才加双引号，避免非必需引号
-      const needsQuote = /[^a-zA-Z0-9_]/.test(full);
-      return `${pre}${needsQuote ? `"${full}"` : full}`;
-    });
-
-    ctx.storage.exec(sql);
+    const rewritten = rewritePluginTableNames(sql, plugin.name, prefix);
+    ctx.storage.exec(rewritten);
   }
 
   /** 检查插件 package.json 依赖是否已安装（不自动安装，缺依赖则抛出错误） */
