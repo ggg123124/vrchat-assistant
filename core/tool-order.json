@@ -51,6 +51,7 @@
     "get_friend_pair_meeting",
     "get_friend_pair_screen",
     "get_recent_cooplay",
+    "get_friend_world_stats",
     "get_ops_log",
     "get_online_pattern",
     "get_nicknames",
