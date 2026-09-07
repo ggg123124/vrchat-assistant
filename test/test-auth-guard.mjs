@@ -93,6 +93,7 @@ console.log('\n── 3. 端到端测试: HTTP 鉴权中间件 ──');
   ctx.rateLimiter = new RateLimiter();
   ctx.serverState = { started: Date.now(), authUser: { id: 'usr_test', displayName: 'tester' }, needsOtp: false, needsTotp: false };
   ctx.paths = { PORT: 0, HOST: '127.0.0.1' };
+  ctx.httpRoutes = new Map();
 
   // 模拟 pluginLoader
   const services = new Map();
@@ -107,7 +108,14 @@ console.log('\n── 3. 端到端测试: HTTP 鉴权中间件 ──');
     hasService: (name) => services.has(name),
     registerTool: () => {},
     log: () => {},
+    // 模拟 api.http.registerRoute（web-dashboard 等插件注册 HTTP 路由用）
+    http: { registerRoute: (r) => ctx.httpRoutes.set(`${r.method} ${r.path}`, r) },
   };
+  // 模拟 web-dashboard 注册的根路径重定向（GET/HEAD / → 302 /dashboard）与面板页面路由
+  const rootRedirect = (_req, res) => { res.writeHead(302, { Location: '/dashboard' }); res.end(); };
+  mockApi.http.registerRoute({ method: 'GET', path: '/', handler: rootRedirect });
+  mockApi.http.registerRoute({ method: 'HEAD', path: '/', handler: rootRedirect });
+  mockApi.http.registerRoute({ method: 'GET', path: '/dashboard', handler: (_req, res) => { res.writeHead(200, { 'Content-Type': 'text/html' }); res.end('<html>dashboard</html>'); } });
   registerAuthGuard(mockApi);
 
   ctx.pluginLoader = {
@@ -125,7 +133,7 @@ console.log('\n── 3. 端到端测试: HTTP 鉴权中间件 ──');
       const req = http.request('http://127.0.0.1:' + port + path, options, (res) => {
         let data = '';
         res.on('data', (c) => data += c);
-        res.on('end', () => resolve({ status: res.statusCode, data }));
+        res.on('end', () => resolve({ status: res.statusCode, data, headers: res.headers }));
       });
       req.on('error', reject);
       if (options.body) req.write(options.body);
@@ -180,6 +188,17 @@ console.log('\n── 3. 端到端测试: HTTP 鉴权中间件 ──');
   res = await request('/mcp?token=' + TEST_TOKEN);
   assert.equal(res.status, 200);
   ok('携带正确 URL Query ?token=... 成功访问 /mcp 与 /health');
+
+  // 3.2.7 根路径豁免（PR #150）：GET/HEAD / → 302 /dashboard（无 token 也不返回 401）
+  res = await request('/');
+  assert.equal(res.status, 302, '配置 Token 时 GET / 豁免放行（不返回 401）');
+  assert.equal(res.headers.location, '/dashboard', '302 重定向到 /dashboard');
+  res = await request('/', { method: 'HEAD' });
+  assert.equal(res.status, 302, 'HEAD / 同样豁免放行');
+  assert.equal(res.headers.location, '/dashboard', 'HEAD 302 重定向到 /dashboard');
+  res = await request('/dashboard');
+  assert.equal(res.status, 200, '/dashboard 页面豁免回归正常');
+  ok('根路径 GET/HEAD / 豁免 → 302 /dashboard，页面豁免回归正常');
 
   // 清理测试环境
   delete process.env.VRC_MONITOR_AUTH_TOKEN;
