@@ -66,6 +66,8 @@
     "search_groups",
     "search_worlds",
     "backup_database",
+    "get_dynamic_status",
+    "set_dynamic_status",
     "join_group",
     "leave_group",
     "peek_group_announcement",

@@ -1,0 +1,110 @@
+/**
+ * 动态状态引擎（Dynamic Status Sync）—— 根据在线好友数量实时更新自己的自定义状态。
+ *
+ * 设计（用户 2026-09-07 确认）：
+ *   - **开关默认关闭**，config 表 `dynamic_status` 键存储（运行期经 MCP 工具/dashboard 可切，无需重启）；
+ *   - 触发 = friend-online/offline 事件驱动（start-monitor onEvent 钩子）+ 低频定时核对兜底；
+ *   - 限流内建：①状态文本**真变化**才提交 PUT /auth/user；②最小冷却间隔（默认 65s，VRChat
+ *     状态更新接口频率限制留足余量）；③PUT body 保留原 status 种类（active/join me 等），
+ *     只改 statusDescription（自定义状态文本），不改变在线形态；
+ *   - 模板：statusDescription 文本模板，`{online}` 占位符替换为当前在线好友数（默认"在线 {online} 人"）。
+ *
+ * 事件高频场景（重连突发批量 online/offline）由冷却 + unchanged 早退双保险防刷 API。
+ */
+
+const CONFIG_KEY = 'dynamic_status';
+const DEFAULT_TEMPLATE = '在线 {online} 人';
+const MIN_INTERVAL_MS = 65_000;
+const MAX_DESC_LEN = 64; // VRChat statusDescription 长度上限（保守取 64）
+
+export class DynamicStatusSync {
+  /**
+   * @param ctx 全局 server-context（需 api/storage/friendState）
+   * @param opts.log 日志函数
+   */
+  constructor(ctx, { log } = {}) {
+    this.ctx = ctx;
+    this.log = log || (() => {});
+    this._lastSent = '';   // 最近一次成功提交的文本（进程内去重）
+    this._lastAt = 0;      // 最近一次提交时间戳（冷却窗口）
+  }
+
+  /** 读配置（config 表 JSON；缺失/损坏回退默认关闭） */
+  get config() {
+    const raw = this.ctx.storage.getConfig(CONFIG_KEY);
+    if (!raw) return { enabled: false, template: DEFAULT_TEMPLATE };
+    try {
+      const c = JSON.parse(raw);
+      return {
+        enabled: !!c.enabled,
+        template: (typeof c.template === 'string' && c.template.trim()) ? c.template : DEFAULT_TEMPLATE,
+      };
+    } catch {
+      return { enabled: false, template: DEFAULT_TEMPLATE };
+    }
+  }
+
+  /** 写配置（局部合并），返回合并后的完整配置 */
+  setConfig(patch = {}) {
+    const next = { ...this.config, ...patch };
+    next.enabled = !!next.enabled;
+    next.template = (typeof next.template === 'string' && next.template.trim()) ? next.template : DEFAULT_TEMPLATE;
+    this.ctx.storage.setConfig(CONFIG_KEY, JSON.stringify(next));
+    return next;
+  }
+
+  /** 渲染模板：{online} → 当前在线好友数 */
+  render(text, online) {
+    return String(text).replaceAll('{online}', String(online)).slice(0, MAX_DESC_LEN);
+  }
+
+  /**
+   * 主入口：核对在线数 → 渲染 → 与远端比对 → 冷却闸 → PUT。
+   * @param force true 时绕过开关/冷却（set_dynamic_status 保存后立即生效用）
+   * @returns 执行摘要 { action: 'synced'|'skipped', reason?, statusDescription?, online? }
+   */
+  async sync(force = false) {
+    const cfg = this.config;
+    if (!cfg.enabled && !force) return { action: 'skipped', reason: 'disabled' };
+
+    const online = this.ctx.friendState ? this.ctx.friendState.getOnlineCount() : null;
+    if (online == null) return { action: 'skipped', reason: 'no-friend-state' };
+
+    const text = this.render(cfg.template, online);
+    const me = await this._fetchMe();
+    if (!me) return { action: 'skipped', reason: 'no-me' };
+
+    if (!force && text === (me.statusDescription || '')) return { action: 'skipped', reason: 'unchanged' };
+
+    const now = Date.now();
+    if (!force && now - this._lastAt < MIN_INTERVAL_MS) {
+      return { action: 'skipped', reason: 'cooldown', nextInMs: MIN_INTERVAL_MS - (now - this._lastAt) };
+    }
+
+    const ok = await this._putStatus(text, me.status);
+    if (ok) {
+      this._lastAt = now;
+      this._lastSent = text;
+      this.log(`[状态] 动态状态已更新（在线 ${online} 人）: ${text}`);
+      return { action: 'synced', statusDescription: text, online };
+    }
+    return { action: 'failed', reason: 'put-failed', statusDescription: text, online };
+  }
+
+  async _fetchMe() {
+    try {
+      const r = await this.ctx.api._request('GET', '/auth/user');
+      return (r.status === 200 && r.data) ? r.data : null;
+    } catch { return null; }
+  }
+
+  /** PUT /auth/user 只更新 statusDescription；保留原 status 种类，不改变在线形态 */
+  async _putStatus(desc, keepStatus) {
+    try {
+      const body = { statusDescription: desc };
+      if (keepStatus) body.status = keepStatus;
+      const r = await this.ctx.api._request('PUT', '/auth/user', body);
+      return r.status === 200;
+    } catch { return false; }
+  }
+}

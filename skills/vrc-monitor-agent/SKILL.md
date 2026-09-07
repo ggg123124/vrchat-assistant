@@ -35,6 +35,8 @@ metadata:
 | `get_my_favorite_worlds` | **我的收藏世界**（2026-08-14 新增）：拉取全部收藏世界（**含 VRC+ 专属收藏夹**），按标签分类（🎮游戏/👻恐怖/🎵音乐体验/🌄风景观光/🧍Avatar模型/🍻社交聚会/😴休闲睡觉/📷拍照/其他），返回世界名/作者/收藏/浏览/简介/分类。数据经 `GET /worlds/favorites` 分页一次拉全（含实时 `occupants`），**秒级返回**，无需逐个查详情。`sortBy` 支持 `favorites`/`visits`/`name`/`added`（**added=按收藏时间倒序，最新添加在前**，基于 `/favorites` 返回顺序，与客户端 "Date Added" 一致）；`group` 参数可按收藏夹过滤（tag 或 displayName，如 `vrcPlusWorlds1`）；配套 `favorites-pdf.py` 一键生成中文 PDF |
 | `get_my_favorite_groups` | **我的收藏分组**：世界收藏分组（`world` + `vrcPlusWorld` 两种类型，**含 VRC+ 专属收藏夹**），返回 tag/显示名/类型/可见性/容量 `capacity`（来自 `/auth/user/favoritelimits`）/已用数/分组 id；`type` 参数可按类型过滤 |
 | `backup_database` | 立即备份数据库（WAL 在线备份，保留最近 2 份到 data/backups/）；服务启动 + 每 24h 自动备份 |
+| `get_dynamic_status` | **动态状态引擎配置查询**（按在线好友数量自动更新自己的自定义状态 statusDescription）：enabled（开关,默认关闭）、template（文本模板,{online} 占位符替换为当前在线好友数）、onlineNow、lastSent/lastAt（最近一次实际提交） |
+| `set_dynamic_status` | **设置动态状态**：enabled 开关（默认关闭）、template 模板（{online} 占位符,最长 64 字符）、syncNow 保存后立即强制同步（默认 true）。引擎内置 65s 冷却 + 文本不变不提交（PUT /auth/user 只改 statusDescription,status 种类不变）；事件驱动（friend-online/offline）+ 5 分钟定时核对兜底 |
 | `get_friend_events` | 某好友的事件历史（本地库） |
 | `get_recent_events` | 事件流查询：无 typeFilter 时返回最新事件窗口；带 typeFilter 为 **SQL 层按类型检索**（返回该类型最近事件，可查任意历史类型，如 `typeFilter="friend-delete"`） |
 | `get_friend_removals` | **[friend-removals 插件] 谁把我删了**：列出历史上解除好友的人（friend-delete 事件）。userId 省略=全部；days=最近 N 天；返回 userId/displayName（回填最后使用名）/nickname/createdAt |

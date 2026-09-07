@@ -22,6 +22,7 @@ import { VrchatApiClient } from './vrchat-api.js';
 import { WsManager } from './core/ws-manager.js';
 import { EventPipeline } from './core/event-pipeline.js';
 import { FriendStateManager } from './core/friend-state.js';
+import { DynamicStatusSync } from './core/status-sync.js';
 import { createServer } from './core/http-server.js';
 import { PluginLoader } from './core/plugin-loader.js';
 import { registerDashboardServices } from './core/dashboard-services.js';
@@ -788,6 +789,11 @@ setOpsLogSink((kind, level, message) => {
   // 5. 初始化事件处理管道
   ctx.eventPipeline = new EventPipeline(ctx.storage, null);
 
+  // 5.4 动态状态引擎（按在线好友数量自动更新自定义状态；默认关闭,MCP set_dynamic_status 控制）
+  ctx.statusSync = new DynamicStatusSync(ctx, { log });
+  const _statusSyncLowFreq = () => { ctx.statusSync.sync().catch(() => {}); };
+  setInterval(_statusSyncLowFreq, 5 * 60 * 1000); // 定时核对兜底(事件驱动为主)
+
   // 5.5 加载插件（失败不阻断核心启动）
   const pluginLoader = new PluginLoader({ registry, ctx, log, notifier });
   registerCoreServices(pluginLoader, ctx);
@@ -807,7 +813,12 @@ setOpsLogSink((kind, level, message) => {
       try {
         await ctx.eventPipeline.process(event);
         await _updateFriendState(event);
-        
+
+        // 动态状态：在线好友数量变化（上线/下线）即触发核对（引擎内置 unchanged 早退 + 冷却防刷）
+        if (event.type === 'friend-online' || event.type === 'friend-offline') {
+          ctx.statusSync.sync().catch(() => {});
+        }
+
         // 核心关注好友活动日志（从内存缓存读取，不查 DB）
         if (ctx.watchlist.dirty) refreshWatchlistCache();
         const isWatched = ctx.watchlist.cache.some(w => w.user_id === event.userId);
