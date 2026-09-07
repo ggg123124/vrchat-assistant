@@ -56,12 +56,44 @@ export function sendError(res, id, message) {
   }]);
 }
 
+// ── 鉴权 fail-closed ──
+// 读取当前生效的鉴权 token：优先 core.authConfig 服务（start-monitor.js 提供，
+// 读 VRC_MONITOR_AUTH_TOKEN / VRC_MONITOR_API_KEY），服务缺失时回退环境变量。
+function getConfiguredAuthToken() {
+  try {
+    if (ctx.pluginLoader?.hasService?.('core.authConfig')) {
+      const cfg = ctx.pluginLoader.consume('core.authConfig');
+      if (cfg?.token) return cfg.token;
+    }
+  } catch { /* 服务异常按未配置处理 */ }
+  return process.env.VRC_MONITOR_AUTH_TOKEN || process.env.VRC_MONITOR_API_KEY || null;
+}
+
+function authFailClosedBody() {
+  return JSON.stringify({
+    error: 'Unauthorized',
+    message: '鉴权已启用但 http.authenticate 服务不可用（auth-guard 插件缺失或加载失败），fail-closed 拒绝访问',
+  });
+}
+
 // ── 请求路由 ──
 async function handleRequest(req, res) {
   const { storage, rateLimiter, wsManager, friendState, eventPipeline, serverState, paths } = ctx;
   const pathname = (req.url || '').split('?')[0];
 
   // ── 全局 HTTP 鉴权中间件（由 auth-guard 插件或环境配置提供）──
+  // fail-closed：token 已配置但 http.authenticate 服务缺失（auth-guard 缺失/加载失败/热重载中被卸载）
+  // → 一律 401 拒绝，绝不放行。fail-open 仅限「未配置 token」的开发场景。
+  if (getConfiguredAuthToken() && !ctx.pluginLoader?.hasService?.('http.authenticate')) {
+    const errBody = authFailClosedBody();
+    res.writeHead(401, {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(errBody),
+      'WWW-Authenticate': 'Bearer error="invalid_token"',
+    });
+    res.end(errBody);
+    return;
+  }
   if (ctx.pluginLoader?.hasService('http.authenticate')) {
     const authResult = ctx.pluginLoader.consume('http.authenticate', req);
     if (!authResult || !authResult.ok) {
@@ -218,6 +250,18 @@ async function handleRpc(rpc, session, res) {
 // ── 服务器创建 ──
 export function createServer() {
   const { PORT } = ctx.paths;
+
+  // 鉴权 fail-closed 启动期阻断：token 已配置但 http.authenticate 服务不存在
+  // （auth-guard 插件缺失或加载失败）→ 拒绝创建服务器。监听 0.0.0.0 + 有 token 却无鉴权
+  // = 危险配置，绝不能 fail-open；未配置 token 的开发场景不受影响。
+  if (getConfiguredAuthToken() && !ctx.pluginLoader?.hasService?.('http.authenticate')) {
+    throw new Error(
+      '鉴权 fail-closed：已配置 VRC_MONITOR_AUTH_TOKEN（或 VRC_MONITOR_API_KEY），' +
+      '但 http.authenticate 服务不存在（auth-guard 插件缺失或加载失败）。' +
+      '为安全起见拒绝启动：请检查 plugins/official/auth-guard 插件状态，或移除鉴权 token 配置。'
+    );
+  }
+
   const server = http.createServer(async (req, res) => {
     try {
       await handleRequest(req, res);

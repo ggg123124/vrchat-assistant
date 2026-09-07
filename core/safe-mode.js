@@ -38,14 +38,16 @@ export function isSafeModeEnabled() {
 }
 
 // ── 工具列表过滤（tools/list 用）：开启时剔除破坏性工具，关闭时原样返回 ──
+// 优先按工具定义上的 destructive 标志（注册时已解析）过滤，硬编码 DESTRUCTIVE_TOOLS 清单作兜底。
 export function filterTools(tools) {
   if (!isSafeModeEnabled()) return tools;
-  return tools.filter(t => !DESTRUCTIVE_TOOLS.includes(t.name));
+  return tools.filter(t => !(t.destructive || DESTRUCTIVE_TOOLS.includes(t.name)));
 }
 
 // ── 调用拦截（tools/call 用）：开启时对破坏性工具抛错，关闭时放行 ──
-export function assertToolAllowed(name) {
-  if (isSafeModeEnabled() && DESTRUCTIVE_TOOLS.includes(name)) {
+// destructive 标志为 true 的工具即使不在硬编码清单也会被拦截；清单对名字兜底。
+export function assertToolAllowed(name, destructive = false) {
+  if (isSafeModeEnabled() && (destructive || DESTRUCTIVE_TOOLS.includes(name))) {
     const err = new Error(
       `🔒 安全模式已启用：${name} 属于破坏性工具（删除/移除类），已被禁用。` +
       `如需使用，请在 .env 设置 VRC_MONITOR_SAFE_MODE=false 后重启服务。`

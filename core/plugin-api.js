@@ -93,6 +93,181 @@ export function buildPluginApi(pluginName, { registry, ctx, services, serviceOwn
   };
 }
 
+// ── 插件 DB 沙箱：表名白名单（docs/PLUGIN-API.md §4.2 契约）──
+// 表名位置的关键字：其后（跳过修饰词）的标识符是表名
+const TABLE_INTRO_KEYWORDS = new Set(['FROM', 'JOIN', 'UPDATE', 'INTO', 'TABLE', 'REFERENCES']);
+// 表名位置可跳过的修饰词（DDL 的 IF NOT EXISTS、UPDATE OR REPLACE 等）
+const TABLE_MODIFIER_KEYWORDS = new Set([
+  'IF', 'NOT', 'EXISTS', 'OR', 'ABORT', 'FAIL', 'IGNORE', 'REPLACE', 'ROLLBACK',
+]);
+// 表名候选位置出现的非表名 SQL 关键字（子查询/表达式开头），出现即放弃本次候选
+const NON_TABLE_KEYWORDS = new Set([
+  'SELECT', 'WITH', 'VALUES', 'WHERE', 'GROUP', 'ORDER', 'LIMIT', 'OFFSET', 'SET', 'AS',
+  'UNION', 'INTERSECT', 'EXCEPT', 'HAVING', 'RETURNING', 'WINDOW', 'FILTER', 'OVER',
+  'CONFLICT', 'DO', 'AND', 'BY', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END',
+  'USING', 'ON', 'IN', 'IS', 'LIKE', 'GLOB', 'MATCH', 'REGEXP', 'BETWEEN', 'COLLATE', 'ASC', 'DESC',
+  'OF',
+  'INDEXED', 'NULL', 'DISTINCT', 'ALL', 'CROSS', 'INNER', 'LEFT', 'RIGHT', 'FULL', 'OUTER', 'NATURAL',
+  'DEFAULT', 'PRIMARY', 'FOREIGN', 'KEY', 'CHECK', 'UNIQUE', 'CONSTRAINT',
+]);
+// PRAGMA 带表名参数的 pragma 名（PRAGMA table_info(plg_x_t) 等）
+const PRAGMA_TABLE_NAMES = new Set([
+  'TABLE_INFO', 'TABLE_XINFO', 'INDEX_LIST', 'INDEX_INFO', 'INDEX_XINFO', 'FOREIGN_KEY_LIST',
+]);
+
+/**
+ * 白名单扫描：SQL 中表名位置的标识符必须全部以本插件 prefix 开头。
+ * 返回第一个违规表名，全合法返回 null。跳过字符串字面量、注释、嵌套子查询关键字、
+ * WITH CTE 名（CTE 内部 FROM 仍会被检查，不会形成绕过）。
+ */
+function findForeignTableName(sql, prefix) {
+  const n = sql.length;
+  let i = 0;
+  let expectingTable = false;   // 上一个关键字引入了表名，等待候选
+  let stmtFirst = true;         // 处于语句首
+  let stmtKind = 'other';       // 'index-trigger' 时首个 ON 引入表名（CREATE INDEX/TRIGGER）
+  let pendingCreate = false;    // 语句首词是 CREATE，等待 INDEX/TRIGGER 判定
+  let pragmaPending = false;    // 语句首词是 PRAGMA，等待 pragma 名
+  let onConsumed = false;       // 本语句首个 ON 是否已用于表名位置
+  let inWith = false;           // WITH 子句中（收集 CTE 名）
+  let parenDepth = 0;
+  const cteNames = new Set();
+
+  const resetStatement = () => {
+    expectingTable = false;
+    stmtFirst = true;
+    stmtKind = 'other';
+    pendingCreate = false;
+    pragmaPending = false;
+    onConsumed = false;
+    inWith = false;
+  };
+
+  while (i < n) {
+    const ch = sql[i];
+
+    // 字符串字面量：内容不是表名，整体跳过（'' 转义）
+    if (ch === "'") {
+      i++;
+      while (i < n) {
+        if (sql[i] === "'") {
+          if (sql[i + 1] === "'") { i += 2; continue; }
+          i++;
+          break;
+        }
+        i++;
+      }
+      continue;
+    }
+
+    // 行注释 / 块注释
+    if (ch === '-' && sql[i + 1] === '-') {
+      i += 2;
+      while (i < n && sql[i] !== '\n') i++;
+      continue;
+    }
+    if (ch === '/' && sql[i + 1] === '*') {
+      i += 2;
+      while (i < n && !(sql[i] === '*' && sql[i + 1] === '/')) i++;
+      i = Math.min(i + 2, n);
+      continue;
+    }
+
+    // 引号标识符（"..."、`...`、[...]）
+    if (ch === '"' || ch === '`' || ch === '[') {
+      const close = ch === '[' ? ']' : ch;
+      let j = i + 1;
+      let ident = '';
+      while (j < n && sql[j] !== close) { ident += sql[j]; j++; }
+      i = j < n ? j + 1 : j;
+      if (expectingTable) {
+        if (!ident.toLowerCase().startsWith(prefix)) return ident;
+        expectingTable = false;
+      }
+      continue;
+    }
+
+    if (ch === '(') { parenDepth++; i++; continue; }
+    if (ch === ')') {
+      parenDepth = Math.max(0, parenDepth - 1);
+      if (expectingTable) expectingTable = false;
+      i++;
+      continue;
+    }
+    if (ch === ';') { resetStatement(); i++; continue; }
+
+    // 词（标识符/关键字）
+    if (/[A-Za-z_]/.test(ch)) {
+      let j = i;
+      let word = '';
+      while (j < n && /[A-Za-z0-9_]/.test(sql[j])) { word += sql[j]; j++; }
+      i = j;
+      const up = word.toUpperCase();
+
+      // WITH 子句（深度 0）：收集 CTE 名（词后紧跟 ( 或 AS），主 SELECT 出现即结束
+      if (inWith && parenDepth === 0) {
+        if (up === 'SELECT') {
+          inWith = false;
+        } else {
+          let k = i;
+          while (k < n && /\s/.test(sql[k])) k++;
+          if (sql[k] === '(') cteNames.add(word.toLowerCase());
+          else if (sql.startsWith('AS', k) && !/[A-Za-z0-9_]/.test(sql[k + 2] || '')) {
+            cteNames.add(word.toLowerCase());
+          }
+        }
+      }
+
+      // 语句首词判定：只设标志并跳过后续处理，避免首词自身把 pendingCreate/pragmaPending
+      // 立即消费掉（否则 CREATE INDEX 的 INDEX、PRAGMA table_info 的 TABLE_INFO 永远等不到标志）。
+      // UPDATE/DELETE/DROP 等首词不 continue，继续参与表名引入判定。
+      if (stmtFirst) {
+        stmtFirst = false;
+        if (up === 'CREATE') { pendingCreate = true; continue; }
+        if (up === 'WITH') { inWith = true; continue; }
+        if (up === 'PRAGMA') { pragmaPending = true; continue; }
+      }
+      if (pendingCreate) {
+        if (up !== 'UNIQUE' && up !== 'TEMP' && up !== 'TEMPORARY') {
+          if (up === 'INDEX' || up === 'TRIGGER') stmtKind = 'index-trigger';
+          pendingCreate = false;
+        }
+      }
+      if (pragmaPending) {
+        pragmaPending = false;
+        if (PRAGMA_TABLE_NAMES.has(up)) expectingTable = true;
+        continue;
+      }
+
+      // 期待表名时的候选处理
+      if (expectingTable) {
+        if (TABLE_MODIFIER_KEYWORDS.has(up)) { /* 保持期待 */ }
+        else if (NON_TABLE_KEYWORDS.has(up)) { expectingTable = false; }
+        else if (cteNames.has(word.toLowerCase())) { expectingTable = false; }
+        else {
+          if (!word.toLowerCase().startsWith(prefix)) return word;
+          expectingTable = false;
+        }
+      }
+
+      // 关键字引入表名；CREATE INDEX/TRIGGER 语句中首个 ON 引入表名
+      if (TABLE_INTRO_KEYWORDS.has(up)) expectingTable = true;
+      if (up === 'ON' && stmtKind === 'index-trigger' && !onConsumed) {
+        onConsumed = true;
+        expectingTable = true;
+      }
+      continue;
+    }
+
+    // 期待表名时：`(`（子查询）/ `=`（PRAGMA 等号形式）保持期待，其余字符放弃
+    if (expectingTable && ch !== '(' && ch !== '=' && !/\s/.test(ch)) {
+      expectingTable = false;
+    }
+    i++;
+  }
+  return null;
+}
+
 /** 构建命名空间存储 db */
 function buildDbNamespace({ pluginName, prefix, ctx }) {
   const aliases = new Set();
@@ -102,13 +277,31 @@ function buildDbNamespace({ pluginName, prefix, ctx }) {
   }
 
   function validatePrefixes(sql) {
-    const re = /\bplg_[a-zA-Z0-9_-]+_/g;
+    // 1) 快速通道：任何位置出现其他插件的 plg_ 前缀直接拒绝（含字符串/注释里出现）。
+    // 以本插件前缀开头（如 plg_<name>_deep_table 这类含下划线的表名）属本插件命名空间，放行。
+    const foreignRe = /\bplg_[a-zA-Z0-9_-]+_/g;
     let m;
-    while ((m = re.exec(sql)) !== null) {
+    while ((m = foreignRe.exec(sql)) !== null) {
       const fullPrefix = m[0];
-      if (fullPrefix !== prefix) {
+      if (!fullPrefix.startsWith(prefix)) {
         throw new Error(`插件 ${pluginName} 不能访问表前缀 ${fullPrefix}`);
       }
+    }
+
+    // 2) 白名单：表名位置的标识符必须都是本插件前缀（核心表/其他插件表一律拒绝）
+    const offender = findForeignTableName(sql, prefix);
+    if (offender) {
+      const foreignPrefix = /^plg_[a-zA-Z0-9_-]+_/.exec(offender.toLowerCase())?.[0];
+      if (foreignPrefix) {
+        throw new Error(
+          `插件 ${pluginName} 不能访问表 ${offender}：前缀 ${foreignPrefix} 属于其他插件` +
+          `（本插件只能访问 ${prefix} 开头的表）`
+        );
+      }
+      throw new Error(
+        `插件 ${pluginName} 不能访问表 ${offender}：只允许访问 ${prefix} 开头的表` +
+        `（核心表与其他插件表均不开放给插件）`
+      );
     }
   }
 

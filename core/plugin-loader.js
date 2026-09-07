@@ -40,6 +40,126 @@ const FORBIDDEN_IMPORT_PATTERNS = [
   /import\(['"]\.\.?\/core\//,
   /import\(['"]start-monitor/,
 ];
+// 破坏性工具名前缀契约（docs/PLUGIN-API.md §7）：工具名匹配这些前缀的插件工具
+// 必须声明 destructive: true，否则拒绝加载（静态扫描校验）。
+const DESTRUCTIVE_TOOL_NAME_PREFIXES = [
+  'remove_', 'delete_', 'leave_', 'decline_', 'hide_', 'unfavorite_', 'unfriend_',
+];
+
+/** 逐字符标记代码区/字符串/注释，用于跳过注释与字符串中的 registerTool 匹配（防误报） */
+function codeMask(code) {
+  const mask = new Array(code.length).fill('code');
+  let i = 0;
+  while (i < code.length) {
+    const ch = code[i];
+    if (ch === '/' && code[i + 1] === '/') {
+      mask[i] = mask[i + 1] = 'comment';
+      i += 2;
+      while (i < code.length && code[i] !== '\n') { mask[i] = 'comment'; i++; }
+      continue;
+    }
+    if (ch === '/' && code[i + 1] === '*') {
+      mask[i] = mask[i + 1] = 'comment';
+      i += 2;
+      while (i < code.length && !(code[i] === '*' && code[i + 1] === '/')) { mask[i] = 'comment'; i++; }
+      if (i < code.length) { mask[i] = mask[i + 1] = 'comment'; i += 2; }
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') {
+      mask[i] = 'string';
+      i++;
+      while (i < code.length) {
+        mask[i] = 'string';
+        if (code[i] === '\\') { mask[i + 1] = 'string'; i += 2; continue; }
+        if (code[i] === ch) { i++; break; }
+        i++;
+      }
+      continue;
+    }
+    i++;
+  }
+  return mask;
+}
+
+/** 提取代码中 fnName(...) 直接传对象字面量的调用参数（花括号配对，跳过字符串/注释） */
+function extractCallObjectArgs(code, fnName) {
+  const results = [];
+  const mask = codeMask(code);
+  const callRe = new RegExp(`\\b${fnName}\\s*\\(`, 'g');
+  let m;
+  while ((m = callRe.exec(code)) !== null) {
+    if (mask[m.index] !== 'code') continue; // 注释/字符串中的匹配不参与扫描
+    const openIdx = m.index + m[0].length;
+    const braceIdx = code.indexOf('{', openIdx);
+    if (braceIdx === -1) continue;
+    if (!/^\s*$/.test(code.slice(openIdx, braceIdx))) continue; // 参数不是直接的对象字面量
+    const endIdx = matchBrace(code, braceIdx);
+    if (endIdx === -1) continue;
+    results.push(code.slice(braceIdx + 1, endIdx)); // 不含外层花括号，顶层键即深度 0
+  }
+  return results;
+}
+
+/** 从 idx 处的 { 找到配对的 }（跳过字符串/模板串/注释），找不到返回 -1 */
+function matchBrace(code, idx) {
+  let depth = 0;
+  let i = idx;
+  let inString = null;
+  let lineComment = false;
+  let blockComment = false;
+  while (i < code.length) {
+    const ch = code[i];
+    const next = code[i + 1];
+    if (lineComment) {
+      if (ch === '\n') lineComment = false;
+      i++;
+      continue;
+    }
+    if (blockComment) {
+      if (ch === '*' && next === '/') { blockComment = false; i += 2; } else i++;
+      continue;
+    }
+    if (inString) {
+      if (ch === '\\') { i += 2; continue; }
+      if (ch === inString) inString = null;
+      i++;
+      continue;
+    }
+    if (ch === '/' && next === '/') { lineComment = true; i += 2; continue; }
+    if (ch === '/' && next === '*') { blockComment = true; i += 2; continue; }
+    if (ch === '"' || ch === "'" || ch === '`') { inString = ch; i++; continue; }
+    if (ch === '{') depth++;
+    else if (ch === '}') { depth--; if (depth === 0) return i; }
+    i++;
+  }
+  return -1;
+}
+
+/** 对象字面量文本（不含外层花括号）第一层的 key 值；取不到返回 null */
+function topLevelValue(defText, key) {
+  let depth = 0;
+  let inString = null;
+  for (let i = 0; i < defText.length; i++) {
+    const ch = defText[i];
+    if (inString) {
+      if (ch === '\\') { i++; continue; }
+      if (ch === inString) inString = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') { inString = ch; continue; }
+    if (ch === '{') { depth++; continue; }
+    if (ch === '}') { depth--; continue; }
+    if (depth !== 0 || !defText.startsWith(key, i)) continue;
+    if (i > 0 && /[A-Za-z0-9_$]/.test(defText[i - 1])) continue;
+    if (/[A-Za-z0-9_$]/.test(defText[i + key.length] || '')) continue;
+    const rest = defText.slice(i + key.length);
+    const vm = /^\s*:\s*(['"])([^'"]*)\1/.exec(rest);
+    if (vm) return vm[2];
+    const wm = /^\s*:\s*([A-Za-z0-9_$]+)/.exec(rest);
+    if (wm) return wm[1];
+  }
+  return null;
+}
 
 export class PluginLoader {
   constructor({ registry, ctx, log, notifier }) {
@@ -144,6 +264,22 @@ export class PluginLoader {
 
       if (/process\.exit\(/.test(code)) {
         errors.push(`文件 ${path.basename(file)} 使用了 process.exit`);
+      }
+
+      // 破坏性工具名前缀契约（docs/PLUGIN-API.md §7）：
+      // 工具名匹配破坏性前缀但未声明 destructive: true → 拒绝加载。
+      if (code.includes('registerTool')) {
+        for (const defText of extractCallObjectArgs(code, 'registerTool')) {
+          const toolName = topLevelValue(defText, 'name');
+          if (!toolName) continue;
+          const hit = DESTRUCTIVE_TOOL_NAME_PREFIXES.find(p => toolName.startsWith(p));
+          if (hit && topLevelValue(defText, 'destructive') !== 'true') {
+            errors.push(
+              `文件 ${path.basename(file)} 工具名 ${toolName} 匹配破坏性前缀 "${hit}"，` +
+              `但未声明 destructive: true`
+            );
+          }
+        }
       }
     }
 
