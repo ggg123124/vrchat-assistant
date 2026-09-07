@@ -51,3 +51,4 @@ backups/
 # ── 收藏 PDF 生成缓存与产物 ──
 img_cache/
 pdf/
+/tmp/
