@@ -47,10 +47,12 @@ function isTracked(userId) {
   return (items.value || []).some((x) => x.userId === userId);
 }
 async function addTracked(user) {
-  if (addBusy.value || !user.userId) return;
+  // 搜索接口统一返回 id 字段（dashboard/search 各类型同形），兼容旧 userId 字段
+  const uid = user.id || user.userId;
+  if (addBusy.value || !uid) return;
   addBusy.value = true;
   try {
-    const r = await post('/api/dashboard/tracked', { userId: user.userId, displayName: user.name });
+    const r = await post('/api/dashboard/tracked', { userId: uid, displayName: user.name });
     if (r && r.error) throw new Error(r.error);
     toast(r.added ? `已添加追踪「${user.name}」，正在拉取资料…` : `「${user.name}」已在追踪列表中`, r.added ? 'success' : 'info');
     addOpen.value = false;
