@@ -453,6 +453,67 @@ test('dashboard.notificationEvents 群组通知提取 groupName（ownerName/owne
   assert.equal(boop.groupName, '', '非群组通知 groupName 应为空（title 兜底限定 group.*），实际: ' + JSON.stringify(boop.groupName));
 });
 
+// ── recentWorlds 世界补名负缓存 TTL（审者建议后续优化：占位无 TTL 导致瞬时失败永不自愈）──
+// 语义：无 world_cache 记录 → 触发补名；空名占位在 24h TTL 内 → 抑制（零新增 API 尝试）；
+// 占位超 TTL → 放行一次重试；失败写占位刷新 updated_at（续期冷却）；成功落真名自愈。
+const ttlWorld = (id) => `wrld_ttl-${id}-0000-0000-0000-000000000000`;
+const insertNamelessLocation = (worldId) => ctx.storage.insertEvent({
+  type: 'user-location', userId: 'usr_ttl', displayName: '我',
+  contentJson: { location: worldId + ':1' }, worldId, worldName: '',
+  createdAt: new Date().toISOString(), source: 'ws',
+});
+const upsertPlaceholder = (worldId, ageExpr) => ctx.storage.run(
+  `INSERT OR REPLACE INTO world_cache (world_id, name, updated_at) VALUES ('${worldId}', '', ${ageExpr})`
+);
+const placeholderUpdatedAt = (worldId) => {
+  const r = ctx.storage.query(`SELECT updated_at AS u FROM world_cache WHERE world_id=$w`, { $w: worldId });
+  return r[0] ? r[0].u : null;
+};
+const flushMicrotasks = () => new Promise((r) => setTimeout(r, 0));
+
+test('recentWorlds 补名：无占位触发 / TTL 内抑制 / 超 TTL 重试 / 失败续期 / 成功自愈', async () => {
+  // ① 无记录 → 触发补名 1 次，成功落真名后不再触发
+  const wA = ttlWorld('a');
+  insertNamelessLocation(wA);
+  let callsA = 0;
+  loader.services.set('dashboard.world', (args) => {
+    callsA++;
+    ctx.storage.upsertWorld({ worldId: args.worldId, name: '真名世界A' });
+    return { name: '真名世界A' };
+  });
+  services.get('dashboard.recentWorlds')({ limit: 60 });
+  assert.equal(callsA, 1, '无占位世界应触发补名 1 次');
+  await flushMicrotasks();
+  assert.equal(ctx.storage.getWorldName(wA)?.name, '真名世界A', '补名成功应落真名');
+  services.get('dashboard.recentWorlds')({ limit: 60 });
+  assert.equal(callsA, 1, '落真名后不应再次触发');
+
+  // ② 空名占位在 TTL 内（5 分钟前）→ 抑制，零新增 API 调用
+  const wB = ttlWorld('b');
+  insertNamelessLocation(wB);
+  upsertPlaceholder(wB, `datetime('now','-5 minutes')`);
+  let callsB = 0;
+  loader.services.set('dashboard.world', (args) => { callsB++; return null; });
+  services.get('dashboard.recentWorlds')({ limit: 60 });
+  assert.equal(callsB, 0, 'TTL 内空名占位应抑制补名（负缓存生效）');
+
+  // ③ 占位超 TTL（25 小时前）→ 放行重试 1 次；失败写占位刷新 updated_at（续期冷却）
+  const wC = ttlWorld('c');
+  insertNamelessLocation(wC);
+  upsertPlaceholder(wC, `datetime('now','-25 hours')`);
+  let callsC = 0;
+  loader.services.set('dashboard.world', (args) => { callsC++; return null; }); // 补名失败（API 不可见）
+  services.get('dashboard.recentWorlds')({ limit: 60 });
+  assert.equal(callsC, 1, '超 TTL 占位应放行一次重试');
+  await flushMicrotasks();
+  const refreshed = placeholderUpdatedAt(wC);
+  const oneMinuteAgoUtc = new Date(Date.now() - 60000).toISOString().replace('T', ' ').slice(0, 19);
+  assert.ok(refreshed && refreshed >= oneMinuteAgoUtc,
+    `失败后占位 updated_at 应刷新（续期），实际 ${refreshed}`);
+  services.get('dashboard.recentWorlds')({ limit: 60 });
+  assert.equal(callsC, 1, '刷新后的占位在 TTL 内不应再次触发');
+});
+
 // ── 清理 ──
 after(() => {
   for (const f of [tmpDb, tmpDb + '-wal', tmpDb + '-shm']) { try { rmSync(f, { force: true }); } catch {} }
