@@ -417,9 +417,17 @@ export function rewritePluginTableNames(sql, pluginName, prefix) {
         break;
       }
       if (expectingTable) {
-        result += ch + resolveTableName(ident, tableDef) + close;
+        const resolved = resolveTableName(ident, tableDef);
         expectingTable = false;
         tableDef = false;
+        // resolveTableName 对需引号表名（含空格/连字符，或插件名为连字符型）已返回
+        // 带双引号的完整名（formatPrefixed）；此时外层不应再包裹，否则输出双重引号，
+        // SQLite 执行报 `near "plg_x_a b": syntax error`。
+        if (resolved.startsWith('"') && resolved.endsWith('"')) {
+          result += resolved;
+        } else {
+          result += ch + resolved + close;
+        }
       } else {
         result += sql.slice(segmentStart, j + 1);
       }

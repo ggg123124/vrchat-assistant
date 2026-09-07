@@ -176,6 +176,26 @@ function makeApi(pluginName = 'testplugin') {
   assert(rewritten4.includes("INSERT INTO plg_schema_test_items"), 'schema INSERT INTO 插件表应被重写');
   assert(!rewritten4.includes('plg_schema_test_friends'), '字符串/注释中的 friends 不应被重写');
 
+  // 引号包裹裸表名 + 表名含空格（加前缀后仍需引号）：不应输出双重引号（review #161 修复）
+  const rewritten5 = rewritePluginTableNames(
+    'CREATE TABLE "my items" (id INTEGER); INSERT INTO "my items" (id) VALUES (1);',
+    'schema_test',
+    prefix
+  );
+  assert(rewritten5.includes('CREATE TABLE "plg_schema_test_my items"'), 'schema 引号裸表名(空格) CREATE 应重写为单层引号');
+  assert(rewritten5.includes('INSERT INTO "plg_schema_test_my items"'), 'schema 引号裸表名(空格) DML 应重写为单层引号');
+  assert(!rewritten5.includes('""'), '引号包裹表名不应出现双重引号');
+
+  // 插件名含连字符 → prefix 含连字符 → 表名需加引号（词分支也应正确）
+  const hPrefix = 'plg_emoji-notes_';
+  const rewritten6 = rewritePluginTableNames(
+    'CREATE TABLE notes (id INTEGER); INSERT INTO notes (id) VALUES (1);',
+    'emoji-notes',
+    hPrefix
+  );
+  assert(rewritten6.includes('CREATE TABLE "plg_emoji-notes_notes"'), '连字符插件名 CREATE 表名应带引号');
+  assert(rewritten6.includes('INSERT INTO "plg_emoji-notes_notes"'), '连字符插件名 DML 表名应带引号');
+
   console.log('  ✅ schema.sql 白名单：核心表/其他插件表拒绝，本插件裸表名重写');
 }
 
