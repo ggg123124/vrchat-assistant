@@ -205,4 +205,55 @@ console.log('\n── 3. 端到端测试: HTTP 鉴权中间件 ──');
   await new Promise((resolve) => server.close(resolve));
 }
 
+console.log('\n── 4. 鉴权 fail-closed：token 已配置但 http.authenticate 服务缺失 ──');
+{
+  async function request(path, options = {}) {
+    return new Promise((resolve, reject) => {
+      const req = http.request('http://127.0.0.1:' + port + path, options, (res) => {
+        let data = '';
+        res.on('data', (c) => data += c);
+        res.on('end', () => resolve({ status: res.statusCode, data, headers: res.headers }));
+      });
+      req.on('error', reject);
+      if (options.body) req.write(options.body);
+      req.end();
+    });
+  }
+
+  // 4.1 启动期阻断：token 已配置 + 无 http.authenticate → createServer 抛错拒绝启动
+  process.env.VRC_MONITOR_AUTH_TOKEN = 'failclosed_test_token';
+  ctx.pluginLoader = {
+    hasService: () => false,
+    consume: () => { throw new Error('service not found'); },
+    getStatus: () => [],
+  };
+  assert.throws(() => createServer(), /fail-closed/, 'token 配置但无 http.authenticate 服务时 createServer 应拒绝启动');
+  ok('启动期 fail-closed：createServer 抛出 fail-closed 错误');
+
+  // 4.2 运行期 fail-closed：服务器在无 token 时创建，随后 token 生效 → 全部请求 401
+  delete process.env.VRC_MONITOR_AUTH_TOKEN;
+  const server = createServer();
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = server.address().port;
+
+  process.env.VRC_MONITOR_AUTH_TOKEN = 'failclosed_test_token';
+  let res = await request('/health');
+  assert.equal(res.status, 401, 'token 生效后 /health 应 401');
+  assert.ok(res.data.includes('fail-closed'), `401 响应体应说明 fail-closed，实际: ${res.data}`);
+  res = await request('/mcp');
+  assert.equal(res.status, 401, 'token 生效后 /mcp 应 401');
+  res = await request('/health', { headers: { authorization: 'Bearer failclosed_test_token' } });
+  assert.equal(res.status, 401, '即使携带正确 token，无 http.authenticate 服务仍应 401');
+  ok('运行期 fail-closed：token 生效后全部请求 401（含携带正确 token）');
+
+  delete process.env.VRC_MONITOR_AUTH_TOKEN;
+  res = await request('/health');
+  assert.equal(res.status, 200, '移除 token 后恢复放行（无 token 开发场景 fail-open）');
+  ok('移除 token 后恢复放行');
+
+  // 清理测试环境
+  ctx.pluginLoader = null;
+  await new Promise((resolve) => server.close(resolve));
+}
+
 console.log('\n🎉 全部 ' + passed + ' 项测试通过！');

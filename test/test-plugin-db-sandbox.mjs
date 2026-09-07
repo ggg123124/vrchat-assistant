@@ -1,0 +1,133 @@
+/**
+ * test-plugin-db-sandbox.mjs — 插件 DB 沙箱白名单测试（无凭据，可离线）
+ *
+ * 覆盖（对应 docs/PLUGIN-API.md §4.2 契约）：
+ *   1. 合法：本插件 plg_<name>_ 表名（裸别名/全名/带引号/连字符插件名）放行，rewrite 仍生效
+ *   2. 拒绝：核心表名（friends/events 等）在任何表名位置（FROM/JOIN/UPDATE/INTO/TABLE/DROP/PRAGMA）被拒
+ *   3. 拒绝：其他插件 plg_xxx_ 前缀（含快速通道：字符串中出现其他插件前缀同样拒绝）
+ *   4. 不误报：字符串字面量/注释中的表名、ON CONFLICT、CREATE INDEX ... ON、WITH CTE 等合法 SQL
+ *
+ * 用法：node test/test-plugin-db-sandbox.mjs
+ */
+import { buildPluginApi as buildApi } from '../core/plugin-api.js';
+
+let pass = true;
+const errors = [];
+const assert = (c, m) => { if (!c) { pass = false; errors.push(m); } };
+const assertThrows = (fn, re, m) => {
+  try {
+    fn();
+    assert(false, `${m}（未抛出）`);
+  } catch (err) {
+    assert(re.test(err.message), `${m}（错误消息不匹配: ${err.message}）`);
+  }
+};
+
+function makeApi(pluginName = 'testplugin') {
+  const calls = [];
+  const storage = {
+    run: (sql, params) => { calls.push({ sql, params }); return { changes: 0 }; },
+    get: (sql, params) => { calls.push({ sql, params }); return null; },
+    query: (sql, params) => { calls.push({ sql, params }); return []; },
+    exec: (sql) => { calls.push({ sql }); },
+    transaction: (fn) => () => fn(storage),
+  };
+  const api = buildApi(pluginName, {
+    registry: {},
+    ctx: { storage, httpRoutes: new Map() },
+    services: new Map(),
+    serviceOwners: new Map(),
+    log: () => {},
+  });
+  return { api, calls };
+}
+
+// ── 1. 合法：本插件表名放行 + rewrite 生效 ──
+{
+  const { api, calls } = makeApi();
+  const items = api.db.table('items');
+  items.run('INSERT INTO items (id, note) VALUES ($id, $note)', { $id: 1, $note: 'x' });
+  assert(calls[0].sql.includes('INSERT INTO plg_testplugin_items'), '裸别名应被重写为本插件前缀表名');
+  items.get('SELECT * FROM items WHERE id = 1');
+  items.all('SELECT * FROM "items"'); // 带引号别名（events 插件 "store" 同款写法）
+  api.db.exec('CREATE TABLE IF NOT EXISTS plg_testplugin_x (id INTEGER)'); // 全名直写本插件前缀
+  api.db.exec('PRAGMA table_info(plg_testplugin_items)'); // 本插件表的 PRAGMA
+  api.db.exec('CREATE TABLE IF NOT EXISTS plg_testplugin_deep_table (id INTEGER)'); // 本插件命名空间内更深层表名同样放行
+  console.log('  ✅ 合法：本插件表名（裸别名/引号别名/全名/PRAGMA）放行且 rewrite 生效');
+}
+
+// ── 2. 连字符插件名（emoji-notes 同款：CREATE INDEX ... ON + 双引号处理）──
+{
+  const { api, calls } = makeApi('emoji-notes');
+  const notes = api.db.table('notes');
+  notes.exec('CREATE INDEX IF NOT EXISTS idx_notes_kind ON notes(kind)');
+  assert(calls[0].sql.includes('"plg_emoji-notes_notes"'), '连字符插件名表名应加双引号重写');
+  notes.run(
+    'INSERT INTO notes (emoji_id, kind) VALUES ($id, $kind) ON CONFLICT(emoji_id) DO UPDATE SET kind = excluded.kind',
+    { $id: 'default_x', $kind: 'builtin' }
+  );
+  notes.all('SELECT * FROM notes WHERE deleted = 0');
+  console.log('  ✅ 合法：连字符插件名 + CREATE INDEX ... ON + ON CONFLICT 不误报');
+}
+
+// ── 3. 拒绝：核心表名 ──
+{
+  const { api } = makeApi();
+  const items = api.db.table('items');
+  assertThrows(() => items.all('SELECT * FROM friends'), /不能访问表 friends/, 'FROM 核心表 friends');
+  assertThrows(() => items.all('SELECT * FROM friends JOIN plg_testplugin_x ON 1=1'), /friends/, 'JOIN 核心表');
+  assertThrows(() => items.run('UPDATE friends SET x = 1'), /friends/, 'UPDATE 核心表');
+  assertThrows(() => items.run('DELETE FROM events WHERE id = 1'), /events/, 'DELETE FROM 核心表');
+  assertThrows(() => api.db.exec('DROP TABLE friends'), /friends/, 'DROP TABLE 核心表');
+  assertThrows(() => api.db.exec('DROP TABLE IF EXISTS friends'), /friends/, 'DROP TABLE IF EXISTS 核心表');
+  assertThrows(() => api.db.exec('CREATE TABLE friends (id INTEGER)'), /friends/, 'CREATE TABLE 核心表');
+  assertThrows(() => api.db.exec('ALTER TABLE friends ADD COLUMN x'), /friends/, 'ALTER TABLE 核心表');
+  assertThrows(() => api.db.exec('PRAGMA table_info(friends)'), /friends/, 'PRAGMA table_info 核心表');
+  assertThrows(() => items.all('SELECT * FROM "friends"'), /friends/, '带引号核心表名');
+  assertThrows(() => items.all('SELECT * FROM main.friends'), /main/, '限定的核心表名 main.friends');
+  assertThrows(() => api.db.exec('CREATE TABLE plg_testplugin_tmp AS SELECT * FROM world_kb'), /world_kb/, 'CTAS 读取核心表');
+  assertThrows(() => api.db.exec('CREATE INDEX idx ON friends(col)'), /friends/, 'CREATE INDEX ON 核心表');
+  assertThrows(() => items.all('UPDATE OR REPLACE friends SET x = 1'), /friends/, 'UPDATE OR REPLACE 核心表');
+  console.log('  ✅ 拒绝：核心表名在全部表名位置被拦截');
+}
+
+// ── 4. 拒绝：其他插件前缀 ──
+{
+  const { api } = makeApi();
+  const items = api.db.table('items');
+  assertThrows(() => items.all('SELECT * FROM plg_otherplugin_notes'), /plg_otherplugin_/, 'FROM 其他插件表');
+  assertThrows(() => items.all('SELECT * FROM "plg_otherplugin_notes"'), /plg_otherplugin_/, '带引号其他插件表');
+  assertThrows(() => items.all('SELECT * FROM plg_testplugin2_x'), /plg_testplugin2_/, '前缀相似但非本插件（testplugin2）');
+  // 快速通道：字符串里出现其他插件前缀（旧版行为保留）
+  assertThrows(
+    () => items.run("INSERT INTO items (note) VALUES ('migrated from plg_other_backup')"),
+    /plg_other_/, '字符串中出现其他插件前缀（快速通道）'
+  );
+  console.log('  ✅ 拒绝：其他插件 plg_ 前缀（表名位置 + 快速通道）');
+}
+
+// ── 5. 不误报：字符串/注释/CTE/合法关键字组合 ──
+{
+  const { api, calls } = makeApi();
+  const items = api.db.table('items');
+  items.run("INSERT INTO items (note) VALUES ('SELECT * FROM friends -- trap')");
+  items.all('SELECT * FROM items -- FROM friends\n WHERE id = 1');
+  items.all('/* FROM friends */ SELECT * FROM items');
+  items.all('WITH t AS (SELECT * FROM items) SELECT * FROM t'); // CTE 内部 FROM 仍检查、CTE 名放行
+  items.run('UPDATE items SET note = datetime(\'now\') WHERE id = $id', { $id: 1 });
+  items.run('INSERT OR REPLACE INTO items (id) VALUES (1)');
+  items.all('SELECT 1'); // 无表名
+  api.db.exec('PRAGMA journal_mode=WAL'); // 非表名 PRAGMA 参数
+  assert(calls.length >= 8, '全部合法 SQL 应放行');
+  assertThrows(() => items.all('WITH t AS (SELECT * FROM friends) SELECT * FROM t'), /friends/, 'CTE 内部读取核心表仍应被拒');
+  console.log('  ✅ 不误报：字符串/注释/CTE/ON CONFLICT/合法关键字组合放行');
+}
+
+if (pass) {
+  console.log(`plugin db sandbox: PASS`);
+  process.exit(0);
+} else {
+  console.log('plugin db sandbox: FAIL');
+  for (const e of errors) console.log(' -', e);
+  process.exit(1);
+}
