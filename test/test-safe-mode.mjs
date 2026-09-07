@@ -69,6 +69,29 @@ console.log('── 2. 单元：过滤与拦截 ──');
   ok(`开启态：剔除 ${DESTRUCTIVE_TOOLS.length} 个破坏性工具（剩 ${filtered.length} 个），拦截生效`);
 }
 
+console.log('── 2b. 单元：destructive 标志优先、硬编码清单兜底 ──');
+{
+  process.env.VRC_MONITOR_SAFE_MODE = 'true';
+  const customTools = [
+    { name: 'get_online_friends' },
+    { name: 'wipe_everything', destructive: true },   // 不在硬编码清单，标志为 true
+    { name: 'remove_friend' },                        // 硬编码清单兜底
+    { name: 'purge_cache', destructive: false },      // 非破坏性
+  ];
+  const filtered = filterTools(customTools);
+  assert.deepEqual(
+    filtered.map(t => t.name),
+    ['get_online_friends', 'purge_cache'],
+    'destructive:true（不在硬编码清单）应被过滤，硬编码清单兜底，destructive:false 保留'
+  );
+  assert.throws(() => assertToolAllowed('wipe_everything', true), (e) => e.safeModeBlocked === true,
+    'destructive:true 工具即使不在硬编码清单也应拦截');
+  assert.doesNotThrow(() => assertToolAllowed('purge_cache', false), 'destructive:false 且不在清单 → 放行');
+  assert.throws(() => assertToolAllowed('remove_friend'), (e) => e.safeModeBlocked === true,
+    '硬编码清单兜底：仅凭名字拦截（不依赖标志）');
+  ok('destructive 标志优先过滤/拦截，硬编码 DESTRUCTIVE_TOOLS 清单兜底');
+}
+
 console.log('── 3. 单元：破坏性工具清单无漂移 ──');
 {
   const allNames = new Set(CUSTOM_TOOLS.map(t => t.name));
