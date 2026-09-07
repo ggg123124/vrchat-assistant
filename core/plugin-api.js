@@ -1,8 +1,33 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 /**
  * Plugin API v1 — 为插件提供与核心交互的 6 个 API 表面。
  *
  * buildPluginApi(pluginName, { registry, ctx, services, serviceOwners, log })
  */
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+function loadCoreTables() {
+  const tables = new Set();
+  const extract = (file) => {
+    try {
+      const ddl = readFileSync(path.join(__dirname, file), 'utf-8');
+      const re = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([a-zA-Z0-9_]+)/gi;
+      let m;
+      while ((m = re.exec(ddl)) !== null) {
+        tables.add(m[1].toLowerCase());
+      }
+    } catch { /* ignore */ }
+  };
+  extract('init-db.sql');
+  extract('init-x-worlds.sql');
+  return tables;
+}
+
+const CORE_TABLES = loadCoreTables();
 
 /**
  * 构建插件 API 对象。
@@ -120,7 +145,7 @@ const PRAGMA_TABLE_NAMES = new Set([
  * 返回第一个违规表名，全合法返回 null。跳过字符串字面量、注释、嵌套子查询关键字、
  * WITH CTE 名（CTE 内部 FROM 仍会被检查，不会形成绕过）。
  */
-function findForeignTableName(sql, prefix) {
+export function findForeignTableName(sql, prefix) {
   const n = sql.length;
   let i = 0;
   let expectingTable = false;   // 上一个关键字引入了表名，等待候选
@@ -266,6 +291,248 @@ function findForeignTableName(sql, prefix) {
     i++;
   }
   return null;
+}
+
+/**
+ * schema.sql 专用：把 SQL 中所有表名位置的裸标识符重写为 plg_<name>_<tbl>，
+ * 同时显式拒绝核心表/其他插件表/其他插件 plg_ 前缀。
+ * 返回重写后的 SQL；违规时抛出 Error（错误消息风格与 validatePrefixes 一致）。
+ */
+export function rewritePluginTableNames(sql, pluginName, prefix) {
+  // 1) 快速通道：任何位置出现其他插件的 plg_ 前缀直接拒绝（含字符串/注释）。
+  const foreignRe = /\bplg_[a-zA-Z0-9_-]+_/g;
+  let m;
+  while ((m = foreignRe.exec(sql)) !== null) {
+    const fullPrefix = m[0];
+    if (!fullPrefix.startsWith(prefix)) {
+      throw new Error(`插件 ${pluginName} 不能访问表前缀 ${fullPrefix}（本插件只能访问 ${prefix} 开头的表）`);
+    }
+  }
+
+  const ownTables = new Set(); // 本次 schema.sql 中 CREATE/ALTER TABLE 定义的裸表名
+
+  let result = '';
+  let i = 0;
+  const n = sql.length;
+  let expectingTable = false;
+  let tableDef = false;       // 当前期待的表名属于 CREATE/ALTER TABLE 的定义
+  let stmtFirst = true;
+  let stmtKind = 'other';
+  let pendingCreate = false;
+  let pendingAlter = false;
+  let pragmaPending = false;
+  let onConsumed = false;
+  let inWith = false;
+  let parenDepth = 0;
+  const cteNames = new Set();
+
+  const resetStatement = () => {
+    expectingTable = false;
+    tableDef = false;
+    stmtFirst = true;
+    stmtKind = 'other';
+    pendingCreate = false;
+    pendingAlter = false;
+    pragmaPending = false;
+    onConsumed = false;
+    inWith = false;
+    cteNames.clear();
+  };
+
+  const formatPrefixed = (name) => {
+    const full = prefix + name;
+    const needsQuote = /[^a-zA-Z0-9_]/.test(full);
+    return needsQuote ? `"${full}"` : full;
+  };
+
+  const resolveTableName = (name, isDef) => {
+    const lower = name.toLowerCase();
+    if (lower.startsWith(prefix)) return name;
+    const foreignPrefix = /^plg_[a-zA-Z0-9_-]+_/.exec(lower)?.[0];
+    if (foreignPrefix) {
+      throw new Error(
+        `插件 ${pluginName} 不能访问表 ${name}：前缀 ${foreignPrefix} 属于其他插件` +
+        `（本插件只能访问 ${prefix} 开头的表）`
+      );
+    }
+    if (CORE_TABLES.has(lower)) {
+      throw new Error(
+        `插件 ${pluginName} 不能访问表 ${name}：只允许访问 ${prefix} 开头的表` +
+        `（核心表与其他插件表均不开放给插件）`
+      );
+    }
+    if (isDef || ownTables.has(lower)) {
+      if (isDef) ownTables.add(lower);
+      return formatPrefixed(name);
+    }
+    throw new Error(
+      `插件 ${pluginName} 不能访问表 ${name}：只允许访问 ${prefix} 开头的表` +
+      `（核心表与其他插件表均不开放给插件）`
+    );
+  };
+
+  while (i < n) {
+    const ch = sql[i];
+    const segmentStart = i;
+
+    // 字符串字面量：整体复制
+    if (ch === "'") {
+      i++;
+      while (i < n) {
+        if (sql[i] === "'") {
+          if (sql[i + 1] === "'") { i += 2; continue; }
+          i++;
+          break;
+        }
+        i++;
+      }
+      result += sql.slice(segmentStart, i);
+      continue;
+    }
+
+    // 行注释 / 块注释：整体复制
+    if (ch === '-' && sql[i + 1] === '-') {
+      i += 2;
+      while (i < n && sql[i] !== '\n') i++;
+      result += sql.slice(segmentStart, i);
+      continue;
+    }
+    if (ch === '/' && sql[i + 1] === '*') {
+      i += 2;
+      while (i < n && !(sql[i] === '*' && sql[i + 1] === '/')) i++;
+      i = Math.min(i + 2, n);
+      result += sql.slice(segmentStart, i);
+      continue;
+    }
+
+    // 引号标识符（"..."、`...`、[...]）
+    if (ch === '"' || ch === '\`' || ch === '[') {
+      const close = ch === '[' ? ']' : ch;
+      let j = i + 1;
+      let ident = '';
+      while (j < n && sql[j] !== close) { ident += sql[j]; j++; }
+      if (j >= n) {
+        // 未闭合，整体复制并结束
+        result += sql.slice(segmentStart, n);
+        break;
+      }
+      if (expectingTable) {
+        const resolved = resolveTableName(ident, tableDef);
+        expectingTable = false;
+        tableDef = false;
+        // resolveTableName 对需引号表名（含空格/连字符，或插件名为连字符型）已返回
+        // 带双引号的完整名（formatPrefixed）；此时外层不应再包裹，否则输出双重引号，
+        // SQLite 执行报 `near "plg_x_a b": syntax error`。
+        if (resolved.startsWith('"') && resolved.endsWith('"')) {
+          result += resolved;
+        } else {
+          result += ch + resolved + close;
+        }
+      } else {
+        result += sql.slice(segmentStart, j + 1);
+      }
+      i = j + 1;
+      continue;
+    }
+
+    if (ch === '(') { parenDepth++; result += ch; i++; continue; }
+    if (ch === ')') {
+      parenDepth = Math.max(0, parenDepth - 1);
+      if (expectingTable) { expectingTable = false; tableDef = false; }
+      result += ch;
+      i++;
+      continue;
+    }
+    if (ch === ';') { resetStatement(); result += ch; i++; continue; }
+
+    // 词（标识符/关键字）
+    if (/[A-Za-z_]/.test(ch)) {
+      let j = i;
+      let word = '';
+      while (j < n && /[A-Za-z0-9_]/.test(sql[j])) { word += sql[j]; j++; }
+      const up = word.toUpperCase();
+      const wordLower = word.toLowerCase();
+
+      // WITH 子句（深度 0）：收集 CTE 名
+      if (inWith && parenDepth === 0) {
+        if (up === 'SELECT') {
+          inWith = false;
+        } else {
+          let k = j;
+          while (k < n && /\s/.test(sql[k])) k++;
+          if (sql[k] === '(') cteNames.add(wordLower);
+          else if (sql.startsWith('AS', k) && !/[A-Za-z0-9_]/.test(sql[k + 2] || '')) {
+            cteNames.add(wordLower);
+          }
+        }
+      }
+
+      if (stmtFirst) {
+        stmtFirst = false;
+        if (up === 'CREATE') { pendingCreate = true; }
+        if (up === 'ALTER') { pendingAlter = true; }
+        if (up === 'WITH') { inWith = true; }
+        if (up === 'PRAGMA') { pragmaPending = true; }
+      }
+      if (pendingCreate && up !== 'CREATE') {
+        if (up === 'TABLE') tableDef = true;
+        if (up !== 'UNIQUE' && up !== 'TEMP' && up !== 'TEMPORARY') {
+          if (up === 'INDEX' || up === 'TRIGGER') stmtKind = 'index-trigger';
+          pendingCreate = false;
+        }
+      }
+      if (pendingAlter && up !== 'ALTER') {
+        if (up === 'TABLE') tableDef = true;
+        pendingAlter = false;
+      }
+      if (pragmaPending && up !== 'PRAGMA') {
+        pragmaPending = false;
+        if (PRAGMA_TABLE_NAMES.has(up)) expectingTable = true;
+        result += word;
+        i = j;
+        continue;
+      }
+
+      if (expectingTable) {
+        if (TABLE_MODIFIER_KEYWORDS.has(up)) {
+          // 保持期待（IF NOT EXISTS / OR REPLACE 等）
+        } else if (NON_TABLE_KEYWORDS.has(up)) {
+          expectingTable = false;
+          tableDef = false;
+        } else if (cteNames.has(wordLower)) {
+          expectingTable = false;
+          tableDef = false;
+        } else {
+          result += resolveTableName(word, tableDef);
+          expectingTable = false;
+          tableDef = false;
+          i = j;
+          continue;
+        }
+      }
+
+      if (TABLE_INTRO_KEYWORDS.has(up)) {
+        expectingTable = true;
+      }
+      if (up === 'ON' && stmtKind === 'index-trigger' && !onConsumed) {
+        onConsumed = true;
+        expectingTable = true;
+      }
+
+      result += word;
+      i = j;
+      continue;
+    }
+
+    if (expectingTable && ch !== '(' && ch !== '=' && !/\s/.test(ch)) {
+      expectingTable = false;
+      tableDef = false;
+    }
+    result += ch;
+    i++;
+  }
+
+  return result;
 }
 
 /** 构建命名空间存储 db */
