@@ -1286,6 +1286,7 @@ export function registerDashboardServices(loader, ctx) {
       onlineNow: ctx.friendState?.getOnlineCount() ?? null,
       lastSent: sync._lastSent || '',
       lastAt: sync._lastAt ? new Date(sync._lastAt).toISOString() : '',
+      lastPutError: sync._lastPutError || '',
       minIntervalMs: 65_000,
     };
   });
