@@ -1315,6 +1315,22 @@ export default function register(api) {
     },
   });
 
+  // 好友地图统计（#165 数据层的 dashboard 消费面；imageUrl 已转 imgProxy）
+  api.http.registerRoute({
+    method: 'GET',
+    path: '/api/dashboard/friend-world-stats',
+    handler: async (req, res) => {
+      try {
+        const url = new URL(req.url, 'http://localhost');
+        const days = parseLimit(url.searchParams.get('days') || 30, 30, 365);
+        const limit = parseLimit(url.searchParams.get('limit') || 20, 20, 100);
+        sendJson(res, await api.consume('dashboard.friendWorldStats', { days, limit }));
+      } catch (e) {
+        sendJson(res, { stats: [], error: String(e.message || e) });
+      }
+    },
+  });
+
   api.log('Web Dashboard (VRCX Vue 3) 已注册：/dashboard');
 
   // 慢路由懒加载（issue #118）：不再做启动预热——无条件预热 fetch_community_events 会触发

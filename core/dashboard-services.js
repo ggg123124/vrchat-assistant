@@ -11,6 +11,7 @@
  */
 import { isSafeModeEnabled } from './safe-mode.js';
 import { imgProxy, avatarThumb, avatarOf, avatarFileId } from './img-util.js';
+import { handleGetFriendWorldStats } from './tools/events.js';
 
 // 通知类型→中文标签（与前端 ui/src/utils.js 的 notificationTypeLabels 对齐，供 see/hide-notification 摘要拼类型）。
 // 通知相关事件 content 可能携带 notificationType / updateType / type 之一；历史遗留也可能是裸字符串 ID，
@@ -1304,6 +1305,20 @@ export function registerDashboardServices(loader, ctx) {
     return { ok: true, config, syncResult };
   });
   loader.serviceOwners.set('dashboard.dynamicStatusSet', 'core');
+
+  // ── 好友地图统计（#165 数据层的 dashboard 消费面）──
+  // 复用 MCP 工具 handler（同一 ctx 单例）；imageUrl 转 imgProxy 供前端 <img> 直连。
+  loader.services.set('dashboard.friendWorldStats', ({ days = 30, limit = 20 } = {}) => {
+    const r = handleGetFriendWorldStats({ days, limit });
+    return {
+      ...r,
+      stats: r.stats.map((s) => ({
+        ...s,
+        imageUrl: s.imageUrl ? `/api/dashboard/image-proxy?url=${encodeURIComponent(s.imageUrl)}` : '',
+      })),
+    };
+  });
+  loader.serviceOwners.set('dashboard.friendWorldStats', 'core');
 }
 
 // 动态状态 Set 的立即同步（service 内 await 引擎；force=绕过开关与冷却——用户显式保存即意图明确）

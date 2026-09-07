@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { get } from '../api.js';
 import { time, date, fmtMin, reltime } from '../utils.js';
 import { store, openWorld } from '../store.js';
@@ -10,6 +10,20 @@ const worlds = ref(null);
 const loading = ref(false);
 const onlyNoted = ref(false);
 const onlyFav = ref(false);
+// 好友地图统计（dashboard.friendWorldStats 服务，#165 数据层）
+const fws = ref(null);
+const fwsDays = ref(30);
+
+async function loadFws() {
+  try {
+    const r = await get(`/api/dashboard/friend-world-stats?days=${fwsDays.value}&limit=12`);
+    fws.value = (r && r.stats) || [];
+  } catch {
+    fws.value = [];
+  }
+}
+onMounted(() => { loadFws(); });
+watch(fwsDays, () => loadFws());
 const maxMinutes = computed(() => Math.max(1, ...(shown.value || []).map((w) => w.minutes || 0)));
 const q = ref('');
 
@@ -64,6 +78,35 @@ onMounted(load);
       </div>
       <span class="ws-count">最近去过的世界</span>
       <Button size="small" text icon="pi pi-refresh" title="刷新" @click="reload" />
+    </div>
+
+    <!-- 好友地图统计：好友群体最近 N 天去过的世界热度（发现好玩的图） -->
+    <div class="fws-card">
+      <div class="fws-head">
+        <i class="pi pi-users"></i>
+        <b>好友常去的世界</b>
+        <span class="fws-sub">最近 {{ fwsDays }} 天 · 按去过的好友数排序</span>
+        <span class="fws-spacer"></span>
+        <button class="chip" :class="{ active: fwsDays === 7 }" @click="fwsDays = 7; loadFws()">7天</button>
+        <button class="chip" :class="{ active: fwsDays === 30 }" @click="fwsDays = 30; loadFws()">30天</button>
+        <button class="chip" :class="{ active: fwsDays === 90 }" @click="fwsDays = 90; loadFws()">90天</button>
+      </div>
+      <div v-if="fws === null" class="fws-empty">加载中…</div>
+      <div v-else-if="!fws.length" class="fws-empty">暂无好友世界记录（统计自动累积）</div>
+      <div v-else class="fws-list">
+        <div v-for="s in fws" :key="s.worldId" class="fws-row">
+          <img v-if="s.imageUrl" :src="s.imageUrl" class="fws-thumb" alt="" loading="lazy" />
+          <div v-else class="fws-thumb fws-thumb-empty"></div>
+          <div class="fws-info">
+            <b class="fws-name">{{ s.worldName || s.worldId }}</b>
+            <small class="fws-meta">
+              {{ s.visitors }} 位好友去过 · {{ s.visits }} 次
+              <template v-if="s.friends.length"> · {{ s.friends.join('、') }}</template>
+            </small>
+          </div>
+          <Button size="small" text icon="pi pi-external-link" title="打开世界页" @click="openWorld(s.worldId)" />
+        </div>
+      </div>
     </div>
 
     <div class="ws-toolbar">
@@ -142,4 +185,21 @@ onMounted(load);
   .ws-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
   .ws-img { height: 76px; }
 }
+
+/* ── 好友常去的世界（好友地图统计卡片）── */
+.fws-card { border: 1px solid var(--surface-border, #ddd); border-radius: 10px; padding: 12px 14px; margin-bottom: 18px; background: var(--surface-a, transparent); }
+.fws-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+.fws-head i { color: var(--accent); }
+.fws-sub { color: var(--text-color-secondary, #888); font-size: 12px; }
+.fws-spacer { flex: 1; }
+.fws-list { display: flex; flex-direction: column; gap: 8px; }
+.fws-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 8px; background: var(--surface-ground, rgba(128,128,128,0.06)); }
+.fws-thumb { width: 64px; height: 40px; border-radius: 6px; object-fit: cover; flex: none; }
+.fws-thumb-empty { background: var(--surface-border, #ccc); }
+.fws-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.fws-name { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fws-meta { color: var(--text-color-secondary, #888); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fws-empty { color: var(--text-color-secondary, #888); font-size: 12px; padding: 8px 0; }
+@media (max-width: 640px) { .fws-thumb { width: 52px; height: 34px; } }
+
 </style>
