@@ -632,11 +632,16 @@ export function registerDashboardServices(loader, ctx) {
     if (cur) { cur.end = cur.lastSeen; addMin(cur); }
     // 补名：world_cache 无记录（事件与缓存皆无名字）的世界，fire-and-forget 走 dashboard.world
     // （自带限流+10s 超时+upsert 缓存）拉取资料落库——本次响应不阻塞，下次查询即有名字。
-    // 触发频率天然受限：仅名单里缺名字的世界会触发一次，拉到后 world_cache 命中不再重复。
+    // 触发频率受限：仅 world_cache 无记录且缺名字的世界触发；补名失败（404/私有/不可见）时
+    // upsert 空名占位走 emptyWorldIds 既有冷却机制，避免对同一批不可见世界每次查询重复发起 API 尝试。
     const worldSvc = loader.services.get('dashboard.world');
     for (const w of worlds) {
-      if (!w.worldName && String(w.worldId).startsWith('wrld_') && worldSvc) {
-        Promise.resolve(worldSvc({ worldId: w.worldId })).catch(() => { /* 补名失败静默，下次再试 */ });
+      if (!w.worldName && String(w.worldId).startsWith('wrld_') && worldSvc && !ctx.storage.getWorldName(w.worldId)) {
+        Promise.resolve(worldSvc({ worldId: w.worldId }))
+          .then((r) => {
+            if (!r || !r.name) ctx.storage.upsertWorld({ worldId: w.worldId, name: '' }); // 不可见/失败 → 空名占位（负缓存）
+          })
+          .catch(() => { /* 补名失败静默 */ });
       }
     }
     return worlds.map((w) => ({ ...w, visits: segCount.get(w.worldId) || 0, minutes: minutes.get(w.worldId) || 0 }));  // 保持数组契约（路由层再包 {worlds: [...]}）；visits 统一为进入段数
