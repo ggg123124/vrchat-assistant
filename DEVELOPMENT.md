@@ -166,6 +166,7 @@ PR 由 AI Agent 编写提交（人类只提出需求、不直接编码）。以�
 - **Agent 义务**：涉及 API / WebSocket / 数据库的功能改动，Agent 必须在 PR 描述写明验证方式；能跑现有脚本就跑一遍（尤其 `test/test-registry.mjs` / `scripts/check-doc-drift.py`），不能跑要说明原因。Agent 提交前必须实际运行验证，不能只做静态分析就声称完成。
 - **CI 里的凭据红线**：workflow 文件及其他自动化路径**严禁**出现任何真实凭据、Cookie、token、密码、IMAP 授权码（`credentials.json` 已被 gitignore 排除）。自动化测试账号如需纳入 CI，一律走 GitHub repo secrets 且绝不回显到日志。
 - 新增测试脚本命名沿用 `test-*.mjs` 风格，方便 CI 统一发现。
+- **插件第三方依赖**：`plugins/official/*` 中带 `package.json` 的插件（目前 emoji-notes 依赖 pinyin-pro）需先执行 `npm run install-plugins`（CI 已在 `npm ci` 后运行此步）。本地/审查环境只跑 `npm ci` 会漏装插件依赖，表现为此类插件整体加载失败、`test/test-registry.mjs` 工具数少于 `core/tool-order.json`（如 105/108）——先补装插件依赖再跑测试，勿误判为代码回归。
 
 ## 7. AI Agent 提交前自检清单
 
