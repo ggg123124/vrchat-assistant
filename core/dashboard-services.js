@@ -632,16 +632,27 @@ export function registerDashboardServices(loader, ctx) {
     if (cur) { cur.end = cur.lastSeen; addMin(cur); }
     // 补名：world_cache 无记录（事件与缓存皆无名字）的世界，fire-and-forget 走 dashboard.world
     // （自带限流+10s 超时+upsert 缓存）拉取资料落库——本次响应不阻塞，下次查询即有名字。
-    // 触发频率受限：仅 world_cache 无记录且缺名字的世界触发；补名失败（404/私有/不可见）时
-    // upsert 空名占位走 emptyWorldIds 既有冷却机制，避免对同一批不可见世界每次查询重复发起 API 尝试。
+    // 触发频率受限：仅 world_cache 无记录、或空名占位已超 TTL 的世界触发；补名失败（404/私有/
+    // 不可见/瞬时超时）时 upsert 空名占位（负缓存，updated_at 刷新）走 emptyWorldIds 既有冷却
+    // 机制——TTL（24h）内不再对同一世界重复发起 API 尝试，超时自动放行一次重试（瞬时失败可自愈）。
     const worldSvc = loader.services.get('dashboard.world');
+    const EMPTY_PLACEHOLDER_TTL_MS = 24 * 60 * 60 * 1000;
     for (const w of worlds) {
-      if (!w.worldName && String(w.worldId).startsWith('wrld_') && worldSvc && !ctx.storage.getWorldName(w.worldId)) {
-        Promise.resolve(worldSvc({ worldId: w.worldId }))
-          .then((r) => {
-            if (!r || !r.name) ctx.storage.upsertWorld({ worldId: w.worldId, name: '' }); // 不可见/失败 → 空名占位（负缓存）
-          })
-          .catch(() => { /* 补名失败静默 */ });
+      if (!w.worldName && String(w.worldId).startsWith('wrld_') && worldSvc) {
+        const cached = ctx.storage.getWorldName(w.worldId);
+        let placeholderAge = NaN;
+        if (cached && !cached.name) {
+          // updated_at 为 SQLite datetime('now')（UTC 无时区串），补 Z 按 UTC 解析
+          placeholderAge = Date.now() - Date.parse(String(cached.updated_at || '').replace(' ', 'T') + 'Z');
+        }
+        const placeholderExpired = cached && !cached.name && (Number.isNaN(placeholderAge) || placeholderAge >= EMPTY_PLACEHOLDER_TTL_MS);
+        if (!cached || placeholderExpired) {
+          Promise.resolve(worldSvc({ worldId: w.worldId }))
+            .then((r) => {
+              if (!r || !r.name) ctx.storage.upsertWorld({ worldId: w.worldId, name: '' }); // 不可见/失败 → 空名占位（负缓存）
+            })
+            .catch(() => { /* 补名失败静默 */ });
+        }
       }
     }
     return worlds.map((w) => ({ ...w, visits: segCount.get(w.worldId) || 0, minutes: minutes.get(w.worldId) || 0 }));  // 保持数组契约（路由层再包 {worlds: [...]}）；visits 统一为进入段数
