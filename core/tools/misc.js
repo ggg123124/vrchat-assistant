@@ -16,6 +16,36 @@ export function handleGetDatabaseStats() {
   };
 }
 
+// ── 动态状态（按在线好友数更新自定义状态，issue 需求 2026-09-07）──
+
+/** 查询动态状态配置与引擎状态（在线数/最近一次提交文本） */
+export function handleGetDynamicStatus() {
+  const sync = ctx.statusSync;
+  if (!sync) throw new Error('动态状态引擎未初始化（服务版本过旧或启动异常）');
+  const cfg = sync.config;
+  return {
+    ...cfg,
+    onlineNow: ctx.friendState?.getOnlineCount() ?? null,
+    lastSent: sync._lastSent || '',
+    lastAt: sync._lastAt ? new Date(sync._lastAt).toISOString() : '',
+    minIntervalMs: 65_000,
+  };
+}
+
+/** 设置动态状态（开关/模板），可选立即生效（绕过冷却强制同步一次） */
+export async function handleSetDynamicStatus({ enabled, template, syncNow = true } = {}) {
+  const sync = ctx.statusSync;
+  if (!sync) throw new Error('动态状态引擎未初始化（服务版本过旧或启动异常）');
+  if (enabled !== undefined && typeof enabled !== 'boolean') throw new Error('enabled 必须是 boolean');
+  if (template !== undefined && typeof template !== 'string') throw new Error('template 必须是 string');
+  const cfg = sync.setConfig({
+    ...(enabled !== undefined ? { enabled } : {}),
+    ...(template !== undefined ? { template } : {}),
+  });
+  const result = syncNow ? await sync.sync(cfg.enabled) : { action: 'skipped', reason: 'not-sync-now' };
+  return { ok: true, config: cfg, syncResult: result };
+}
+
 export function handleGetServerStatus() {
   const { storage, wsManager, friendState, eventPipeline, serverState } = ctx;
   return {
@@ -559,5 +589,24 @@ export const tools = [
       "properties": {}
     },
     handler: async (args) => handleBackupDatabase(args)
+  },
+  {
+    "name": "get_dynamic_status",
+    "description": "[query] 查询动态状态（按在线好友数量自动更新自定义状态）引擎配置与运行状态：enabled（开关,默认关闭）、template（文本模板,{online} 占位符替换为当前在线好友数）、onlineNow（当前在线好友数）、lastSent/lastAt（最近一次实际提交的文本与时间）。",
+    "inputSchema": { "type": "object", "properties": {} },
+    handler: async (args) => handleGetDynamicStatus(args)
+  },
+  {
+    "name": "set_dynamic_status",
+    "description": "[manage] 设置动态状态：enabled 开关（默认关闭——开启后按在线好友数量自动更新自己的自定义状态 statusDescription）、template 文本模板（{online} 占位符替换为当前在线好友数,如 '在线 {online} 人',最长 64 字符）、syncNow 保存后是否立即强制同步一次（默认 true,绕过冷却）。注意：频繁变更状态文本受 VRChat 接口频率限制,引擎内置 65s 最小冷却间隔；status 种类（active/join me 等）保持不变,只更新自定义文本。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean", "description": "开关（默认关闭）" },
+        "template": { "type": "string", "description": "文本模板,{online} 占位符替换为在线好友数" },
+        "syncNow": { "type": "boolean", "description": "保存后立即强制同步一次(默认 true)" }
+      }
+    },
+    handler: async (args) => handleSetDynamicStatus(args)
   }
 ];
