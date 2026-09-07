@@ -208,6 +208,11 @@ body {
 /* PrimeVue 暗色微调 */
 .p-button:focus-visible, .p-drawer, .p-inputtext:focus { outline-color: var(--accent); }
 
+/* icon-only 按钮触控热区修复：aura 主题的 icon-only padding 变量未定义，
+   导致 .p-button-icon-only 左右 padding 归零（实测按钮宽 2px，图标溢出但热区几乎为零，
+   移动端点菜单/操作经常无响应）。补标准方形热区 40x40（图标 16 + padding 12×2）。 */
+.p-button.p-button-icon-only { padding: 0.5rem; min-width: 2.5rem; min-height: 2.5rem; }
+
 /* B5 弹窗内容超高时在视口内滚动（移动端尤其需要，100dvh 适配地址栏伸缩） */
 .p-dialog .p-dialog-content { max-height: calc(100dvh - 130px); overflow-y: auto; }
 
