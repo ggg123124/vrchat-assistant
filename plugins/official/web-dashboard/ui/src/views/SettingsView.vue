@@ -48,7 +48,7 @@ async function save() {
     } else {
       toast('已保存', 'success');
     }
-    onlineNow.value = (r.config && r.config.enabled !== undefined) ? onlineNow.value : onlineNow.value;
+    // onlineNow 由 finally 的 load() 随最新配置刷新（review #166：原三元恒等无操作，移除）
   } catch (e) {
     toast('保存失败：' + (e.message || e), 'error');
   } finally {

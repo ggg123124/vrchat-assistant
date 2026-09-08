@@ -53,9 +53,11 @@ export class DynamicStatusSync {
     return next;
   }
 
-  /** 渲染模板：{online} → 当前在线好友数 */
+  /** 渲染模板：{online} → 当前在线好友数；截断按 Unicode 码点（review #166 💡：UTF-16 slice 会把 emoji 切半成替换符） */
   render(text, online) {
-    return String(text).replaceAll('{online}', String(online)).slice(0, MAX_DESC_LEN);
+    const rendered = String(text).replaceAll('{online}', String(online));
+    const chars = Array.from(rendered);
+    return chars.length <= MAX_DESC_LEN ? rendered : chars.slice(0, MAX_DESC_LEN).join('');
   }
 
   /**
@@ -71,14 +73,21 @@ export class DynamicStatusSync {
     if (online == null) return { action: 'skipped', reason: 'no-friend-state' };
 
     const text = this.render(cfg.template, online);
-    const me = await this._fetchMe();
-    if (!me) return { action: 'skipped', reason: 'no-me' };
 
-    if (!force && text === (me.statusDescription || '')) return { action: 'skipped', reason: 'unchanged' };
-
+    // 冷却闸前置（review #166 🟡）：冷却窗口内的事件不再各发一次 GET /auth/user，
+    // 避免高峰时段事件密集时瞬时多请求触发 429；unchanged 比对改用上次发送缓存。
     const now = Date.now();
     if (!force && now - this._lastAt < MIN_INTERVAL_MS) {
       return { action: 'skipped', reason: 'cooldown', nextInMs: MIN_INTERVAL_MS - (now - this._lastAt) };
+    }
+
+    const me = await this._fetchMe();
+    if (!me) return { action: 'skipped', reason: 'no-me' };
+
+    if (!force && text === (me.statusDescription || '')) {
+      this._lastAt = now; // 远端已与目标一致，同样进入冷却（防窗口内重复 GET）
+      this._lastSent = text;
+      return { action: 'skipped', reason: 'unchanged' };
     }
 
     const ok = await this._putStatus(me.id, text, me.status);
@@ -91,9 +100,16 @@ export class DynamicStatusSync {
     return { action: 'failed', reason: 'put-failed', detail: this._lastPutError || '', statusDescription: text, online };
   }
 
+  /** 经 rateLimiter 串行化调用 API（review #166 🟡：与仓库其余调用同模式；无限流器时直连降级） */
+  async _api(method, path, body) {
+    const req = () => this.ctx.api._request(method, path, body);
+    if (this.ctx.rateLimiter) return this.ctx.rateLimiter.execute(req);
+    return req();
+  }
+
   async _fetchMe() {
     try {
-      const r = await this.ctx.api._request('GET', '/auth/user');
+      const r = await this._api('GET', '/auth/user');
       return (r.status === 200 && r.data) ? r.data : null;
     } catch { return null; }
   }
@@ -108,7 +124,7 @@ export class DynamicStatusSync {
       if (!selfId) { this._lastPutError = 'no self id'; return false; }
       const body = { statusDescription: desc };
       if (keepStatus) body.status = keepStatus;
-      const r = await this.ctx.api._request('PUT', `/users/${encodeURIComponent(selfId)}`, body);
+      const r = await this._api('PUT', `/users/${encodeURIComponent(selfId)}`, body);
       if (r.status !== 200) this._lastPutError = `HTTP ${r.status}: ${JSON.stringify(r.data || {}).slice(0, 200)}`;
       return r.status === 200;
     } catch (e) {
