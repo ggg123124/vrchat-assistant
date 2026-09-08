@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseLimit, readJsonBody, sendHtml, sendJson } from './server/http.js';
 import { CACHE_TTLS, createDashboardState, setCached } from './server/state.js';
+import { safeModeBlockIrreversible } from './server/safe-mode.js';
 import { registerSearchRoutes } from './server/routes/search.js';
 import { readLoggerEntries, loggerFileInfo } from './server/logger-file.js';
 import { registerFavoriteRoutes } from './server/routes/favorites.js';
@@ -413,12 +414,7 @@ export default function register(api) {
         const body = await readJsonBody(req);
         const userId = String((body && body.userId) || '').trim();
         if (!userId.startsWith('usr_')) return sendJson(res, { ok: false, error: 'bad-params: 需要 usr_ 开头的 userId' });
-        try {
-          const snap = await api.consume('dashboard.snapshot');
-          if (snap && snap.safeMode) {
-            return sendJson(res, { ok: false, error: '🔒 安全模式已启用：移除追踪属破坏性操作，已被禁用。' });
-          }
-        } catch { /* 快照不可用时放行 */ }
+        // #162：本地软删除（置 removed_at=now，可恢复），不属云端不可逆——safe-mode 下放行
         const r = await api.consume('dashboard.trackedRemove', { userId });
         sendJson(res, r);
       } catch (e) {
@@ -567,12 +563,7 @@ export default function register(api) {
         const body = await readJsonBody(req);
         const fileId = String((body && body.fileId) || '').trim();
         if (!fileId.startsWith('file_')) return sendJson(res, { ok: false, error: 'bad-params: 需要 file_ 开头的 fileId' });
-        try {
-          const snap = await api.consume('dashboard.snapshot');
-          if (snap && snap.safeMode) {
-            return sendJson(res, { ok: false, error: '🔒 安全模式已启用：删除画廊图片属破坏性操作，已被禁用。' });
-          }
-        } catch { /* 快照不可用时放行 */ }
+        if (await safeModeBlockIrreversible(api, res, '删除画廊图片')) return;
         const r = await api.tools.call('remove_gallery_image', { fileId, confirm: true });
         sendJson(res, r);
       } catch (e) {
@@ -701,6 +692,8 @@ export default function register(api) {
           });
           sendJson(res, { ok: !!r, avatarId, favorite: true });
         } else {
+          // #162：取消收藏=云端不可逆（DELETE /favorites/{id}），safe-mode 下拦截（此前漏网）
+          if (await safeModeBlockIrreversible(api, res, '取消收藏')) return;
           // 取消收藏：先按 avatarId 查收藏记录 id，再删除
           const favs = await api.vrchat.fetch('/favorites?type=avatar&n=100').catch(() => []);
           const hit = (Array.isArray(favs) ? favs : []).find((f) => f.favoriteId === avatarId);
@@ -752,12 +745,7 @@ export default function register(api) {
         const body = await readJsonBody(req);
         const printId = String((body && body.printId) || '').trim();
         if (!printId.startsWith('prnt_')) return sendJson(res, { ok: false, error: 'bad-params: 需要 prnt_ 开头的 printId' });
-        try {
-          const snap = await api.consume('dashboard.snapshot');
-          if (snap && snap.safeMode) {
-            return sendJson(res, { ok: false, error: '🔒 安全模式已启用：删除照片属破坏性操作，已被禁用。' });
-          }
-        } catch { /* 快照不可用时放行 */ }
+        if (await safeModeBlockIrreversible(api, res, '删除照片')) return;
         const r = await api.tools.call('remove_print', { printId, confirm: true });
         sendJson(res, r);
       } catch (e) {

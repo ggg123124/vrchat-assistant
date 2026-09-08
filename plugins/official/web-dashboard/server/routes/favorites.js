@@ -1,5 +1,6 @@
 import { parseLimit, readJsonBody, sendJson } from '../http.js';
 import { CACHE_TTLS, getCached, setCached } from '../state.js';
+import { safeModeBlockIrreversible } from '../safe-mode.js';
 
 // 收藏变更后失效相关缓存（world→favoriteWorlds；avatar→avatars；friend→favoriteFriends）
 function invalidateFavCaches(state, type) {
@@ -107,6 +108,9 @@ export function registerFavoriteRoutes(api, dashboardState) {
       try {
         const { type, id } = body;
         if (!type || !id) return sendJson(res, { ok: false, error: 'type & id required' });
+        // #162：取消收藏=云端不可逆（world 走 MCP unfavorite_world；avatar/friend 走 DELETE /favorites），
+        // safe-mode 下统一拦截（此前 avatar/friend 分支漏网）
+        if (await safeModeBlockIrreversible(api, res, '取消收藏')) return;
         if (type === 'world') {
           const r = await api.tools.call('unfavorite_world', { worldId: id, confirm: true });
           return sendJson(res, { ok: !!r.ok, removedGroups: r.removedGroups || [], error: r.error });
