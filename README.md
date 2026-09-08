@@ -115,6 +115,14 @@ QQ 群：**851865556** — 欢迎加入，交流使用问题、功能建议与�
 
 **请给我报销 token** 🙏
 
+## 🙏 贡献者
+
+感谢每一位贡献者，让这个项目变得更好：
+
+![贡献者](https://contrib.rocks/image?repo=ggg123124/vrchat-assistant)
+
+> 头像网格由 [contrib.rocks](https://contrib.rocks) 从 GitHub 贡献者 API 自动生成。
+
 ## 📄 License
 
 MIT — 见 [LICENSE](LICENSE)。
