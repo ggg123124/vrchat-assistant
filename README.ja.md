@@ -59,6 +59,29 @@
 - `scripts/prepare_image.py`：アップロード前の画像処理（絵文字の正方形化 / Prints 16:9 / Gallery 4:3）
 - `scripts/migrate-vrcx0.mjs`：VRCX からの履歴データをワンクリック移行 — `node scripts/migrate-vrcx0.mjs`
 
+## 📝 ログ
+
+サービスログは `core/logger.js` に統一され、デフォルトで stdout と `<VRC_MONITOR_LOGGER_DIR>/monitor.log` の両方に書き込みます。レベル・形式・ローテーション・機密情報のマスキングに対応。
+
+| 変数 | デフォルト | 説明 |
+|------|--------|------|
+| `VRC_MONITOR_LOGGER_DIR` | `<VRC_MONITOR_DIR>/logs` | ログファイルディレクトリ |
+| `VRC_MONITOR_LOGGER_LEVEL` | `info` | 最低出力レベル（debug/info/warn/error/silent） |
+| `VRC_MONITOR_LOGGER_FORMAT` | `text` | ログ形式（`text`/`json`。json は1行ごとに JSONL、agent が解析しやすい） |
+| `VRC_MONITOR_LOGGER_MAX_SIZE` | `10485760` | 単一ファイルのローテーション閾値（バイト、デフォルト10MB） |
+| `VRC_MONITOR_LOGGER_MAX_FILES` | `5` | 保持する回転済み .gz ファイル数 |
+| `VRC_MONITOR_LOGGER_SUPPRESS` | - | カンマ区切りの部分文字列。一致する行は丸ごと破棄（例 `ping,keepalive`） |
+| `VRC_MONITOR_LOGGER_CONSOLE` | `1` | stdout にも出力するか（`0` はファイルのみ。非推奨） |
+| `VRC_MONITOR_LOGGER_COLOR` | `auto` | text 形式に ANSI 色を付けるか（ファイルは常に無色） |
+
+トラブルシューティングには JSONL 形式が便利：`VRC_MONITOR_LOGGER_FORMAT=json node start-monitor.js` で起動し、`jq` で構造化ログをフィルタリング、例：
+
+```bash
+jq -r 'select(.level=="error") | "\(.ts) [\(.name)] \(.msg)"' "$VRC_MONITOR_LOGGER_DIR/monitor.log"
+```
+
+単一ファイルが `MAX_SIZE` に達すると自動で `.gz` にローテーション・圧縮され、`monitor-YYYYMMDD-HHMMSS-<pid>.log.gz` のような名前になり、最大 `MAX_FILES` 個保持されます。
+
 ## 🛠 トラブルシューティング
 
 **Q: WebSocket に接続できない？**
@@ -90,6 +113,14 @@ QQ グループ：**851865556** — 利用方法の質問、機能提案、フ�
 ![QRコード](assets/sponsor-qrcodes.png)
 
 **トークンの費用をサポートしてください** 🙏
+
+## 🙏 コントリビューター
+
+このプロジェクトをより良くしてくれた全てのコントリビューターに感謝します：
+
+![コントリビューター](https://contrib.rocks/image?repo=ggg123124/vrchat-assistant)
+
+> アバターグリッドは [contrib.rocks](https://contrib.rocks) が GitHub コントリビューター API から自動生成しています。
 
 ## 📄 ライセンス
 

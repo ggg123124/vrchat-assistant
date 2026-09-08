@@ -59,6 +59,29 @@ This project is **AI-first**: it is built for AI agents to use and extend. Human
 - `scripts/prepare_image.py`: pre-upload image processing (emoji squaring / Prints 16:9 / Gallery 4:3)
 - `scripts/migrate-vrcx0.mjs`: one-click migration of historical data from VRCX — `node scripts/migrate-vrcx0.mjs`
 
+## 📝 Logs
+
+Service logs go through `core/logger.js`, writing to both stdout and `<VRC_MONITOR_LOGGER_DIR>/monitor.log` by default, with support for levels/format/rotation/redaction.
+
+| Variable | Default | Description |
+|------|--------|------|
+| `VRC_MONITOR_LOGGER_DIR` | `<VRC_MONITOR_DIR>/logs` | Log file directory |
+| `VRC_MONITOR_LOGGER_LEVEL` | `info` | Minimum output level (debug/info/warn/error/silent) |
+| `VRC_MONITOR_LOGGER_FORMAT` | `text` | Log format (`text`/`json`; json is JSONL per line, easy for agents to parse) |
+| `VRC_MONITOR_LOGGER_MAX_SIZE` | `10485760` | Single-file rotation threshold in bytes (default 10MB) |
+| `VRC_MONITOR_LOGGER_MAX_FILES` | `5` | Number of rotated `.gz` files to keep |
+| `VRC_MONITOR_LOGGER_SUPPRESS` | - | Comma-separated substrings; matching lines are dropped entirely (e.g. `ping,keepalive`) |
+| `VRC_MONITOR_LOGGER_CONSOLE` | `1` | Whether to also output to stdout (`0` = file only; not recommended) |
+| `VRC_MONITOR_LOGGER_COLOR` | `auto` | Add ANSI color in text format (files are always colorless) |
+
+For troubleshooting, use JSONL: start with `VRC_MONITOR_LOGGER_FORMAT=json node start-monitor.js`, then filter structured logs with `jq`, e.g.:
+
+```bash
+jq -r 'select(.level=="error") | "\(.ts) [\(.name)] \(.msg)"' "$VRC_MONITOR_LOGGER_DIR/monitor.log"
+```
+
+When a file reaches `MAX_SIZE` it auto-rotates and compresses to `.gz`, named like `monitor-YYYYMMDD-HHMMSS-<pid>.log.gz`, keeping up to `MAX_FILES` files.
+
 ## 🛠 Troubleshooting
 
 **Q: WebSocket won't connect?**
@@ -90,6 +113,14 @@ If you find this project useful, feel free to buy me a coffee:
 ![QR codes](assets/sponsor-qrcodes.png)
 
 **Please fund my tokens** 🙏
+
+## 🙏 Contributors
+
+Thank you to everyone who made this project better:
+
+![Contributors](https://contrib.rocks/image?repo=ggg123124/vrchat-assistant)
+
+> Avatar grid generated automatically from the GitHub contributors API by [contrib.rocks](https://contrib.rocks).
 
 ## 📄 License
 
