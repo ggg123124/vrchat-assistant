@@ -1274,4 +1274,39 @@ export function registerDashboardServices(loader, ctx) {
     };
   });
   loader.serviceOwners.set('dashboard.userProfile', 'core');
+
+  // ── 动态状态（按在线好友数量自动更新自定义状态）──
+  // 读写走 ctx.statusSync（DynamicStatusSync，start-monitor 初始化；默认关闭，config 表 dynamic_status 键）。
+  // service 层只做转发——引擎逻辑（限流/冷却/PUT）见 core/status-sync.js。
+  loader.services.set('dashboard.dynamicStatusGet', () => {
+    const sync = ctx.statusSync;
+    if (!sync) return { enabled: false, template: '', error: 'status-sync 未初始化' };
+    return {
+      ...sync.config,
+      onlineNow: ctx.friendState?.getOnlineCount() ?? null,
+      lastSent: sync._lastSent || '',
+      lastAt: sync._lastAt ? new Date(sync._lastAt).toISOString() : '',
+      lastPutError: sync._lastPutError || '',
+      minIntervalMs: 65_000,
+    };
+  });
+  loader.serviceOwners.set('dashboard.dynamicStatusGet', 'core');
+  loader.services.set('dashboard.dynamicStatusSet', ({ enabled, template, syncNow = true } = {}) => {
+    const sync = ctx.statusSync;
+    if (!sync) return { ok: false, error: 'status-sync 未初始化' };
+    if (enabled !== undefined && typeof enabled !== 'boolean') return { ok: false, error: 'enabled 必须是 boolean' };
+    if (template !== undefined && typeof template !== 'string') return { ok: false, error: 'template 必须是 string' };
+    const config = sync.setConfig({
+      ...(enabled !== undefined ? { enabled } : {}),
+      ...(template !== undefined ? { template } : {}),
+    });
+    const syncResult = syncNow ? await_handle_sync(sync, config.enabled) : { action: 'skipped', reason: 'not-sync-now' };
+    return { ok: true, config, syncResult };
+  });
+  loader.serviceOwners.set('dashboard.dynamicStatusSet', 'core');
+}
+
+// 动态状态 Set 的立即同步（service 内 await 引擎；force=绕过开关与冷却——用户显式保存即意图明确）
+async function await_handle_sync(sync, enabled) {
+  try { return await sync.sync(enabled); } catch (e) { return { action: 'failed', reason: String(e.message || e) }; }
 }

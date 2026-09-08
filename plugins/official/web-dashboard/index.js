@@ -1057,6 +1057,37 @@ export default function register(api) {
     },
   });
 
+  // 动态状态（按在线好友数量自动更新自定义状态）：GET 配置与运行状态
+  api.http.registerRoute({
+    method: 'GET',
+    path: '/api/dashboard/dynamic-status',
+    handler: async (_req, res) => {
+      try {
+        sendJson(res, await api.consume('dashboard.dynamicStatusGet'));
+      } catch (e) {
+        sendJson(res, { enabled: false, template: '', error: String(e.message || e) });
+      }
+    },
+  });
+
+  // 动态状态：POST 保存（enabled/template），默认立即同步一次（绕过冷却——用户显式保存即意图明确）
+  api.http.registerRoute({
+    method: 'POST',
+    path: '/api/dashboard/dynamic-status',
+    handler: async (req, res) => {
+      try {
+        const body = await readJsonBody(req);
+        sendJson(res, await api.consume('dashboard.dynamicStatusSet', {
+          enabled: body.enabled,
+          template: body.template,
+          syncNow: body.syncNow !== false,
+        }));
+      } catch (e) {
+        sendJson(res, { ok: false, error: String(e.message || e) });
+      }
+    },
+  });
+
   api.http.registerRoute({
     method: 'GET',
     path: '/api/dashboard/search',
