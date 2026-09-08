@@ -2,6 +2,7 @@
 import { ref, onMounted, computed } from 'vue';
 import { get, post } from '../api.js';
 import { toast } from '../toast.js';
+import { confirm } from '../confirm.js';
 import { openAvatar } from '../store.js';
 
 // 我的模型 + 收藏模型（对齐 VRCX Avatars）：/avatars?userId=me（更新排序）
@@ -46,6 +47,8 @@ async function toggleFav(a) {
   const id = a.avatarId || a.id;
   if (!id) return;
   const fav = isFav(a);
+  // #162：取消收藏=云端不可逆，UI 二次确认（收藏添加无需确认）
+  if (fav && !await confirm({ message: '确认取消收藏该模型？不可恢复。', header: '取消收藏', acceptLabel: '取消收藏' })) return;
   try {
     const r = await post('/api/dashboard/avatar/favorite', { avatarId: id, favorite: !fav });
     if (r && r.error) throw new Error(r.error);

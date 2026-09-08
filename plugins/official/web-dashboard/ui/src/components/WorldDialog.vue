@@ -4,6 +4,7 @@ import { store, closeWorld, openUser, copyText, openPreview, openInstance, openG
 import { get, post, imgUrl } from '../api.js';
 import { date, dateTime, trustColor, parseLoc, instanceLabel } from '../utils.js';
 import { toast } from '../toast.js';
+import { confirm } from '../confirm.js';
 
 const visible = computed({
   get: () => !!store.worldModal,
@@ -174,6 +175,8 @@ async function toggleFav() {
   favBusy.value = true;
   try {
     if (faved.value) {
+      // #162: 取消收藏=云端不可逆, UI 二次确认
+      if (!await confirm({ message: '确认取消收藏该世界？不可恢复。', header: '取消收藏', acceptLabel: '取消收藏' })) { favBusy.value = false; return; }
       await post('/api/dashboard/favorite-remove', { type: 'world', id: world.value.worldId });
       faved.value = false;
       toast('已取消收藏', 'success');

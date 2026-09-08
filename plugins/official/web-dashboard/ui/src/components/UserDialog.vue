@@ -4,6 +4,7 @@ import { store, closeUser, openWorld, openGroup, copyText, openPreview, toggleWa
 import { get, post } from '../api.js';
 import { trustColor, trustName, locLabelFull, statusLabels, fmtMin, time, date, avatarLabel } from '../utils.js';
 import { toast } from '../toast.js';
+import { confirm } from '../confirm.js';
 import TrustBadge from './TrustBadge.vue';
 import { STATUS_COLORS } from '../composables/useFriendGroups.js';
 
@@ -52,6 +53,8 @@ async function onToggleFavFriend() {
   favBusy = true;
   try {
     if (isFavFriend.value) {
+      // #162: 取消收藏=云端不可逆, UI 二次确认
+      if (!await confirm({ message: '确认取消收藏该好友？不可恢复。', header: '取消收藏', acceptLabel: '取消收藏' })) { favBusy = false; return; }
       const r = await post('/api/dashboard/favorite-remove', { type: 'friend', id: user.value.userId });
       if (r && r.ok) {
         store.favFriendIds = new Set([...store.favFriendIds].filter((x) => x !== user.value.userId));
