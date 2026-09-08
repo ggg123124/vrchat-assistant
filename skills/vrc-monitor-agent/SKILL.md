@@ -40,6 +40,7 @@ metadata:
 | `get_friend_removals` | **[friend-removals 插件] 谁把我删了**：列出历史上解除好友的人（friend-delete 事件）。userId 省略=全部；days=最近 N 天；返回 userId/displayName（回填最后使用名）/nickname/createdAt |
 | `get_companions` | **同屏交叉查询**（指定时间窗口内同实例的好友；可查自己或任意好友）。**默认不返回 userTimeline**（位置事件多时输出会过大被截断），仅返回 companions 汇总；需逐条位置明细时传 `includeTimeline=true` |
 | `get_recent_cooplay` | **最近一起玩**（最近 N 天与自己同屏过的全部好友，按同屏次数降序）：companions[{userId, displayName, matchCount, daysCount, lastDay}]；days(1-90 默认 7)、limit(默认 30)。与 get_friend_pair_screen（两人版带逐条 matches）互补——面向自己的全好友批量版 |
+| `get_friend_world_stats` | **好友地图统计**（好友群体最近 N 天去过的世界按热度聚合，发现好友圈热门图）：stats[{worldId, worldName, imageUrl, authorName, visitors（去过的不同好友数,主排序）, visits（总进入次数）, lastSeen, friends（好友名样本 ≤5）}]；days(1-365 默认 30)、limit(1-100 默认 20)。纯本地统计无 API 调用 |
 | `get_ops_log` | **运维日志**（认证/WS/运维生命周期事件，保留最近 500 条）：返回 items[{id, kind, level, message, createdAt}]；limit(1-1000 默认 200)、kind(可选 'auth'\|'ws'\|'ops') |
 | `get_friend_pair_meeting` | **好友对单次见面分析**（查任意两个好友之间「每次见面」的时段与时长；按实例切分，同一实例内同屏匹配合并为一次见面（**含实例内中途断开空档，合并为一次**），返回每次 start/end/durationMinutes/世界/实例 + meetingCount + totalDurationSeconds；口径：同实例且时间差 ≤ windowMinutes（默认30），排除 private/offline/traveling；startTime/endTime 与 days 二选一） |
 | `get_friend_pair_screen` | **好友对同屏次数与时长**（查任意两个好友之间的共玩/同房统计；精确口径：B 的每条可识别实例事件匹配 A 同一实例且时间差 ≤ windowMinutes（默认30）→ 计同屏；排除 private/offline/traveling，不同时间去过同一房不计；返回 matchCount（次数）、totalMinutes/totalSeconds（总时长，段首到段尾累加，**含实例内中途断开空档**）、worldDuration（按世界拆分时长）、worlds（共现世界）、matches（默认全量，可加 limit 限制条数）；startTime/endTime 与 days 二选一） |

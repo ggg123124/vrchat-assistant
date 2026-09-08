@@ -59,6 +59,58 @@ export function handleGetFriendPairScreen({ userIdA, userIdB, startTime, endTime
  * 复用周报的同屏合并引擎（getWeeklyCompanions：北京自然日逐日 findCompanions 匹配），
  * 输出精简为列表（matchCount/daysCount/lastDay），供 dashboard 右侧栏与 MCP Agent 消费。
  */
+/**
+ * 好友地图统计：好友群体在 N 天内去过的世界按热度聚合（发现好玩的图）。
+ * 数据源 = events 的 friend-location（好友进世界，WS 推送；world_id 含 wrld_ 前缀，
+ * private/friends/group 实例同属 wrld_ 世界，local:/offline 天然不在）。
+ * 口径：visitors = 去过该世界的不同好友数（主排序），visits = 总进入次数（次排序），
+ * lastSeen = 最近一次。世界资料（名称/图/作者）优先 world_cache，事件携带 world_name 兜底。
+ * 纯本地查询，无 VRChat API 调用，不受限流约束。
+ */
+export function handleGetFriendWorldStats({ days = 30, limit = 20 } = {}) {
+  const { storage } = ctx;
+  const d = Math.min(Math.max(Number.parseInt(days, 10) || 30, 1), 365);
+  const lim = Math.min(Math.max(Number.parseInt(limit, 10) || 20, 1), 100);
+  const since = new Date(Date.now() - d * 86400000).toISOString();
+  const rows = storage.query(
+    `SELECT world_id AS worldId, user_id AS userId,
+            MAX(COALESCE(NULLIF(display_name, ''), '?')) AS dn,
+            COUNT(*) AS visits,
+            MAX(COALESCE(NULLIF(world_name, ''), '')) AS eventName,
+            MAX(created_at) AS lastSeen
+       FROM events
+      WHERE type = 'friend-location' AND world_id LIKE 'wrld_%' AND created_at >= $since
+      GROUP BY world_id, user_id
+      ORDER BY worldId, visits DESC`,
+    { $since: since });
+  const byWorld = new Map();
+  for (const r of rows) {
+    let w = byWorld.get(r.worldId);
+    if (!w) { w = { worldId: r.worldId, eventName: r.eventName || '', visits: 0, visitors: 0, lastSeen: '', friends: [] }; byWorld.set(r.worldId, w); }
+    w.visitors += 1;
+    w.visits += r.visits;
+    if (r.lastSeen > w.lastSeen) w.lastSeen = r.lastSeen;
+    if (w.friends.length < 5) w.friends.push(r.dn);
+  }
+  const stats = [...byWorld.values()]
+    .sort((a, b) => b.visitors - a.visitors || b.visits - a.visits || (a.lastSeen < b.lastSeen ? 1 : -1))
+    .slice(0, lim)
+    .map((w) => {
+      const wc = storage.getWorldName(w.worldId);
+      return {
+        worldId: w.worldId,
+        worldName: (wc && wc.name) || w.eventName || '',
+        imageUrl: (wc && wc.image_url) || '',
+        authorName: (wc && wc.author_name) || '',
+        visitors: w.visitors,
+        visits: w.visits,
+        lastSeen: w.lastSeen,
+        friends: w.friends,
+      };
+    });
+  return { windowDays: d, count: stats.length, stats };
+}
+
 export function handleGetRecentCooplay({ days = 7, limit = 30 } = {}) {
   const { storage, serverState } = ctx;
   const meId = serverState.authUser?.id;
@@ -579,6 +631,24 @@ export const tools = [
       }
     },
     handler: async (args) => handleGetRecentCooplay(args)
+  },
+  {
+    "name": "get_friend_world_stats",
+    "description": "[query] 好友地图统计：好友群体在最近 N 天去过的世界按热度聚合——visitors（去过该世界的不同好友数，主排序）、visits（总进入次数）、lastSeen、friends（部分好友名样本 ≤5），并补全世界名称/缩略图/作者（world_cache 优先，事件携带名兜底）。用于发现好友圈里热门/好玩的图。days(1-365 默认 30)、limit(1-100 默认 20)。纯本地统计，无 VRChat API 调用。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "days": {
+          "type": "number",
+          "description": "统计窗口天数（1-365，默认 30）"
+        },
+        "limit": {
+          "type": "number",
+          "description": "返回世界数上限（1-100，默认 20）"
+        }
+      }
+    },
+    handler: async (args) => handleGetFriendWorldStats(args)
   },
   {
     "name": "get_ops_log",

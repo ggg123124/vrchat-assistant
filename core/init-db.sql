@@ -22,6 +22,8 @@ CREATE INDEX IF NOT EXISTS idx_events_user_time ON events(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_events_world ON events(world_id);
 -- events(user_id, created_at, type)：加速按用户+时间+类型的复合查询（getLatestFriendLocations / findFriendPair*）
 CREATE INDEX IF NOT EXISTS idx_events_user_time_type ON events(user_id, created_at, type);
+-- events(type, created_at)：加速按类型+时间窗的全量聚合（get_friend_world_stats 等，#165 review 建议）
+CREATE INDEX IF NOT EXISTS idx_events_type_time ON events(type, created_at);
 
 -- 好友当前状态
 CREATE TABLE IF NOT EXISTS friends (
