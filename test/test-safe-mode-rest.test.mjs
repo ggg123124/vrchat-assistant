@@ -88,9 +88,23 @@ test('safe-mode REST: 云端不可逆操作被拦、本地软删除放行', asyn
   assert.equal(r3.body.ok, false);
   assert.match(r3.body.error, /不可逆/);
 
-  // 4) tracked/remove 本地软删除：放行（#162 修复误拦）
-  const r4 = await callRoute(m.api, routes, 'POST', '/api/dashboard/tracked/remove', { userId: 'usr_abc' });
-  assert.equal(r4.body.ok, true, 'tracked 软删除应放行');
+  // 4) favorite-remove（favorites.js，此前 avatar/friend 分支漏网）在 safeMode=true 下被拦
+  //    且下游 DELETE /favorites/{id} 不被调用（review #170 inline：注释声称覆盖但原缺此断言）
+  const r4 = await callRoute(m.api, routes, 'POST', '/api/dashboard/favorite-remove', { type: 'friend', id: 'usr_x' });
+  assert.equal(r4.body.ok, false, 'favorite-remove 应被拦');
+  assert.match(r4.body.error, /不可逆/);
+  const m2 = makeMockApi({ safeMode: true });
+  const routes2 = registerRoutes(m2);
+  await callRoute(m2.api, routes2, 'POST', '/api/dashboard/favorite-remove', { type: 'avatar', id: 'avtr_x' });
+  assert.equal(m2.vrchatCalls.filter(c => c.opts?.method === 'DELETE').length, 0, '拦截后不应有 DELETE 下发');
+  const m3 = makeMockApi({ safeMode: true });
+  const routes3 = registerRoutes(m3);
+  await callRoute(m3.api, routes3, 'POST', '/api/dashboard/favorite-remove', { type: 'world', id: 'wrld_x' });
+  assert.equal(m3.toolCalls.filter(t => t.name === 'unfavorite_world').length, 0, 'world 分支同样被拦（MCP unfavorite_world 不调用）');
+
+  // 5) tracked/remove 本地软删除：放行（#162 修复误拦）
+  const r5 = await callRoute(m.api, routes, 'POST', '/api/dashboard/tracked/remove', { userId: 'usr_abc' });
+  assert.equal(r5.body.ok, true, 'tracked 软删除应放行');
   assert.ok(m.serviceCalls.includes('dashboard.trackedRemove'), '下游服务应被调用');
 });
 
