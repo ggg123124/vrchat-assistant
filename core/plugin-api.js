@@ -165,6 +165,7 @@ export function findForeignTableName(sql, prefix) {
   let pragmaPending = false;    // 语句首词是 PRAGMA，等待 pragma 名
   let onConsumed = false;       // 本语句首个 ON 是否已用于表名位置
   let inWith = false;           // WITH 子句中（收集 CTE 名）
+  let renameTo = false;         // ALTER ... RENAME TO 的目标名位置（review #169 建议#2）
   let parenDepth = 0;
   const cteNames = new Set();
 
@@ -176,6 +177,7 @@ export function findForeignTableName(sql, prefix) {
     pragmaPending = false;
     onConsumed = false;
     inWith = false;
+    renameTo = false;
   };
 
   while (i < n) {
@@ -299,6 +301,11 @@ export function findForeignTableName(sql, prefix) {
         onConsumed = true;
         expectingTable = true;
       }
+      // ALTER ... RENAME TO <目标>（review #169 建议#2）：目标名与 FROM 同级校验
+      // RENAME COLUMN 的目标是列名，遇 COLUMN 即清除标志（与 rewrite 路径一致）
+      if (up === 'RENAME') renameTo = true;
+      if (up === 'COLUMN' && renameTo) renameTo = false;
+      if (up === 'TO' && renameTo) { renameTo = false; expectingTable = true; }
       continue;
     }
 
@@ -545,7 +552,9 @@ export function rewritePluginTableNames(sql, pluginName, prefix) {
         expectingTable = true;
       }
       // ALTER ... RENAME TO <目标>（#167 💡6）：目标名与 FROM/INTO 同级校验/重写
+      // RENAME COLUMN（SQLite 3.25+）的目标是列名而非表名，遇 COLUMN 即清除标志（review #169 inline #1）
       if (up === 'RENAME') renameTo = true;
+      if (up === 'COLUMN' && renameTo) renameTo = false;
       if (up === 'TO' && renameTo) { renameTo = false; expectingTable = true; tableDef = true; }
 
       result += word;
@@ -587,6 +596,15 @@ function buildDbNamespace({ pluginName, prefix, ctx }) {
     // 2) 白名单：表名位置的标识符必须都是本插件前缀（核心表/其他插件表一律拒绝）
     const offender = findForeignTableName(sql, prefix);
     if (offender) {
+      // __stmt: 哨兵（findForeignTableName 返回）= 语句级拒绝（VACUUM/ATTACH/DETACH 等），
+      // 单独输出可读文案，避免误导插件作者以为是表名问题（review #169 💡2）
+      const stmtMatch = /^__stmt:([A-Za-z]+)$/.exec(offender);
+      if (stmtMatch) {
+        throw new Error(
+          `插件 ${pluginName} 不允许执行 ${stmtMatch[1]} 语句：作用域为整个数据库` +
+          `（可整库导出或挂载外部库，禁止在插件内执行）`
+        );
+      }
       const foreignPrefix = /^plg_[a-zA-Z0-9_-]+_/.exec(offender.toLowerCase())?.[0];
       if (foreignPrefix) {
         throw new Error(

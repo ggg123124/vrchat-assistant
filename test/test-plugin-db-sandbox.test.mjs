@@ -123,6 +123,39 @@ function makeApi(pluginName = 'testplugin') {
   console.log('  ✅ 不误报：字符串/注释/CTE/ON CONFLICT/合法关键字组合放行');
 }
 
+// ── 5b. #167 批次2 行为（review #169 补测试）：表值函数放行 / 语句级拒绝 / RENAME 处理 ──
+{
+  const { api } = makeApi();
+  const items = api.db.table('items');
+
+  // 表值函数在表名位置放行（不读表，无越权）
+  items.all('SELECT * FROM json_each(\'[1,2,3]\')');
+  items.all('SELECT * FROM json_tree(\'{"a":1}\')');
+  items.all('SELECT * FROM generate_series(1, 5)');
+  items.all('SELECT * FROM pragma_table_info(\'items\')');
+  items.all('SELECT value FROM json_each((SELECT note FROM items))'); // 内嵌子查询仍受检：items 是本插件表
+  assertThrows(() => items.all('SELECT * FROM json_each((SELECT json FROM events))'), /events/, '表值函数参数内的核心表子查询仍被拒');
+
+  // 语句级拒绝：VACUUM/ATTACH/DETACH（首词 + 中段 ;VACUUM;）+ 专属报错文案（review #169 💡2）
+  assertThrows(() => api.db.exec('VACUUM'), /不允许执行 VACUUM 语句/, 'VACUUM 语句级拒绝');
+  assertThrows(() => api.db.exec("VACUUM INTO 'backup.db'"), /不允许执行 VACUUM 语句/, 'VACUUM INTO 拒绝');
+  assertThrows(() => api.db.exec("ATTACH DATABASE 'x.db' AS x"), /不允许执行 ATTACH 语句/, 'ATTACH 拒绝');
+  assertThrows(() => api.db.exec('DETACH DATABASE x'), /不允许执行 DETACH 语句/, 'DETACH 拒绝');
+  assertThrows(() => api.db.exec('SELECT 1; VACUUM;'), /不允许执行 VACUUM 语句/, '语句中段 ;VACUUM; 拒绝');
+  // 字符串字面量内的 VACUUM 不误报
+  items.all("SELECT 'VACUUM' AS s FROM items");
+
+  // 运行期 RENAME TO：目标纳入校验（review #169 建议#2）
+  api.db.exec('ALTER TABLE items RENAME TO plg_testplugin_items_v2'); // 本插件命名空间内改名放行
+  assertThrows(() => api.db.exec('ALTER TABLE plg_testplugin_items_v2 RENAME TO events'), /events/, 'RENAME TO 核心表名拒绝');
+  assertThrows(() => api.db.exec('ALTER TABLE plg_testplugin_items_v2 RENAME TO x_backup'), /x_backup/, 'RENAME TO 无前缀目标拒绝');
+
+  // 运行期 RENAME COLUMN：列名目标不进入表名校验（COLUMN 豁免，review #169 inline #1）
+  api.db.exec('ALTER TABLE plg_testplugin_items_v2 RENAME COLUMN note TO note2');
+
+  console.log('  ✅ #167批次2：表值函数放行/VACUUM+ATTACH拒绝(专属文案)/RENAME TO校验/RENAME COLUMN豁免');
+}
+
 // ── 6. schema.sql 白名单（_applySchema 路径）──
 {
   const prefix = 'plg_schema_test_';
@@ -195,6 +228,26 @@ function makeApi(pluginName = 'testplugin') {
   );
   assert(rewritten6.includes('CREATE TABLE "plg_emoji-notes_notes"'), '连字符插件名 CREATE 表名应带引号');
   assert(rewritten6.includes('INSERT INTO "plg_emoji-notes_notes"'), '连字符插件名 DML 表名应带引号');
+
+  // RENAME COLUMN（SQLite 3.25+）：列名目标是列不是表，不应被加前缀（review #169 inline #1 回归用例）
+  const renamed = rewritePluginTableNames(
+    'ALTER TABLE logs RENAME COLUMN note TO note2',
+    'schema_test',
+    prefix
+  );
+  assert(renamed.includes('ALTER TABLE plg_schema_test_logs RENAME COLUMN note TO note2'), 'RENAME COLUMN 源表重写、列名透传');
+
+  // RENAME TO 目标为无前缀名 → 加前缀；为其他插件前缀 → 拒绝（review #169 建议#2 对应 schema 路径）
+  const renamed2 = rewritePluginTableNames(
+    'CREATE TABLE logs (id INTEGER); ALTER TABLE logs RENAME TO logs_v2;',
+    'schema_test',
+    prefix
+  );
+  assert(renamed2.includes('ALTER TABLE plg_schema_test_logs RENAME TO plg_schema_test_logs_v2'), 'RENAME TO 无前缀目标应加前缀');
+  assertThrows(
+    () => rewritePluginTableNames('CREATE TABLE logs (id INTEGER); ALTER TABLE logs RENAME TO friends;', 'schema_test', prefix),
+    /friends/, 'RENAME TO 核心表名拒绝'
+  );
 
   console.log('  ✅ schema.sql 白名单：核心表/其他插件表拒绝，本插件裸表名重写');
 }
