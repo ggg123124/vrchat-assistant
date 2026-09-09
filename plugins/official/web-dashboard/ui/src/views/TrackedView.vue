@@ -155,6 +155,34 @@ const filtered = computed(() => {
 
 const trackedCount = computed(() => (items.value || []).length);
 
+// ── 备注编辑（tracked memo，≤200 字符；空串=清除）──
+const memoDialog = ref(false);
+const memoTarget = ref(null);      // { userId, displayName }
+const memoDraft = ref('');
+const memoSaving = ref(false);
+const memoOf = (x) => String(x && x.memo || '').trim();
+function openMemo(x) {
+  memoTarget.value = { userId: x.userId, displayName: x.displayName || x.userId };
+  memoDraft.value = memoOf(x);
+  memoDialog.value = true;
+}
+async function saveMemo() {
+  if (!memoTarget.value || memoSaving.value) return;
+  memoSaving.value = true;
+  try {
+    const r = await post('/api/dashboard/tracked/memo', { userId: memoTarget.value.userId, memo: memoDraft.value });
+    if (!r || r.ok !== true) throw new Error((r && r.error) || '保存失败');
+    const it = (items.value || []).find((x) => x.userId === memoTarget.value.userId);
+    if (it) it.memo = String(r.memo || '');
+    toast(memoOf(it) ? '备注已保存' : '备注已清除', 'success');
+    memoDialog.value = false;
+  } catch (e) {
+    toast('备注保存失败：' + (e.message || e), 'error');
+  } finally {
+    memoSaving.value = false;
+  }
+}
+
 // 变化时间线类型筛选（全部/头像/简介/状态）
 const changeFilter = ref('all');
 const CHANGE_TYPES = [
@@ -282,6 +310,7 @@ onMounted(load);
             <b class="tk-name">
               <span v-if="x.status" class="tk-dot" :style="statusDotStyle(x.location)" :title="'当前状态：' + statusText(x.status)"></span>
               {{ x.displayName || x.userId }}
+              <Tag v-if="memoOf(x)" class="tk-memotag" :title="memoOf(x)">备注</Tag>
             </b>
             <small class="tk-sub">
               <span class="tk-statusline">
@@ -294,6 +323,9 @@ onMounted(load);
             </small>
           </div>
           <span v-if="lastChangeAt(x)" class="tk-dot" title="有资料变化"></span>
+          <Button size="small" text rounded icon="pi pi-pencil" :severity="memoOf(x) ? 'secondary' : 'contrast'"
+            :title="memoOf(x) ? '备注：' + memoOf(x) : '添加备注'" :aria-label="'编辑备注：' + (x.displayName || x.userId)"
+            @click.stop="openMemo(x)" />
           <Button size="small" text rounded :icon="expanded === x.userId ? 'pi pi-chevron-up' : 'pi pi-chevron-down'"
             :aria-label="expanded === x.userId ? '收起变化历史' : '展开变化历史'" @click.stop="toggle(x.userId)" />
         </button>
@@ -366,6 +398,15 @@ onMounted(load);
         </div>
       </div>
     </div>
+
+    <Dialog v-model:visible="memoDialog" modal :header="'备注：' + (memoTarget ? memoTarget.displayName : '')" :style="{ width: '420px', maxWidth: '92vw' }">
+      <Textarea v-model="memoDraft" rows="4" maxlength="200" autoResize class="w-full" placeholder="给这个非好友写点备注（≤200 字符，仅自己可见）" @keydown.enter.exact.prevent="saveMemo" />
+      <small class="tk-memohint">{{ memoDraft.length }}/200</small>
+      <template #footer>
+        <Button size="small" text label="取消" @click="memoDialog = false" />
+        <Button size="small" :label="memoOf({ memo: memoDraft }) ? '保存' : '清除备注'" icon="pi pi-check" :loading="memoSaving" @click="saveMemo" />
+      </template>
+    </Dialog>
 </template>
 
 <style scoped>
@@ -428,6 +469,8 @@ onMounted(load);
 .tc-sarr { color: var(--text-dim); font-size: 11px; flex: none; }
 .tc-sdesc { color: var(--text); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tc-sdesc.dim { color: var(--text-dim); font-weight: 400; }
+.tk-memotag { font-size: 10px; vertical-align: 2px; margin-left: 4px; }
+.tk-memohint { color: var(--text-dim); display: block; margin-top: 4px; }
 .tc-avatars { display: flex; align-items: center; gap: 8px; }
 .tc-avpair { display: flex; flex-direction: column; align-items: center; gap: 2px; }
 .tc-av { width: 42px; height: 42px; border-radius: 8px; object-fit: cover; }

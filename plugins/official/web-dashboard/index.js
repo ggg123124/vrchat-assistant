@@ -423,6 +423,23 @@ export default function register(api) {
     },
   });
 
+  // 非好友追踪：备注（本地可恢复操作，safe-mode 下放行）
+  api.http.registerRoute({
+    method: 'POST',
+    path: '/api/dashboard/tracked/memo',
+    handler: async (req, res) => {
+      try {
+        const body = await readJsonBody(req);
+        const userId = String((body && body.userId) || '').trim();
+        if (!userId.startsWith('usr_')) return sendJson(res, { ok: false, error: 'bad-params: 需要 usr_ 开头的 userId' });
+        const r = await api.consume('dashboard.trackedMemo', { userId, memo: (body && body.memo) ?? '' });
+        sendJson(res, r);
+      } catch (e) {
+        sendJson(res, { ok: false, error: String(e.message || e) });
+      }
+    },
+  });
+
   // 全部群组公告时间线（跨群组汇总本地公告历史）
   api.http.registerRoute({
     method: 'GET',

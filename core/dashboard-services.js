@@ -757,7 +757,7 @@ export function registerDashboardServices(loader, ctx) {
     try {
       const rows = ctx.storage.query(
         `SELECT t.user_id AS userId, t.display_name AS displayName, t.avatar_image_url AS avatarUrl,
-                t.status, t.status_description AS statusDescription, t.location,
+                t.status, t.status_description AS statusDescription, t.location, t.memo,
                 t.added_at AS addedAt, t.last_refresh_at AS lastRefreshAt,
                 (SELECT e.created_at FROM events e
                   WHERE e.user_id = t.user_id AND e.type = 'friend-update' AND e.source = 'poll'
@@ -808,6 +808,19 @@ export function registerDashboardServices(loader, ctx) {
     return { ok: true, removed: r.changes > 0, userId };
   });
   loader.serviceOwners.set('dashboard.trackedRemove', 'core');
+
+  // 备注非好友（自由文本，≤200 字符；空串=清除）。本地可恢复操作，无 safe-mode 拦截。
+  loader.services.set('dashboard.trackedMemo', ({ userId, memo } = {}) => {
+    if (typeof userId !== 'string' || !userId.startsWith('usr_')) {
+      throw new Error('userId 必须是 usr_ 开头的用户 ID');
+    }
+    const m = String(memo ?? '').trim().slice(0, 200);
+    const r = ctx.storage.run(
+      `UPDATE tracked_non_friends SET memo = $m WHERE user_id = $u AND removed_at = ''`,
+      { $m: m, $u: userId });
+    return { ok: true, updated: r.changes > 0, userId, memo: m };
+  });
+  loader.serviceOwners.set('dashboard.trackedMemo', 'core');
 
   // 非好友资料变化历史：start-monitor.js _recordNonFriendChange 把 bio/status 变化写成
   // friend-update 事件（content.type=bio/status，含 previousX 对比，source=poll）——此处只读查询展示
