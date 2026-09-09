@@ -1,7 +1,8 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue';
 import { get, post } from '../api.js';
-import { time, date, dateTime, avatarLabel , reltime } from '../utils.js';
+import { time, date, dateTime, avatarLabel , reltime, statusLabels } from '../utils.js';
+import { statusColor } from '../composables/useFriendGroups.js';
 import { openUser } from '../store.js';
 import { toast } from '../toast.js';
 import { confirm } from '../confirm.js';
@@ -186,7 +187,7 @@ const lastChangeAt = (x) => {
 const CHANGE_LABEL = { bio: '简介变更', status: '状态变更', avatar: '头像更新', user_icon: '头像图标更新', pronouns: '代词更新', displayName: '改名', location: '位置/上下线' };
 // 位置可读化：offline=离线 / offline:offline=网页在线 / traveling=传送中 / wrld_xxx=世界（世界名在 c.worldName 里附加）
 const locLabel = (l) => { const v = String(l || ''); if (!v || v === 'offline') return '离线'; if (v === 'offline:offline') return '网页在线'; if (v === 'traveling') return '传送中'; return v; };
-const statusText = (s) => ({ active: '空闲', 'join me': '加入我', 'ask me': '问我', busy: '忙碌', offline: '离线' }[s] || s || '—');
+const statusText = (s) => statusLabels[s] || s || '—';
 // 状态圆点颜色（对齐好友页视觉）：在线系绿色，离线灰色
 function statusDotStyle(loc) {
   return { background: isOnline(loc) ? '#52c41a' : 'var(--border-strong)' };
@@ -340,8 +341,16 @@ onMounted(load);
                     <span class="tc-new" :title="c.bio">新：{{ c.bio || '（已清空）' }}</span>
                   </template>
                   <template v-else-if="c.type === 'status'">
-                    <span class="tc-old">旧：{{ statusText(c.previousStatus) }}{{ c.previousStatusDescription ? ' · ' + c.previousStatusDescription : '' }}</span>
-                    <span class="tc-new">新：{{ statusText(c.status) }}{{ c.statusDescription ? ' · ' + c.statusDescription : '' }}</span>
+                    <!-- 对齐动态页状态灯样式：[旧灯]→[新灯] 新签名（种类未变时只显新灯；旧种类/旧签名在灯 title） -->
+                    <span class="tc-statusrow">
+                      <template v-if="c.previousStatus && c.previousStatus !== c.status">
+                        <span class="tc-slamp" :style="{ background: statusColor(c.previousStatus) }" :title="'旧：' + statusText(c.previousStatus) + (c.previousStatusDescription ? ' · ' + c.previousStatusDescription : '')"></span>
+                        <span class="tc-sarr">→</span>
+                      </template>
+                      <span class="tc-slamp" :style="{ background: statusColor(c.status) }" :title="'新：' + statusText(c.status)"></span>
+                      <span v-if="c.statusDescription" class="tc-sdesc" :title="c.statusDescription">{{ c.statusDescription }}</span>
+                      <span v-else-if="c.status" class="tc-sdesc dim">{{ statusText(c.status) }}</span>
+                    </span>
                   </template>
                   <template v-else-if="c.type === 'location'">
                     <span class="tc-old">旧：{{ locLabel(c.previousLocation) }}</span>
@@ -413,6 +422,12 @@ onMounted(load);
 .tc-date { font-size: 9px; color: var(--text-dim); }
 .tc-card { min-width: 0; flex: 1; background: var(--surface); border: 1px solid var(--border-soft); border-radius: 8px; padding: 7px 9px; }
 .tc-body { margin-top: 5px; display: flex; flex-direction: column; gap: 3px; }
+/* 状态变更行：对齐动态页（FeedView）状态灯视觉，横排 [旧灯]→[新灯] 签名 */
+.tc-statusrow { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.tc-slamp { width: 12px; height: 12px; border-radius: 50%; display: inline-block; flex: none; box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 12%, transparent); border: 1.5px solid rgba(0,0,0,0.35); }
+.tc-sarr { color: var(--text-dim); font-size: 11px; flex: none; }
+.tc-sdesc { color: var(--text); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tc-sdesc.dim { color: var(--text-dim); font-weight: 400; }
 .tc-avatars { display: flex; align-items: center; gap: 8px; }
 .tc-avpair { display: flex; flex-direction: column; align-items: center; gap: 2px; }
 .tc-av { width: 42px; height: 42px; border-radius: 8px; object-fit: cover; }
