@@ -12,7 +12,7 @@ import path from 'node:path';
 import net from 'node:net';
 
 import { ctx, log, refreshWatchlistCache } from './core/server-context.js';
-import { initLogger, getLevelName } from './core/logger.js';
+import { initLogger, getLevelName, getLogger } from './core/logger.js';
 import { recordOpsLog, setOpsLogSink } from './core/ops-log.js';
 import * as registry from './core/registry.js';
 import { isSafeModeEnabled, DESTRUCTIVE_TOOLS } from './core/safe-mode.js';
@@ -47,6 +47,9 @@ import { notifier } from './core/notifier.js';
 import { buildChannels } from './core/notify-channels.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+const logApp = getLogger('app');
+const logMCP = getLogger('mcp');
 
 // ── .env 加载（只取 VRC_MONITOR_*）──
 // 注意：无条件覆盖 process.env——服务被插件 spawn 时可能继承旧值，跳过会导致 .env 配置失效
@@ -826,7 +829,7 @@ setOpsLogSink((kind, level, message) => {
           log(`[追踪] [关注] ${event.displayName || event.userId}: ${event.type}`);
         }
       } catch (err) {
-        log(`[警告] 事件处理失败: ${err.message}`);
+        logApp.error(`事件处理失败: ${err.message}`, { stack: err.stack, type: event?.type, userId: event?.userId });
       }
     },
     onStatusChange: (status) => {
@@ -874,9 +877,9 @@ setOpsLogSink((kind, level, message) => {
   const server = createServer();
   server.listen(PORT, HOST, () => {
     log(`\n[启动] MCP 服务运行在 http://${HOST}:${PORT}/mcp\n`);
-    log('可用工具:');
+    log(`可用工具: ${registry.listTools().length} 个（完整清单通过 tools/list 或 /health 查询）`);
     for (const t of registry.listTools()) {
-      log(`  ${t.name} — ${t.description}`);
+      logMCP.debug(`  ${t.name} — ${t.description}`);
     }
     log(`\n健康检查: http://${HOST}:${PORT}/health`);
     log('\n按 Ctrl+C 停止\n');

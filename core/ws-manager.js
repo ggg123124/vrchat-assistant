@@ -255,7 +255,7 @@ export class WsManager {
         this.onEvent(event);
       }
     } catch (err) {
-      log.error(`解析消息失败: ${err.message}`);
+      log.error(`解析消息失败: ${err.message}`, { stack: err.stack, raw: String(raw || '').slice(0, 100) });
     }
   }
 
