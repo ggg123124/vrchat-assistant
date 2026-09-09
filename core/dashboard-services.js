@@ -762,7 +762,12 @@ export function registerDashboardServices(loader, ctx) {
                 (SELECT e.created_at FROM events e
                   WHERE e.user_id = t.user_id AND e.type = 'friend-update' AND e.source = 'poll'
                   ORDER BY e.id DESC LIMIT 1) AS lastChangeAt
-         FROM tracked_non_friends t WHERE t.removed_at = '' ORDER BY t.last_refresh_at DESC, t.added_at DESC LIMIT $limit`,
+         FROM tracked_non_friends t
+         -- 权威源兜底(#164 补漏):列表只含"当前非好友"。friend-add 联动写 removed_at 是事件驱动,
+         -- 事件丢失(停机/断连窗口内加好友)会残留;LEFT JOIN friends 排除,若日后解除好友自动回列。
+         LEFT JOIN friends f ON f.user_id = t.user_id
+         WHERE t.removed_at = '' AND f.user_id IS NULL
+         ORDER BY t.last_refresh_at DESC, t.added_at DESC LIMIT $limit`,
         { $limit: Math.min(Math.max(Number(limit) || 200, 1), 500) });
       const selfId = getSelfUserId(ctx.storage);
       return { tracked: rows.filter((r) => r.userId !== selfId).map((r) => ({ ...r, avatarUrl: avatarThumb(r.avatarUrl) || '' })) };

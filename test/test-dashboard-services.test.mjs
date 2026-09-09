@@ -70,6 +70,22 @@ test('dashboard.trackedNonFriends 返回 tracked 列表形状', () => {
   assert.ok(r.tracked.some((x) => x.userId === UID && x.displayName === '测试用户'));
 });
 
+test('tracked 列表权威源兜底：已是好友必不显示，解除好友自动回列（#164 补漏）', () => {
+  const UID2 = 'usr_test-0000-0000-0000-000000000002';
+  ctx.storage.run(
+    `INSERT OR REPLACE INTO tracked_non_friends (user_id, display_name, avatar_image_url, added_at, last_refresh_at)
+     VALUES ($u, $d, '', datetime('now'), datetime('now'))`,
+    { $u: UID2, $d: '曾追踪现好友' });
+  // 模拟 friend-add 事件丢失（联动未写 removed_at）：直接进 friends 权威表
+  ctx.storage.run(`INSERT OR REPLACE INTO friends (user_id, display_name) VALUES ($u, $d)`, { $u: UID2, $d: '曾追踪现好友' });
+  let r = services.get('dashboard.trackedNonFriends')({ limit: 50 });
+  assert.ok(!r.tracked.some((x) => x.userId === UID2), '已是好友的条目不得出现在追踪列表');
+  // 解除好友（friend-delete 联动删 friends 行）→ 自动回列，无需 removed_at
+  ctx.storage.run(`DELETE FROM friends WHERE user_id = $u`, { $u: UID2 });
+  r = services.get('dashboard.trackedNonFriends')({ limit: 50 });
+  assert.ok(r.tracked.some((x) => x.userId === UID2), '解除好友后应自动回到追踪列表');
+});
+
 test('trackedNonFriends.lastChangeAt 与 trackedChanges 最新变化一致（真实变更时间，非检测时间）', () => {
   const list = services.get('dashboard.trackedNonFriends')({ limit: 10 }).tracked;
   const x = list.find((i) => i.userId === UID);
