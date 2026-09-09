@@ -12,6 +12,7 @@ import * as registry from './registry.js';
 
 // 命名日志：MCP 协议层（JSON-RPC 往返），请求日志默认降为 debug 级避免 ping/keepalive 刷屏
 const logMCP = getLogger('mcp');
+const logApp = getLogger('app');
 
 // ── MCP 会话管理 ──
 const sessions = new Map();
@@ -115,7 +116,7 @@ async function handleRequest(req, res) {
     try {
       await route.handler(req, res);
     } catch (err) {
-      log(`[失败] 插件 HTTP 路由失败 [${route.pluginName} ${pathname}]: ${err.message}`);
+      logApp.error(`插件 HTTP 路由失败 [${route.pluginName} ${pathname}]: ${err.message}`, { stack: err.stack, pathname, pluginName: route.pluginName });
       if (!res.headersSent) {
         const body = JSON.stringify({ error: 'Internal Server Error', message: err.message });
         res.writeHead(500, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) });
@@ -230,7 +231,7 @@ async function handleRpc(rpc, session, res) {
           result: { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] },
         }], session.id);
       } catch (err) {
-        log(`[失败] ${name} failed: ${err.message}`);
+        logApp.error(`工具调用失败 [${name}]: ${err.message}`, { stack: err.stack, name });
         sendError(res, id, err.message);
       }
       break;
