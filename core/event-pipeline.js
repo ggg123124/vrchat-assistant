@@ -3,6 +3,15 @@ import { getLogger } from './logger.js';
 
 const log = getLogger('event');
 
+// 码点安全截断（review #166：UTF-16 slice 会把 emoji 切半成 U+FFFD 替换符）。
+// 仅日志展示层用，不影响落库数据。
+function truncateCodePoints(str, max) {
+  const s = String(str ?? '');
+  const chars = Array.from(s);
+  return chars.length <= max ? s : chars.slice(0, max).join('');
+}
+
+
 /**
  * VRChat 好友监控系统 — 事件处理管道
  * 
@@ -145,7 +154,7 @@ export class EventPipeline {
     if (worldId && worldId !== 'private' && worldId !== prevWorldId) {
       log.info(`${displayName} 换世界 → ${worldName || worldId}`);
     } else {
-      log.debug(`${displayName} 位置更新: ${(worldName || worldId || location).slice(0, 60)}`);
+      log.debug(`${displayName} 位置更新: ${truncateCodePoints(worldName || worldId || location, 60)}`);
     }
   }
 
@@ -158,7 +167,7 @@ export class EventPipeline {
     const worldName = worldId ? await this._resolveWorldName(worldId) : '';
     // 仅存事件（不 upsertFriend——user-location 是自己的位置，不更新好友状态表）
     this._storeEvent({ ...event, worldId }, worldName);
-    log.debug(`我的位置: ${location.slice(0, 60)}`);
+    log.debug(`我的位置: ${truncateCodePoints(location, 60)}`);
     // 逛过的世界同步标记 world_kb.visited（2026-08-12 修复）：
     // 之前 visited 只在 scan_new_worlds 时更新，用户逛过但没再扫描的世界会一直标"未逛"，
     // 导致 get_new_worlds(onlyUnvisited) 把已逛的世界当新世界推荐。此处事件驱动回写，逛完即标记。
@@ -251,14 +260,14 @@ export class EventPipeline {
               break;
             }
             case 'bio': {
-              const prevBio = (c.payload.previousBio || '').slice(0, 40);
-              const newBio = (c.payload.bio || '').slice(0, 40);
+              const prevBio = truncateCodePoints(c.payload.previousBio, 40);
+              const newBio = truncateCodePoints(c.payload.bio, 40);
               log.info(`${displayName} bio变更: ${prevBio} → ${newBio}`);
               break;
             }
             case 'status': {
-              const prevSt = `${c.payload.previousStatus || ''} ${c.payload.previousStatusDescription || ''}`.trim().slice(0, 80);
-              const newSt = `${c.payload.status || ''} ${c.payload.statusDescription || ''}`.trim().slice(0, 80);
+              const prevSt = truncateCodePoints(`${c.payload.previousStatus || ''} ${c.payload.previousStatusDescription || ''}`.trim(), 80);
+              const newSt = truncateCodePoints(`${c.payload.status || ''} ${c.payload.statusDescription || ''}`.trim(), 80);
               log.info(`${displayName} 状态变更: ${prevSt || '(无)'} → ${newSt || '(无)'}`);
               break;
             }
