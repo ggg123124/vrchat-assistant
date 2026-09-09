@@ -78,6 +78,9 @@ export class Storage {
     if (!tnfCols.some(c => c.name === 'removed_at')) {
       this._run(`ALTER TABLE tracked_non_friends ADD COLUMN removed_at TEXT DEFAULT ''`);
     }
+    if (!tnfCols.some(c => c.name === 'memo')) {
+      this._run(`ALTER TABLE tracked_non_friends ADD COLUMN memo TEXT DEFAULT ''`);
+    }
     // 迁移：旧库 world_cache 缺 note 列
     const worldCols = this._query(`PRAGMA table_info(world_cache)`);
     if (!worldCols.some(c => c.name === 'note')) {

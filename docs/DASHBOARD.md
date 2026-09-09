@@ -37,6 +37,11 @@ Authorization: Bearer <VRC_MONITOR_AUTH_TOKEN>
 | `GET /api/dashboard/groups?userId=usr_...` | 指定好友加入的群组 |
 | `GET /api/dashboard/notifications?limit=30&types=invite` | 当前账号通知收件箱，支持类型筛选和分页 |
 | `POST /api/dashboard/notifications/see` | 标记通知已读，JSON body 为 `{ "notificationId": "..." }` |
+| `GET /api/dashboard/tracked?limit=200` | 非好友追踪列表（自动导入 + 手动添加，含状态/备注/最近变化） |
+| `POST /api/dashboard/tracked/add` | 添加追踪非好友，JSON body 为 `{ "userId": "usr_...", "displayName": "..." }` |
+| `POST /api/dashboard/tracked/remove` | 移除追踪（本地软删除，可恢复），JSON body 为 `{ "userId": "usr_..." }` |
+| `POST /api/dashboard/tracked/memo` | 设置/清除追踪备注（≤200 字符），JSON body 为 `{ "userId": "usr_...", "memo": "..." }` |
+| `GET /api/dashboard/tracked-changes?userId=usr_...&limit=20` | 指定追踪用户的资料变化时间线 |
 | `GET /api/dashboard/stats?days=7` | 活动统计：当前在线、按类型/按天聚合、活跃好友 Top |
 | `GET /api/dashboard/stream` | SSE 事件流：核心事件落库后实时推送轻量事件 DTO（含心跳保活） |
 | `GET /api/dashboard/nickname?userId=usr_...` | 查询好友本地备注/昵称映射 |

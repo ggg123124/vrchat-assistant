@@ -86,6 +86,18 @@ test('tracked 列表权威源兜底：已是好友必不显示，解除好友自
   assert.ok(r.tracked.some((x) => x.userId === UID2), '解除好友后应自动回到追踪列表');
 });
 
+test('trackedMemo 设置/清除备注，列表携带 memo 字段', () => {
+  const set = services.get('dashboard.trackedMemo')({ userId: UID, memo: '  群里认识的， Worlds 测试爱好者  ' });
+  assert.equal(set.ok, true);
+  assert.equal(set.memo, '群里认识的， Worlds 测试爱好者', '应 trim 且截断后保存');
+  let x = services.get('dashboard.trackedNonFriends')({ limit: 10 }).tracked.find((i) => i.userId === UID);
+  assert.equal(x.memo, '群里认识的， Worlds 测试爱好者', '列表应携带 memo');
+  assert.throws(() => services.get('dashboard.trackedMemo')({ userId: 'bad-id', memo: 'x' }), /usr_/, '非 usr_ 前缀应拒绝');
+  services.get('dashboard.trackedMemo')({ userId: UID, memo: '' });
+  x = services.get('dashboard.trackedNonFriends')({ limit: 10 }).tracked.find((i) => i.userId === UID);
+  assert.equal(x.memo, '', '空串应清除备注');
+});
+
 test('trackedNonFriends.lastChangeAt 与 trackedChanges 最新变化一致（真实变更时间，非检测时间）', () => {
   const list = services.get('dashboard.trackedNonFriends')({ limit: 10 }).tracked;
   const x = list.find((i) => i.userId === UID);
