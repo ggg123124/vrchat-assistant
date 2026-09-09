@@ -174,7 +174,14 @@ async function saveMemo() {
     if (!r || r.ok !== true) throw new Error((r && r.error) || '保存失败');
     const it = (items.value || []).find((x) => x.userId === memoTarget.value.userId);
     if (it) it.memo = String(r.memo || '');
-    toast(memoOf(it) ? '备注已保存' : '备注已清除', 'success');
+    // review #173：updated:false = 行已被并发移除（权威兜底/手动移除），本地不误报成功文案
+    if (r.updated === false) {
+      toast('该用户已不在追踪列表，备注未生效', 'info');
+      memoDialog.value = false;
+    } else {
+      toast(memoOf(it) ? '备注已保存' : '备注已清除', 'success');
+      memoDialog.value = false;
+    }
     memoDialog.value = false;
   } catch (e) {
     toast('备注保存失败：' + (e.message || e), 'error');

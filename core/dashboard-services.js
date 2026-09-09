@@ -814,7 +814,9 @@ export function registerDashboardServices(loader, ctx) {
     if (typeof userId !== 'string' || !userId.startsWith('usr_')) {
       throw new Error('userId 必须是 usr_ 开头的用户 ID');
     }
-    const m = String(memo ?? '').trim().slice(0, 200);
+    // 码点级截断（review #173：UTF-16 slice 会把 emoji 切半成 U+FFFD）
+    const chars = Array.from(String(memo ?? '').trim());
+    const m = chars.length <= 200 ? chars.join('') : chars.slice(0, 200).join('');
     const r = ctx.storage.run(
       `UPDATE tracked_non_friends SET memo = $m WHERE user_id = $u AND removed_at = ''`,
       { $m: m, $u: userId });
