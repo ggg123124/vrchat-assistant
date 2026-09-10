@@ -52,7 +52,8 @@ const CAL_SCOPES = [
   { v: 'featured', l: '精选' },
   { v: 'following', l: '关注的群组' },
 ];
-const CAT_ZH = { education: '教育', social: '社交', gaming: '游戏', music: '音乐', art: '艺术', meetup: '聚会', community: '社区', development: '开发', fitness: '健身', charity: '公益' };
+// 官方日历 category 为英文枚举；已知取值映射中文，未知取值原样显示（官方枚举可能扩，回退是有意的）
+const CAT_ZH = { education: '教育', social: '社交', gaming: '游戏', music: '音乐', art: '艺术', meetup: '聚会', community: '社区', development: '开发', fitness: '健身', charity: '公益', performance: '演出', workshop: '工作坊', talk: '讲座', party: '派对', exhibition: '展览' };
 const calScope = ref('all');
 const calEvents = ref([]);
 const calHasNext = ref(false);
@@ -80,7 +81,7 @@ async function loadCal(reset = true) {
 function setSource(v) { if (source.value !== v) { source.value = v; if (v === 'vrc') loadCal(true); else load(); } }
 function setCalScope(v) { if (calScope.value !== v) { calScope.value = v; loadCal(true); } }
 const catZh = (c) => CAT_ZH[c] || c;
-onMounted(load);
+onMounted(() => { loadCal(true); load(); });
 </script>
 
 <template>
