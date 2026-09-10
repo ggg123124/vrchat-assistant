@@ -141,6 +141,16 @@ async function _refreshOnlineState() {
       // active/菜单中用户，location 为空者不算在线——issue #114 ⚠️2 复测遗留修复）
       isOnline: !!(f.location && f.location !== 'offline'),
     })));
+    // 网页端在线自愈（2026-09-10 用户报 bug：转网页在线后 friends 表残留最后进房世界）。
+    // REST 在线列表里 location='offline' 的条目=仅网页在线（VRChat 语义），把 platform/location
+    // 真值落 friends 表并清残留世界——与 WS friend-active(platform=web) 修复同口径。
+    for (const f of online) {
+      if (f.location === 'offline' && f.platform === 'web') {
+        try {
+          storage.upsertFriend({ userId: f.id, platform: 'web', location: 'offline', worldId: '', worldName: '', isOnline: true });
+        } catch { /* 单条失败不阻断对账 */ }
+      }
+    }
 
     // 断线窗口对账：WS 断开期间的好友下线事件会错过（下线不再广播），本地状态会卡在「在线」。
     // 好友表标记在线、但不在真实在线集合中的 → 置离线 + 补记 friend-offline 事件（动态流可见）。

@@ -310,11 +310,26 @@ export class EventPipeline {
   async _handleActive(event) {
     const userId = event.userId;
 
-    this.storage.upsertFriend({
-      userId,
-      isOnline: true,
-      lastSeen: event.receivedAt,
-    });
+    if (event.platform === 'web') {
+      // 网页端在线（2026-09-10 用户实测：好友转网页在线时 VRChat 不发 friend-offline，
+      // 只发 platform=web 的 friend-active；REST 快照同口径 location='offline'+platform='web'）。
+      // 不清位置的话 friends 表残留最后进房的世界 → dashboard 仍显示在某世界（假在线位置）。
+      this.storage.upsertFriend({
+        userId,
+        isOnline: true,
+        lastSeen: event.receivedAt,
+        platform: 'web',
+        location: 'offline',
+        worldId: '',
+        worldName: '',
+      });
+    } else {
+      this.storage.upsertFriend({
+        userId,
+        isOnline: true,
+        lastSeen: event.receivedAt,
+      });
+    }
 
     this._storeEvent(event);
   }
