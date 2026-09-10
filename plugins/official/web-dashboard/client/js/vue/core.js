@@ -63,9 +63,9 @@
     dbStatus: '—',
     statusPresets: [
       { v: 'active', l: '在线' },
-      { v: 'join me', l: '加入我' },
-      { v: 'ask me', l: '问我' },
-      { v: 'busy', l: '忙碌' },
+      { v: 'join me', l: '欢迎加入' },
+      { v: 'ask me', l: '忙碌' },
+      { v: 'busy', l: '请勿打扰' },
     ],
     statusDesc: '',
     onlineFriends: [],

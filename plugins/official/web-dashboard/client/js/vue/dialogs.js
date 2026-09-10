@@ -195,16 +195,16 @@
                 <!-- 进度条 -->
                 <div class="status-breakdown-bar">
                   <div class="status-bar-seg s-active" :style="{ width: (pairData.statusBreakdown.active || 0) + '%' }" :title="'在线 (Active): ' + pairData.statusBreakdown.active + '%'"></div>
-                  <div class="status-bar-seg s-joinme" :style="{ width: (pairData.statusBreakdown.joinme || 0) + '%' }" :title="'加入我 (Join Me): ' + pairData.statusBreakdown.joinme + '%'"></div>
-                  <div class="status-bar-seg s-askme" :style="{ width: (pairData.statusBreakdown.askme || 0) + '%' }" :title="'问问我 (Ask Me): ' + pairData.statusBreakdown.askme + '%'"></div>
+                  <div class="status-bar-seg s-joinme" :style="{ width: (pairData.statusBreakdown.joinme || 0) + '%' }" :title="'欢迎加入 (Join Me): ' + pairData.statusBreakdown.joinme + '%'"></div>
+                  <div class="status-bar-seg s-askme" :style="{ width: (pairData.statusBreakdown.askme || 0) + '%' }" :title="'忙碌 (Ask Me): ' + pairData.statusBreakdown.askme + '%'"></div>
                   <div class="status-bar-seg s-busy" :style="{ width: (pairData.statusBreakdown.busy || 0) + '%' }" :title="'忙碌 (Busy): ' + pairData.statusBreakdown.busy + '%'"></div>
                   <div class="status-bar-seg s-offline" :style="{ width: (pairData.statusBreakdown.offline || 0) + '%' }" :title="'离线 (Offline): ' + pairData.statusBreakdown.offline + '%'"></div>
                 </div>
                 <!-- 图例说明 -->
                 <div class="status-breakdown-legend">
                   <span class="status-legend-item"><i style="background: var(--s-active)"></i> 在线 {{ pairData.statusBreakdown.active }}%</span>
-                  <span class="status-legend-item"><i style="background: var(--s-joinme)"></i> 加入我 {{ pairData.statusBreakdown.joinme }}%</span>
-                  <span class="status-legend-item"><i style="background: var(--s-askme)"></i> 问问我 {{ pairData.statusBreakdown.askme }}%</span>
+                  <span class="status-legend-item"><i style="background: var(--s-joinme)"></i> 欢迎加入 {{ pairData.statusBreakdown.joinme }}%</span>
+                  <span class="status-legend-item"><i style="background: var(--s-askme)"></i> 忙碌 {{ pairData.statusBreakdown.askme }}%</span>
                   <span class="status-legend-item"><i style="background: var(--s-busy)"></i> 忙碌 {{ pairData.statusBreakdown.busy }}%</span>
                   <span class="status-legend-item"><i style="background: var(--s-offline)"></i> 离线 {{ pairData.statusBreakdown.offline }}%</span>
                 </div>
@@ -584,9 +584,9 @@
         if (typeof window.isWebOnline === 'function' && window.isWebOnline(u)) return '网页在线';
         if (!u.isOnline || u.status === 'offline') return '离线';
         const s = (u.status || 'active').toLowerCase();
-        if (s === 'join me') return '请加入我 (Join Me)';
-        if (s === 'ask me') return '问问我 (Ask Me)';
-        if (s === 'busy') return '忙碌 (Do Not Disturb)';
+        if (s === 'join me') return '欢迎加入 (Join Me)';
+        if (s === 'ask me') return '忙碌 (Ask Me)';
+        if (s === 'busy') return '请勿打扰 (Do Not Disturb)';
         return '在线 (Online)';
       },
       formatDate: (s) => (s ? new Date(s).toLocaleDateString('zh-CN') : '—'),
