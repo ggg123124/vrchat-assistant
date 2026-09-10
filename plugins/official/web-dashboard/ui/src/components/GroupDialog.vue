@@ -11,6 +11,8 @@ const visible = computed({
 
 const g = ref({});
 const announcements = ref([]);
+const posts = ref([]);
+const hasPosts = computed(() => posts.value.length > 0);
 const loading = ref(false);
 const tab = ref('ann');
 
@@ -24,18 +26,20 @@ async function loadGroup() {
   loading.value = true;
   try {
     // 群组信息（缓存 30min）+ 本地历史公告（秒回）并行
-    const [d, a] = await Promise.allSettled([
+    const [d, a, p] = await Promise.allSettled([
       get(`/api/dashboard/group?groupId=${encodeURIComponent(gid)}`),
       get(`/api/dashboard/group-announcements?groupId=${encodeURIComponent(gid)}`),
+      get(`/api/dashboard/group-posts?groupId=${encodeURIComponent(gid)}&n=30`),
     ]);
     g.value = (d.status === 'fulfilled' && d.value && !d.value.error) ? d.value : { groupId: gid };
     announcements.value = (a.status === 'fulfilled' && a.value && a.value.announcements) || [];
+    posts.value = (p.status === 'fulfilled' && p.value && p.value.posts) || [];
   } catch {
     g.value = { groupId: gid };
   }
   loading.value = false;
-  // 默认 tab：有公告进公告，否则进房间
-  tab.value = hasAnnouncements.value ? 'ann' : 'rooms';
+  // 默认 tab：有公告进公告，有帖子进帖子，否则进房间
+  tab.value = hasAnnouncements.value ? 'ann' : (hasPosts.value ? 'posts' : 'rooms');
 }
 
 // 当前公告（get_group_info includeAnnouncement）
@@ -97,9 +101,10 @@ function instInfo(inst) {
       <div v-if="g.description" class="gd-desc">{{ g.description }}</div>
 
       <!-- 选项卡：公告 / 群组房间（无内容则隐藏对应页） -->
-      <Tabs v-if="hasAnnouncements || hasRooms" v-model:value="tab" class="gd-tabs">
+      <Tabs v-if="hasAnnouncements || hasRooms || hasPosts" v-model:value="tab" class="gd-tabs">
         <TabList>
           <Tab v-if="hasAnnouncements" value="ann">公告</Tab>
+          <Tab v-if="hasPosts" value="posts">帖子（{{ posts.length }}）</Tab>
           <Tab v-if="hasRooms" value="rooms">群组房间（{{ (g.instances || []).length }}）</Tab>
         </TabList>
         <TabPanels>
@@ -120,6 +125,19 @@ function instInfo(inst) {
                   </div>
                   <div class="gd-ann-text">{{ a.text }}</div>
                 </div>
+              </div>
+            </div>
+          </TabPanel>
+          <!-- 帖子页：群组通知帖流（title/text/图/时间；visibility public） -->
+          <TabPanel v-if="hasPosts" value="posts">
+            <div class="gd-post-list">
+              <div v-for="p in posts" :key="p.id" class="gd-post">
+                <div class="gd-post-head">
+                  <b>{{ p.title || '（无标题）' }}</b>
+                  <span class="mono text-dim">{{ date(p.createdAt) }}</span>
+                </div>
+                <img v-if="p.imageUrl" :src="imgUrl(p.imageUrl)" class="gd-post-img" alt="" loading="lazy" />
+                <div class="gd-post-text">{{ p.text }}</div>
               </div>
             </div>
           </TabPanel>
@@ -201,6 +219,12 @@ function instInfo(inst) {
 .gd-ann-item-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .gd-ann-item-head .mono { font-size: 11px; white-space: nowrap; }
 .gd-ann-text { color: var(--text); font-size: 12.5px; line-height: 1.6; white-space: pre-wrap; max-height: 180px; overflow-y: auto; }
+.gd-post-list { display: flex; flex-direction: column; gap: 8px; }
+.gd-post { background: var(--surface-2); border: 1px solid var(--border-soft); border-radius: 8px; padding: 8px 10px; }
+.gd-post-head { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.gd-post-head b { font-size: 13px; }
+.gd-post-img { max-width: 100%; border-radius: 6px; margin-top: 6px; }
+.gd-post-text { font-size: 12px; color: var(--text); line-height: 1.7; margin-top: 5px; white-space: pre-wrap; word-break: break-word; }
 
 /* 群组房间 */
 .gd-inst { display: flex; flex-direction: column; gap: 6px; }

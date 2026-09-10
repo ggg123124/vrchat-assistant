@@ -824,6 +824,31 @@ export function registerDashboardServices(loader, ctx) {
   });
   loader.serviceOwners.set('dashboard.trackedMemo', 'core');
 
+  // 群组帖子（/groups/{gid}/posts：群组通知/公告类帖子流；2026-09-10 探测验证可用）
+  loader.services.set('dashboard.groupPosts', async ({ groupId, n = 20, offset = 0 } = {}) => {
+    if (typeof groupId !== 'string' || !groupId.startsWith('grp_')) throw new Error('groupId 必须是 grp_ 开头的群组 ID');
+    if (!ctx.api) return { posts: [], total: null };
+    const lim = Math.min(Math.max(Number(n) || 20, 1), 50);
+    const off = Math.max(Number(offset) || 0, 0);
+    const suffix = off ? `&offset=${off}` : '';
+    try {
+      const r = await Promise.race([
+        ctx.api._request('GET', `/groups/${groupId}/posts?n=${lim}${suffix}`),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 8000)),
+      ]);
+      const d = r.data || {};
+      return {
+        posts: (Array.isArray(d.posts) ? d.posts : []).map((p) => ({
+          id: p.id, title: p.title || '', text: (p.text || '').slice(0, 800),
+          authorId: p.authorId || null, createdAt: p.createdAt || '', updatedAt: p.updatedAt || '',
+          imageUrl: p.imageUrl ? imgProxy(p.imageUrl) : null, visibility: p.visibility || '',
+        })),
+        total: d.total ?? null,
+      };
+    } catch (e) { throw new Error(`群组帖子获取失败: ${String(e.message || e).slice(0, 60)}`); }
+  });
+  loader.serviceOwners.set('dashboard.groupPosts', 'core');
+
   // 非好友资料变化历史：start-monitor.js _recordNonFriendChange 把 bio/status 变化写成
   // friend-update 事件（content.type=bio/status，含 previousX 对比，source=poll）——此处只读查询展示
   loader.services.set('dashboard.trackedChanges', ({ userId, limit = 20 } = {}) => {
