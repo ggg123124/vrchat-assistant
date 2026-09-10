@@ -2,6 +2,8 @@
 // 输出「端点 → 状态 → 响应形状」矩阵。改为基于 VrchatApiClient._request 原语——
 // 旧版脚本按已不存在的具名方法编写（vrchat-api.js 搬家至仓库根 + 方法面收窄），无法运行。
 // 用法：VRC_MONITOR_DIR=<仓库路径> COOKIE_FILE=<cookie文件> [VRC_MONITOR_USER_ID=<userId>] node scripts/api-live-audit.mjs
+// ⚠️ Windows/git-bash：VRC_MONITOR_DIR 必须用原生路径（如 D:/workspace/vrcx-mcp-actions）；
+//    写成 MSYS 形态（/d/workspace/...）会被原生 node 当成本地盘符下的相对路径 → ERR_MODULE_NOT_FOUND。
 // 只读探测：仅 GET；限速 400ms/次；素材 ID 自动从 auth/user 与本地 DB 采集。
 import path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
