@@ -1278,7 +1278,7 @@ export function registerDashboardServices(loader, ctx) {
       mutualFriendCount: mutualFriends.length,
       mutualFriends: mutualFriends.map((f) => ({ id: f.id, displayName: f.displayName || '', avatarUrl: avatarOf(f.userIcon, f.currentAvatarImageUrl || f.currentAvatarThumbnailImageUrl) })),
       mutualGroupCount: mutualGroups.length,
-      mutualGroups: mutualGroups.map((g) => ({ id: g.id, name: g.name || '', memberCount: g.memberCount ?? null })),
+      mutualGroups: mutualGroups.map(pickGroup),
       groups: groupArr.map(pickGroup),
       favoriteWorlds,
       worlds: Array.isArray(worlds) ? worlds.map(pickWorld) : [],

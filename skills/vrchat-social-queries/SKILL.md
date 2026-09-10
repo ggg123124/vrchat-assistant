@@ -137,8 +137,9 @@ cur.execute("SELECT created_at, content_json FROM events WHERE user_id=? AND typ
 
 1. `get_friend_info(userId=XX)` → 好友状态/bio/lastLogin/当前 location（bio 常含羁绊名单，与共同好友交叉 = 介绍人线索）
 2. `get_mutual_friends(userId=XX)` → 共同好友（自动带本地昵称），重叠度 = 圈层接近度
-3. 逐日 `get_companions(自己 userId)` → 过滤目标 userId，累计同屏天数/matchCount/worlds
-4. 综合：同屏频率与近期趋势（升温/降温）、共同好友里的核心圈成员、时段重合度
+3. `get_mutual_groups(userId=XX)` → 共同群组（群名+成员数），重叠群组数 = 共同社交圈层；成员数大的偏公共社区、小的偏亲友圈
+4. 逐日 `get_companions(自己 userId)` → 过滤目标 userId，累计同屏天数/matchCount/worlds
+5. 综合：同屏频率与近期趋势（升温/降温）、共同好友里的核心圈成员、时段重合度
 
 - **实时情报**：`get_friend_info` 的 location 能看出 TA 此刻在谁房里
 - **群组画像辅助**：`get_user_groups` + 批量 `get_group_info` 拿描述 → 按群规模分层（大社区/亲友群/技术核心组）判断融入深度（群组域见 vrchat-group-queries）
@@ -189,6 +190,7 @@ cur.execute("SELECT created_at, content_json FROM events WHERE user_id=? AND typ
 - `send_friend_request {userId|displayName}`：加好友（精确匹配不区分大小写）
 - `remove_friend {userId|displayName}`：⚠️ 不可逆，必须 confirm: true，否则只返回预览。测试只走零副作用路径
 - `get_mutual_friends {userId}`：共同好友（自动带本地昵称）
+- `get_mutual_groups {userId}`：共同群组（社交破冰/找共同话题；self/好友/非好友均可用）
 
 ### 11.6 隐私位置场景（boop 目标定位）
 - **好友位置显示 `private` ≠ 不在线/不在你房间**：VRChat 隐私设置可让位置对好友隐藏，且该好友可能不出现在 `get_online_friends` 列表。定位流程：`search_users` 按 displayName 子串搜 → 确认 `isFriend: true` → `get_friend_info` 确认 `state: online` → 直接 boop
