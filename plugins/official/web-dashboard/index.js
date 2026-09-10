@@ -423,6 +423,24 @@ export default function register(api) {
     },
   });
 
+  // VRChat 官方活动日历（三态：all/featured/following）
+  api.http.registerRoute({
+    method: 'GET',
+    path: '/api/dashboard/calendar',
+    handler: async (req, res) => {
+      try {
+        const u = new URL(req.url, 'http://localhost');
+        const scope = ['all', 'featured', 'following'].includes(u.searchParams.get('scope')) ? u.searchParams.get('scope') : 'all';
+        const n = Number(u.searchParams.get('n')) || 30;
+        const offset = Number(u.searchParams.get('offset')) || 0;
+        const r = await api.consume('dashboard.calendar', { scope, n, offset });
+        sendJson(res, r);
+      } catch (e) {
+        sendJson(res, { events: [], error: String(e.message || e) });
+      }
+    },
+  });
+
   // 非好友追踪：备注（本地可恢复操作，safe-mode 下放行）
   api.http.registerRoute({
     method: 'POST',
