@@ -136,7 +136,7 @@ function instInfo(inst) {
                   <b>{{ p.title || '（无标题）' }}</b>
                   <span class="mono text-dim">{{ date(p.createdAt) }}</span>
                 </div>
-                <img v-if="p.imageUrl" :src="imgUrl(p.imageUrl)" class="gd-post-img" alt="" loading="lazy" />
+                <img v-if="p.imageUrl" :src="p.imageUrl" class="gd-post-img" alt="" loading="lazy" />
                 <div class="gd-post-text">{{ p.text }}</div>
               </div>
             </div>
