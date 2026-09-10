@@ -417,7 +417,7 @@ export async function handleGetInventoryGlobal({ n = 50 } = {}) {
   return { total: list.length, items: list.map(it => ({
     id: it.id || null, name: it.name || null, description: it.description ? String(it.description).slice(0, 200) : null,
     equipSlot: it.equipSlot || null, equipSlots: Array.isArray(it.equipSlots) ? it.equipSlots : [],
-    acquisition: it.acquisition || null, rarity: it.rarity || null,
+    acquisition: it.acquisition || null, itemType: it.itemType || null,
   })) };
 }
 
@@ -650,7 +650,7 @@ export const tools = [
   },
   {
     "name": "get_inventory_drops",
-    "description": "[inventory] List pending inventory drops (empty = none pending). Self only.",
+    "description": "[inventory] List pending inventory drops (empty = none pending). Fields (name/expiresAt) come straight from the /inventory/drops response. Self only.",
     inputSchema: { "type": "object", "properties": {} },
     handler: async (args) => handleGetInventoryDrops(args)
   }

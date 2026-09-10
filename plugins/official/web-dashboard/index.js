@@ -894,6 +894,9 @@ export default function register(api) {
         if (hit && Date.now() - hit.at < GROUPS_TTL) return sendJson(res, hit.data);
         const r = await api.tools.call('get_group_invites', {});
         const data = { invites: (r && r.invites) || [], total: (r && r.total) || 0 };
+        for (const g of data.invites) {
+          if (g.iconUrl) g.iconUrl = imgProxyInline(g.iconUrl);
+        }
         groupsCache.set('invites', { at: Date.now(), data });
         sendJson(res, data);
       } catch (e) {

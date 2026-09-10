@@ -326,6 +326,7 @@ export default function register(api) {
       shortCode: g.shortCode || null,
       memberCount: g.memberCount ?? null,
       isVerified: g.isVerified ?? null,
+      iconUrl: g.iconUrl || null,
       description: g.description ? String(g.description).slice(0, 200) : null,
     }));
     return { userId: targetId, total: invites.length, invites };
