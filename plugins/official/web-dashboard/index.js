@@ -884,6 +884,24 @@ export default function register(api) {
     },
   });
 
+  // 收到的群组邀请（get_group_invites，self-only；缓存 5 分钟）
+  api.http.registerRoute({
+    method: 'GET',
+    path: '/api/dashboard/group-invites',
+    handler: async (_req, res) => {
+      try {
+        const hit = groupsCache.get('invites');
+        if (hit && Date.now() - hit.at < GROUPS_TTL) return sendJson(res, hit.data);
+        const r = await api.tools.call('get_group_invites', {});
+        const data = { invites: (r && r.invites) || [], total: (r && r.total) || 0 };
+        groupsCache.set('invites', { at: Date.now(), data });
+        sendJson(res, data);
+      } catch (e) {
+        sendJson(res, { invites: [], error: String(e.message || e) });
+      }
+    },
+  });
+
   // 社区活动（读库：api.consume('events.listStore')，数据由 events 插件每日离线刷新落库；
   // 页面访问零限流 API 秒回，不再触发群组挖掘。evtCache 内存缓存 + evtInflight 去重保留）
   api.http.registerRoute({
