@@ -24,6 +24,7 @@
     "get_online_friends",
     "get_friend_info",
     "get_mutual_friends",
+    "get_mutual_groups",
     "search_users",
     "get_database_stats",
     "get_server_status",

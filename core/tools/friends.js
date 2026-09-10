@@ -218,6 +218,46 @@ export async function handleGetMutualFriends({ userId, displayName, limit = 100 
   };
 }
 
+export async function handleGetMutualGroups({ userId, displayName, limit = 100 }) {
+  const { api } = ctx;
+  if (!userId && !displayName) throw new Error('userId or displayName is required');
+
+  let targetId = userId;
+  let targetDisplayName = null;
+
+  if (!targetId) {
+    const search = await api._request('GET', `/users?search=${encodeURIComponent(displayName)}&n=20`);
+    if (search.status !== 200) throw new Error(`API error: ${search.status}`);
+    const users = Array.isArray(search.data) ? search.data : [];
+    const matches = users.filter(u => u.displayName && u.displayName.toLowerCase() === displayName.toLowerCase());
+
+    if (matches.length === 0) throw new Error(`未找到显示名为 "${displayName}" 的用户`);
+    if (matches.length > 1) throw new Error(`显示名 "${displayName}" 匹配到多个用户，请用 userId 指定`);
+
+    targetId = matches[0].id;
+    targetDisplayName = matches[0].displayName;
+  }
+
+  const n = Math.max(1, Math.min(100, Number(limit) || 100));
+  const r = await api._request('GET', `/users/${targetId}/mutuals/groups?n=${n}&offset=0`);
+  if (r.status !== 200) throw new Error(`API error: ${r.status}`);
+
+  const mutuals = Array.isArray(r.data) ? r.data : [];
+  const mutualGroups = mutuals.map(g => ({
+    groupId: g.id,
+    name: g.name,
+    memberCount: g.memberCount ?? null,
+    description: g.description ? String(g.description).slice(0, 120) : null,
+  }));
+
+  return {
+    userId: targetId,
+    displayName: targetDisplayName,
+    total: mutualGroups.length,
+    mutualGroups,
+  };
+}
+
 export async function handleSendFriendRequest({ userId, displayName }) {
   const { api } = ctx;
   if (!userId && !displayName) throw new Error('userId or displayName is required');
@@ -322,6 +362,29 @@ export const tools = [
       }
     },
     handler: async (args) => ctx.rateLimiter.execute(() => handleGetMutualFriends(args))
+  },
+  {
+    "name": "get_mutual_groups",
+    "description": "[query] List mutual groups between you and a user (userId or exact displayName). Groups both accounts belong to.",
+    inputSchema: {
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "VRChat user id (usr_...)"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Exact display name to search"
+        },
+        "limit": {
+          "type": "number",
+          "default": 100,
+          "description": "Max results (1-100, default 100)"
+        }
+      }
+    },
+    handler: async (args) => ctx.rateLimiter.execute(() => handleGetMutualGroups(args))
   },
   {
     "name": "search_users",

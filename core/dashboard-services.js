@@ -1202,6 +1202,9 @@ export function registerDashboardServices(loader, ctx) {
     // 旧实现用 /users/{id}/friends（对方全部好友）+ 本地交集，对方关闭共享时为空 → 共同好友不显示
     const mf = await fetchApi(`/users/${uid}/mutuals/friends`);
     const mutualFriends = Array.isArray(mf) ? mf : [];
+    // 共同群组：对称共同好友（/users/{id}/mutuals/groups，2026-09-10 探测验证可用）
+    const mg = await fetchApi(`/users/${uid}/mutuals/groups`).catch(() => null);
+    const mutualGroups = Array.isArray(mg) ? mg : [];
     // 本地统计（events 表）
     const q1 = (sql, p) => { try { return ctx.storage.query(sql, p); } catch { return []; } };
     const lastActivityRow = q1(`SELECT MAX(created_at) v FROM events WHERE user_id=$u`, { $u: userId })[0];
@@ -1274,6 +1277,8 @@ export function registerDashboardServices(loader, ctx) {
       representedGroup: representedGroup ? pickGroup(representedGroup) : null,
       mutualFriendCount: mutualFriends.length,
       mutualFriends: mutualFriends.map((f) => ({ id: f.id, displayName: f.displayName || '', avatarUrl: avatarOf(f.userIcon, f.currentAvatarImageUrl || f.currentAvatarThumbnailImageUrl) })),
+      mutualGroupCount: mutualGroups.length,
+      mutualGroups: mutualGroups.map((g) => ({ id: g.id, name: g.name || '', memberCount: g.memberCount ?? null })),
       groups: groupArr.map(pickGroup),
       favoriteWorlds,
       worlds: Array.isArray(worlds) ? worlds.map(pickWorld) : [],

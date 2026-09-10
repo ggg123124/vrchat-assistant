@@ -241,6 +241,7 @@ const rawJson = computed(() => {
       <TabList>
         <Tab value="info">信息</Tab>
         <Tab v-if="isFriend" value="mutual">共同好友<span v-if="profile.mutualFriendCount"> ({{ profile.mutualFriendCount }})</span></Tab>
+        <Tab value="mutualgrp">共同群组<span v-if="profile.mutualGroupCount"> ({{ profile.mutualGroupCount }})</span></Tab>
         <Tab v-if="isFriend" value="groups">群组<span v-if="profile.groups.length"> ({{ profile.groups.length }})</span></Tab>
         <Tab v-if="isFriend" value="worlds">创建的世界<span v-if="profile.worlds.length"> ({{ profile.worlds.length }})</span></Tab>
         <Tab value="favworlds">收藏的世界<span v-if="favTotal"> ({{ favTotal }})</span></Tab>
@@ -290,6 +291,17 @@ const rawJson = computed(() => {
             <div v-for="f in profile.mutualFriends" :key="f.id" class="mini-row" role="button" tabindex="0" @click="store.userModal = { userId: f.id, displayName: f.displayName, avatarUrl: f.avatarUrl }" @keydown.enter="store.userModal = { userId: f.id, displayName: f.displayName, avatarUrl: f.avatarUrl }">
               <Avatar :image="f.avatarUrl" shape="circle" size="small" :label="avatarLabel(f.avatarUrl, f.displayName)" />
               <span>{{ nameOf(f) }}</span>
+            </div>
+          </div>
+        </TabPanel>
+
+        <!-- 共同群组：端点按账号对计算，好友/非好友均可用（tracked 非好友亦可看共同群组） -->
+        <TabPanel value="mutualgrp">
+          <div v-if="!profile.mutualGroups || !profile.mutualGroups.length" class="empty" style="padding:16px">暂无共同群组</div>
+          <div v-else class="mini-list">
+            <div v-for="g in profile.mutualGroups" :key="g.id" class="mini-row" role="button" tabindex="0" @click="openGroup(g.id)" @keydown.enter="openGroup(g.id)">
+              <span>{{ g.name }}</span>
+              <small v-if="g.memberCount" class="mini-dim">{{ g.memberCount }} 成员</small>
             </div>
           </div>
         </TabPanel>
@@ -417,6 +429,7 @@ const rawJson = computed(() => {
 
 .mini-list { display: flex; flex-direction: column; gap: 4px; }
 .mini-row { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 6px; cursor: pointer; font-size: 12.5px; }
+.mini-dim { color: var(--text-dim); font-size: 11px; margin-left: auto; }
 .mini-row:hover { background: var(--surface-2); }
 .mini-thumb { width: 26px; height: 26px; object-fit: cover; border-radius: 6px; flex: none; }
 .world-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }

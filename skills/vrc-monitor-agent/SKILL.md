@@ -68,6 +68,7 @@ metadata:
 | `clear_favorite_group` | **清空收藏分组**（2026-08-26 新增）：DELETE /favorite/group/{type}/{name}/{userId}，清空组内全部收藏（分组本身保留，重新收藏可加回）。group 必填；批量删除，destructive，confirm: true 才执行 |
 | `get_nicknames` / `set_nickname` | 好友昵称映射（查询/写入，本地库） |
 | `get_mutual_friends` | 共同好友列表：你与目标用户（userId 或 displayName 精确匹配）的共同好友，自动带本地昵称 |
+| `get_mutual_groups` | **共同群组列表**：你与目标用户（userId 或 displayName 精确匹配）都加入的群组，含成员数——社交破冰/找共同话题用 |
 | `get_watchlist` / `add_to_watchlist` / `remove_from_watchlist` | 关注名单 |
 | `send_boop` | 戳一戳好友（Boop），对方收到戳戳通知（参数：userId 必填、emojiId 可选） |
 | `get_boop_emojis` | 列出内置 boop 表情（65 个）及 emojiId 格式（`default_<name>`） |
