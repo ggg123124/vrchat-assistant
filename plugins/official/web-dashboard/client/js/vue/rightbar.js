@@ -206,7 +206,7 @@
         if (typeof window.isWebOnline === 'function' && window.isWebOnline(f)) return '网页在线';
         if (!f.isOnline) return '离线';
         if (f.statusDescription) return f.statusDescription;
-        const labels = { active: '在线', 'join me': '加入我', 'ask me': '问我', busy: '忙碌' };
+        const labels = { active: '在线', 'join me': '欢迎加入', 'ask me': '忙碌', busy: '请勿打扰' };
         return labels[f.status] || '在线';
       },
       locText(f) {
@@ -225,7 +225,7 @@
         if (me.travelingToLocation) return '传送中';
         if (loc === 'offline') return '离线';
         if (me.statusDescription) return me.statusDescription;
-        const labels = { active: '在线', 'join me': '加入我', 'ask me': '问我', busy: '忙碌' };
+        const labels = { active: '在线', 'join me': '欢迎加入', 'ask me': '忙碌', busy: '请勿打扰' };
         return labels[me.status] || '在线';
       },
       meLocText(me) {
