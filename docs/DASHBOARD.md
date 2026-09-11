@@ -43,6 +43,7 @@ Authorization: Bearer <VRC_MONITOR_AUTH_TOKEN>
 | `POST /api/dashboard/tracked/memo` | 设置/清除追踪备注（≤200 字符），JSON body 为 `{ "userId": "usr_...", "memo": "..." }` |
 | `GET /api/dashboard/tracked-changes?userId=usr_...&limit=20` | 指定追踪用户的资料变化时间线 |
 | `GET /api/dashboard/calendar?scope=all&n=30&offset=0` | VRChat 官方活动日历（scope=all/featured/following，新分页 hasNext/totalCount） |
+| `GET /api/dashboard/group-posts?groupId=grp_...&n=20` | 群组帖子流（title/text/图/作者/时间，群组对话框帖子 Tab 数据源） |
 | `GET /api/dashboard/stats?days=7` | 活动统计：当前在线、按类型/按天聚合、活跃好友 Top |
 | `GET /api/dashboard/stream` | SSE 事件流：核心事件落库后实时推送轻量事件 DTO（含心跳保活） |
 | `GET /api/dashboard/nickname?userId=usr_...` | 查询好友本地备注/昵称映射 |
