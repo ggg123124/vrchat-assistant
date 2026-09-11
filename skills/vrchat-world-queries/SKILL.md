@@ -35,7 +35,7 @@ metadata:
 
 用户说「把这张图加进待逛/待办」时走 3 工具：
 
-- `add_to_backlog {worldId, reason?, priority?}` — 加入待逛列表（本地待办，不动云端收藏；幂等，priority 0-2；世界不在 world_kb 时插兜底行）
+- `add_to_backlog {worldId, reason?, priority?}` — 加入待逛列表（本地待办，不动云端收藏；幂等，priority 0-2；世界不在 world_kb 时插兜底行，并自动回填元数据：先读本地 world_cache，缺失才走 `GET /worlds/{id}` 写回缓存 + world_kb（含 created_at），失败只记日志不阻断写入）
 - `get_backlog {status? (pending|visited|all 默认 pending), sortBy? (added_at|priority|favorites 默认 added_at), limit?}` — 查看待逛列表；**逛完自动从未逛区消失**（visited 后 pending 不再显示，记录保留在 visited 历史）
 - `remove_from_backlog {worldId}` — 移出待逛列表（只清 backlog 标记，保留行，幂等）
 
