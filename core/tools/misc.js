@@ -253,8 +253,52 @@ export function handleGetNewWorlds({ onlyUnvisited = false, limit = 10, sortBy =
   return { total, worlds };
 }
 
+/**
+ * 兜底行的元数据回填（恢复 issue #76 / PR #77 的修复语义）。
+ *
+ * rate_world / mark_world_visited / set_world_sleep / add_to_backlog 在目标世界不在
+ * world_kb 时只插一条「只有 world_id」的兜底行：world_name / author_name / created_at 恒空
+ * —— get_backlog 的列表读不到名字，推荐侧依赖 created_at 的新图加权对这类行永久失效。
+ *
+ * 回填顺序：本地 world_cache（零成本）→ 缓存缺失才按限流拉一次 /worlds/{id} 并写回缓存。
+ * 幂等：backfillWorldKbInfo 仅在对应列为空时写入，不覆盖已有真实值。
+ * 任何一步失败都只记日志、不阻断主操作（回填属增强，缺元数据不该让写入失败）。
+ */
+async function ensureWorldKbInfo(worldId) {
+  const { storage, api, rateLimiter } = ctx;
+  if (!worldId) return null;
+  try {
+    const cached = storage.getWorldName(worldId);
+    if (cached && (cached.name || cached.author_name || cached.author_id)) {
+      return storage.backfillWorldKbInfo({
+        worldId,
+        name: cached.name || '',
+        authorName: cached.author_name || '',
+        authorId: cached.author_id || '',
+      });
+    }
+    if (!api) return null;
+    const fetchWorld = () => api._request('GET', `/worlds/${worldId}`);
+    const r = rateLimiter ? await rateLimiter.execute(fetchWorld) : await fetchWorld();
+    if (!r || r.status !== 200 || !r.data || !r.data.id) return null;
+    const w = r.data;
+    storage.upsertWorld({
+      worldId: w.id, name: w.name || '', authorId: w.authorId || '', authorName: w.authorName || '',
+      capacity: w.capacity, favorites: w.favorites, releaseStatus: w.releaseStatus || '',
+      tags: w.tags || [], description: w.description || '', imageUrl: w.imageUrl || '',
+    });
+    return storage.backfillWorldKbInfo({
+      worldId, name: w.name || '', authorName: w.authorName || '',
+      authorId: w.authorId || '', createdAt: w.created_at || '',
+    });
+  } catch (e) {
+    log(`[世界KB] 兜底行元数据回填失败（不影响主操作）: ${worldId} ${String(e && e.message || e)}`);
+    return null;
+  }
+}
+
 /** 用户反馈：好图/烂图标记（Issue #19） */
-export function handleRateWorld({ worldId, rating = 0 }) {
+export async function handleRateWorld({ worldId, rating = 0 }) {
   const { storage } = ctx;
   if (!worldId) throw new Error('worldId is required');
   const r = parseInt(rating, 10);
@@ -262,26 +306,32 @@ export function handleRateWorld({ worldId, rating = 0 }) {
     throw new Error('rating must be -1 (junk), 0 (clear), or 1 (good)');
   }
   const result = storage.rateWorld({ worldId, rating: r });
-  log(`[反馈] 用户反馈: ${worldId} → rating=${result.userRating}${result.worldName ? ` (${result.worldName})` : ''}`);
-  return result;
+  await ensureWorldKbInfo(worldId);
+  const worldName = storage.getWorldKbInfo(worldId).worldName || result.worldName;
+  log(`[反馈] 用户反馈: ${worldId} → rating=${result.userRating}${worldName ? ` (${worldName})` : ''}`);
+  return { ...result, worldName };
 }
 
 /** 显式确认逛过某世界（Issue #19 痛点 3） */
-export function handleMarkWorldVisited({ worldId }) {
+export async function handleMarkWorldVisited({ worldId }) {
   const { storage } = ctx;
   if (!worldId) throw new Error('worldId is required');
   const result = storage.markWorldVisited({ worldId });
-  log(`[成功] 手动标记 visited: ${worldId}${result.worldName ? ` (${result.worldName})` : ''}`);
-  return result;
+  await ensureWorldKbInfo(worldId);
+  const worldName = storage.getWorldKbInfo(worldId).worldName || result.worldName;
+  log(`[成功] 手动标记 visited: ${worldId}${worldName ? ` (${worldName})` : ''}`);
+  return { ...result, worldName };
 }
 
 /** 待逛列表：加入/更新（幂等） */
-export function handleAddToBacklog({ worldId, reason = '', priority = 0 }) {
+export async function handleAddToBacklog({ worldId, reason = '', priority = 0 }) {
   const { storage } = ctx;
   if (!worldId) throw new Error('worldId is required');
   const result = storage.addToBacklog({ worldId, reason, priority });
-  log(`[待办] 加入待逛: ${worldId}${result.worldName ? ` (${result.worldName})` : ''} priority=${result.priority}`);
-  return result;
+  await ensureWorldKbInfo(worldId);
+  const worldName = storage.getWorldKbInfo(worldId).worldName || result.worldName;
+  log(`[待办] 加入待逛: ${worldId}${worldName ? ` (${worldName})` : ''} priority=${result.priority}`);
+  return { ...result, worldName };
 }
 
 /** 待逛列表：查询 */
@@ -362,12 +412,14 @@ export async function handleBackupDatabase() {
 }
 
 /** 手动标记某世界为适合睡觉的地图（recommend 用 sleep_ok 强信号） */
-export function handleSetWorldSleep({ worldId, isSleep = true }) {
+export async function handleSetWorldSleep({ worldId, isSleep = true }) {
   const { storage } = ctx;
   if (!worldId) throw new Error('worldId is required');
   const result = storage.setWorldSleep({ worldId, isSleep: !!isSleep });
-  log(`${result.isSleep ? '[睡眠]' : '[取消]'} 标记睡觉图: ${worldId}${result.worldName ? ` (${result.worldName})` : ''} → sleep_ok=${result.isSleep ? 1 : 0}`);
-  return result;
+  await ensureWorldKbInfo(worldId);
+  const worldName = storage.getWorldKbInfo(worldId).worldName || result.worldName;
+  log(`${result.isSleep ? '[睡眠]' : '[取消]'} 标记睡觉图: ${worldId}${worldName ? ` (${worldName})` : ''} → sleep_ok=${result.isSleep ? 1 : 0}`);
+  return { ...result, worldName };
 }
 
 export async function handleSearchWorlds({ query, n }) {
