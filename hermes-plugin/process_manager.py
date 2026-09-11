@@ -121,10 +121,35 @@ def _clear_state() -> None:
         pass
 
 
+def _read_auth_token() -> Optional[str]:
+    """Read ``VRC_MONITOR_AUTH_TOKEN`` from the monitor dir ``.env``.
+
+    The auth-guard plugin (2026-09-06) authenticates every HTTP path,
+    ``/health`` included, so a bare probe only ever gets ``401`` — useless
+    for liveness detection (that used to make a live service look down).
+    """
+    monitor_dir = _resolve_monitor_dir()
+    if not monitor_dir:
+        return None
+    try:
+        for raw in (Path(monitor_dir) / ".env").read_text(
+            encoding="utf-8", errors="replace"
+        ).splitlines():
+            line = raw.strip()
+            if line.startswith("VRC_MONITOR_AUTH_TOKEN="):
+                return line.split("=", 1)[1].strip().strip('"').strip("'")
+    except Exception:
+        pass
+    return None
+
+
 def _health_check(timeout: float = 3.0) -> Dict[str, Any]:
     """GET :8799/health and return parsed JSON, or an error dict."""
     try:
         req = urllib.request.Request(HEALTH_URL)
+        token = _read_auth_token()
+        if token:
+            req.add_header("Authorization", "Bearer " + token)
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             body = resp.read().decode("utf-8")
             return json.loads(body)
@@ -146,19 +171,35 @@ def _find_monitor_pid() -> Optional[int]:
     """
     # Method 1: port listener (netstat).
     try:
+        # errors="replace" + explicit utf-8: netstat prints in the OEM code
+        # page on zh-CN Windows (GBK) and strict decoding made the reader
+        # thread raise, so stdout came back empty and method 1 never matched.
         out = subprocess.run(
-            ["netstat", "-ano"], capture_output=True, text=True, timeout=10
+            ["netstat", "-ano"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=10,
         )
         if out.returncode == 0:
             for line in out.stdout.splitlines():
-                if "127.0.0.1:8799" in line and "LISTENING" in line.upper():
-                    tail = line.strip().split()[-1]
-                    if tail.isdigit():
-                        return int(tail)
+                #   TCP    0.0.0.0:8799     0.0.0.0:0      LISTENING    29096
+                parts = line.split()
+                if len(parts) < 5 or parts[-2].upper() != "LISTENING":
+                    continue
+                # Port match on the LOCAL address only — the bind address is
+                # configurable (VRC_MONITOR_HOST), so do not hardcode 127.0.0.1.
+                if not parts[1].endswith(":8799"):
+                    continue
+                if parts[-1].isdigit():
+                    return int(parts[-1])
     except Exception:
         pass
 
-    # Method 2: wmic command-line match.
+    # Method 2: command-line match. wmic first (still present on older
+    # Windows), then PowerShell CIM — wmic was REMOVED from Windows 11 24H2+,
+    # so the wmic-only version silently found nothing on current systems.
     try:
         out = subprocess.run(
             [
@@ -172,21 +213,48 @@ def _find_monitor_pid() -> Optional[int]:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=10,
         )
-        if out.returncode != 0:
-            return None
-        for line in out.stdout.splitlines():
-            if MONITOR_SCRIPT not in line:
-                continue
-            # CSV: ProcessId is the last column, so the field after the
-            # final comma is the pid even if the command line has commas.
-            tail = line.rsplit(",", 1)[-1].strip()
-            if tail.isdigit():
-                return int(tail)
-        return None
+        if out.returncode == 0:
+            for line in out.stdout.splitlines():
+                if MONITOR_SCRIPT not in line:
+                    continue
+                # CSV: ProcessId is the last column, so the field after the
+                # final comma is the pid even if the command line has commas.
+                tail = line.rsplit(",", 1)[-1].strip()
+                if tail.isdigit():
+                    return int(tail)
     except Exception:
-        return None
+        pass
+
+    try:
+        out = subprocess.run(
+            [
+                "powershell",
+                "-NoProfile",
+                "-Command",
+                "Get-CimInstance Win32_Process -Filter \"name='node.exe'\" | "
+                "ForEach-Object { \"$($_.ProcessId)|$($_.CommandLine)\" }",
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=20,
+        )
+        if out.returncode == 0:
+            for line in out.stdout.splitlines():
+                if MONITOR_SCRIPT not in line:
+                    continue
+                head = line.split("|", 1)[0].strip()
+                if head.isdigit():
+                    return int(head)
+    except Exception:
+        pass
+
+    return None
 
 
 # ── public API ─────────────────────────────────────────────────────────
