@@ -12,6 +12,7 @@ import path from 'node:path';
 import net from 'node:net';
 
 import { ctx, log, refreshWatchlistCache } from './core/server-context.js';
+import { isWebPresence } from './core/event-pipeline.js';
 import { initLogger, getLevelName, getLogger } from './core/logger.js';
 import { recordOpsLog, setOpsLogSink } from './core/ops-log.js';
 import * as registry from './core/registry.js';
@@ -145,9 +146,9 @@ async function _refreshOnlineState() {
     // REST 在线列表里 location='offline' 的条目=仅网页在线（VRChat 语义），把 platform/location
     // 真值落 friends 表并清残留世界——与 WS friend-active(platform=web) 修复同口径。
     for (const f of online) {
-      if (f.location === 'offline' && f.platform === 'web') {
+      if (f.location === 'offline' && isWebPresence(f.platform)) {
         try {
-          storage.upsertFriend({ userId: f.id, platform: 'web', location: 'offline', worldId: '', worldName: '', isOnline: true });
+          storage.upsertFriend({ userId: f.id, platform: f.platform || 'web', location: 'offline', worldId: '', worldName: '', isOnline: true, lastSeen: f.last_activity || new Date().toISOString() });
         } catch { /* 单条失败不阻断对账 */ }
       }
     }

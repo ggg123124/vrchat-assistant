@@ -1,4 +1,10 @@
 import { avatarThumb, avatarOf } from './img-util.js';
+
+// 网页端在线判据（单一来源：WS friend-active 与 start-monitor 快照对账共用，防漂移）。
+// 当前仅 'web'——nativemobile 语义待确认后纳入（见 _handleActive 注释与跟进 issue）。
+export function isWebPresence(platform) {
+  return platform === 'web';
+}
 import { getLogger } from './logger.js';
 
 const log = getLogger('event');
@@ -310,26 +316,17 @@ export class EventPipeline {
   async _handleActive(event) {
     const userId = event.userId;
 
-    if (event.platform === 'web') {
-      // 网页端在线（2026-09-10 用户实测：好友转网页在线时 VRChat 不发 friend-offline，
-      // 只发 platform=web 的 friend-active；REST 快照同口径 location='offline'+platform='web'）。
-      // 不清位置的话 friends 表残留最后进房的世界 → dashboard 仍显示在某世界（假在线位置）。
-      this.storage.upsertFriend({
-        userId,
-        isOnline: true,
-        lastSeen: event.receivedAt,
-        platform: 'web',
-        location: 'offline',
-        worldId: '',
-        worldName: '',
-      });
-    } else {
-      this.storage.upsertFriend({
-        userId,
-        isOnline: true,
-        lastSeen: event.receivedAt,
-      });
-    }
+    // 网页端在线（2026-09-10 用户实测：好友转网页在线时 VRChat 不发 friend-offline，
+    // 只发 platform=web 的 friend-active；REST 快照同口径 location='offline'+platform='web'）。
+    // 不清位置的话 friends 表残留最后进房的世界 → dashboard 仍显示在某世界（假在线位置）。
+    // nativemobile 语义待确认（#181 审查：审查方部署 7 天 592 条/我方 0 样本，盲扩有误清
+    // 真实位置风险）→ 跟进 issue 单独核实后再纳入 isWebPresence。
+    this.storage.upsertFriend({
+      userId,
+      isOnline: true,
+      lastSeen: event.receivedAt,
+      ...(isWebPresence(event.platform) ? { platform: 'web', location: 'offline', worldId: '', worldName: '' } : {}),
+    });
 
     this._storeEvent(event);
   }
