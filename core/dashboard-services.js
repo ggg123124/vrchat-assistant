@@ -824,6 +824,38 @@ export function registerDashboardServices(loader, ctx) {
   });
   loader.serviceOwners.set('dashboard.trackedMemo', 'core');
 
+  // VRChat 官方活动日历（/calendar 三态：全部/精选/关注的群组活动；2026-09-10 探测验证可用）
+  // 新分页风格：{ hasNext, results, totalCount }。只读探测，8s 竞速超时，失败降级空列表。
+  loader.services.set('dashboard.calendar', async ({ scope = 'all', n = 30, offset = 0 } = {}) => {
+    if (!ctx.api) return { events: [], hasNext: false, totalCount: null };
+    const lim = Math.min(Math.max(Number(n) || 30, 1), 50);
+    const off = Math.max(Number(offset) || 0, 0);
+    const suffix = off ? `&offset=${off}` : '';
+    const p = scope === 'featured' ? `/calendar/featured?n=${lim}${suffix}`
+      : scope === 'following' ? `/calendar/following?n=${lim}${suffix}`
+      : `/calendar?n=${lim}${suffix}`;
+    try {
+      const r = await Promise.race([
+        ctx.api._request('GET', p),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 8000)),
+      ]);
+      const d = r.data || {};
+      const list = Array.isArray(d.results) ? d.results : [];
+      return {
+        events: list.map((e) => ({
+          id: e.id, title: e.title || '', category: e.category || '',
+          description: (e.description || '').slice(0, 600),
+          startsAt: e.startsAt || '', endsAt: e.endsAt || '',
+          featured: !!e.featured, interestedUserCount: e.interestedUserCount ?? null,
+          ownerId: e.ownerId || null, accessType: e.accessType || '',
+          imageUrl: e.imageUrl ? imgProxy(e.imageUrl) : '',
+        })),
+        hasNext: !!d.hasNext, totalCount: d.totalCount ?? null,
+      };
+    } catch { return { events: [], hasNext: false, totalCount: null }; }
+  });
+  loader.serviceOwners.set('dashboard.calendar', 'core');
+
   // 非好友资料变化历史：start-monitor.js _recordNonFriendChange 把 bio/status 变化写成
   // friend-update 事件（content.type=bio/status，含 previousX 对比，source=poll）——此处只读查询展示
   loader.services.set('dashboard.trackedChanges', ({ userId, limit = 20 } = {}) => {
