@@ -135,6 +135,7 @@ function instInfo(inst) {
                 <div class="gd-post-head">
                   <b>{{ p.title || '（无标题）' }}</b>
                   <span class="mono text-dim">{{ date(p.createdAt) }}</span>
+                  <Tag v-if="p.visibility && p.visibility !== 'public'" :value="p.visibility === 'private' ? '私密' : p.visibility" severity="warn" />
                 </div>
                 <img v-if="p.imageUrl" :src="p.imageUrl" class="gd-post-img" alt="" loading="lazy" />
                 <div class="gd-post-text">{{ p.text }}</div>
@@ -224,7 +225,7 @@ function instInfo(inst) {
 .gd-post-head { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
 .gd-post-head b { font-size: 13px; }
 .gd-post-img { max-width: 100%; border-radius: 6px; margin-top: 6px; }
-.gd-post-text { font-size: 12px; color: var(--text); line-height: 1.7; margin-top: 5px; white-space: pre-wrap; word-break: break-word; }
+.gd-post-text { font-size: 12px; color: var(--text); line-height: 1.7; margin-top: 5px; white-space: pre-wrap; word-break: break-word;; max-height: 220px; overflow-y: auto; }
 
 /* 群组房间 */
 .gd-inst { display: flex; flex-direction: column; gap: 6px; }
