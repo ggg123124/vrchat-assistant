@@ -56,6 +56,16 @@ async function load() {
   }
 }
 
+const invites = ref([]);
+const invitesLoading = ref(false);
+async function loadInvites() {
+  invitesLoading.value = true;
+  try {
+    const r = await get('/api/dashboard/group-invites');
+    invites.value = (r && r.invites) || [];
+  } catch { invites.value = []; } finally { invitesLoading.value = false; }
+}
+
 const groups = computed(() => {
   const list = (data.value && data.value.groups) || [];
   const query = q.value.trim().toLowerCase();
@@ -68,6 +78,7 @@ const RANK_LABEL = { owner: '群主', admin: '管理员', moderator: '版主', m
 const rankLabel = (r) => RANK_LABEL[r] || r || '';
 
 onMounted(async () => {
+  loadInvites();
   await load();
   // 首屏群组最新公告批量懒加载（限 8 个避免瞬时并发）
   const gs = (groups.value || []).slice(0, 8);
@@ -89,6 +100,19 @@ onMounted(async () => {
       {{ q ? '无匹配群组' : '暂未加入任何群组' }}
     </div>
     <div v-else class="mg-list">
+      <!-- 收到的群组邀请（self-only 端点；点击打开群组详情） -->
+      <div v-if="invites.length" class="mg-invites">
+        <div class="mg-inv-head">收到的邀请（{{ invites.length }}）</div>
+        <button v-for="g in invites" :key="g.groupId" class="mg-row mg-invite" @click="openGroup(g.groupId)">
+          <img v-if="g.iconUrl" class="mg-icon mg-icon-img" :src="g.iconUrl" alt="" loading="lazy" />
+          <div v-else class="mg-icon"><i class="pi pi-users"></i></div>
+          <div class="mg-info">
+            <b class="mg-name">{{ g.name || g.groupId }}</b>
+            <small class="mg-sub">{{ g.memberCount != null ? g.memberCount + ' 成员' : '' }}{{ g.isVerified ? ' · 已认证' : '' }}</small>
+          </div>
+          <i class="pi pi-chevron-right text-dim" style="font-size:11px"></i>
+        </button>
+      </div>
       <button v-for="g in groups" :key="g.groupId || g.name" class="mg-row" @click="loadAnn(g); openGroup(g.groupId || g.name)">
         <img v-if="g.iconUrl" class="mg-icon mg-icon-img" :src="g.iconUrl" alt="" loading="lazy" />
         <div v-else class="mg-icon"><i class="pi pi-users"></i></div>
@@ -115,6 +139,9 @@ onMounted(async () => {
 .mg-search { width: 180px; }
 .mg-list { display: flex; flex-direction: column; gap: 4px; }
 .mg-row { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 10px; background: var(--surface); border: 1px solid var(--border-soft); cursor: pointer; text-align: left; width: 100%; color: inherit; font-family: inherit; transition: border-color 0.12s; }
+.mg-invites { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px dashed var(--border-soft); }
+.mg-inv-head { font-size: 11px; color: var(--text-dim); margin-bottom: 2px; }
+.mg-invite { border: 1px dashed var(--border-strong); }
 .mg-row:hover { border-color: var(--accent); }
 .mg-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .mg-icon { width: 42px; height: 42px; border-radius: 10px; background: var(--surface-2); display: flex; align-items: center; justify-content: center; color: var(--accent); flex: none; font-size: 18px; }

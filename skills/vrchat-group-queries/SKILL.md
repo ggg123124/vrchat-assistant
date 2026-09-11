@@ -24,7 +24,8 @@ metadata:
 2. get_group_info(groupId) → 群组详情（成员数/描述/joinState；`includeAnnouncement: true` 附带公告，非成员 null）
 3. get_group_instances(groupId) → 群组当前开的房（空 [] = 没开房；返回 worldName/人数）
 4. get_group_announcement(groupId) → 群组公告（活动安排/集会日期）
-5. **查群主/创建人**：`get_group_info` **不含 ownerId**——裸 API `GET https://api.vrchat.cloud/api/1/groups/{groupId}`（Cookie: auth=… 从 data/auth_cookie.txt 读，UA 必带）返回完整对象，含 `ownerId`/`createdAt`/`onlineMemberCount`/`rules` 等 MCP 工具没暴露的字段；再 `get_friend_info(ownerId)` 调出群主资料
+5. get_group_invites() → 账号收到的待处理群组邀请（群名/成员数/描述；**仅自己**——VRChat 对他人邀请一律 403「Not allowed to review invites/requests for other users.」，别按好友 userId 去查）
+6. **查群主/创建人**：`get_group_info` **不含 ownerId**——裸 API `GET https://api.vrchat.cloud/api/1/groups/{groupId}`（Cookie: auth=… 从 data/auth_cookie.txt 读，UA 必带）返回完整对象，含 `ownerId`/`createdAt`/`onlineMemberCount`/`rules` 等 MCP 工具没暴露的字段；再 `get_friend_info(ownerId)` 调出群主资料
 ```
 
 **陷阱：**

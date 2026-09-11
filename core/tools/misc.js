@@ -406,6 +406,34 @@ export async function handleSearchWorlds({ query, n }) {
 }
 
 // ── MCP 自声明工具表 ──
+/** 全局物品栏（账号级物品，含装备槽/描述；self-only 端点） */
+export async function handleGetInventoryGlobal({ n = 50 } = {}) {
+  const { api } = ctx;
+  if (!api) throw new Error('VRChat API 客户端尚未初始化');
+  const lim = Math.min(Math.max(Number(n) || 50, 1), 100);
+  const r = await api._request('GET', `/inventory/global?n=${lim}`);
+  if (r.status !== 200) throw new Error(`API error: ${r.status}`);
+  const list = Array.isArray(r.data) ? r.data : [];
+  return { total: list.length, items: list.map(it => ({
+    id: it.id || null, name: it.name || null, description: it.description ? String(it.description).slice(0, 200) : null,
+    equipSlot: it.equipSlot || null, equipSlots: Array.isArray(it.equipSlots) ? it.equipSlots : [],
+    acquisition: it.acquisition || null, itemType: it.itemType || null,
+  })) };
+}
+
+/** 待领取掉落（inventory drops；空数组=当前无掉落） */
+export async function handleGetInventoryDrops() {
+  const { api } = ctx;
+  if (!api) throw new Error('VRChat API 客户端尚未初始化');
+  const r = await api._request('GET', '/inventory/drops');
+  if (r.status !== 200) throw new Error(`API error: ${r.status}`);
+  const list = Array.isArray(r.data) ? r.data : [];
+  return { total: list.length, drops: list.map(it => ({
+    id: it.id || null, name: it.name || null, description: it.description ? String(it.description).slice(0, 200) : null,
+    expiresAt: it.expiresAt || null,
+  })) };
+}
+
 export const tools = [
   {
     "name": "get_database_stats",
@@ -608,5 +636,22 @@ export const tools = [
       }
     },
     handler: async (args) => handleSetDynamicStatus(args)
+  },
+  {
+    "name": "get_inventory_global",
+    "description": "[inventory] List account-wide global inventory items (equip slots/description). Self only.",
+    inputSchema: {
+      "type": "object",
+      "properties": {
+        "n": { "type": "number", "default": 50, "description": "Max items (1-100, default 50)" }
+      }
+    },
+    handler: async (args) => handleGetInventoryGlobal(args)
+  },
+  {
+    "name": "get_inventory_drops",
+    "description": "[inventory] List pending inventory drops (empty = none pending). Fields (name/expiresAt) come straight from the /inventory/drops response. Self only.",
+    inputSchema: { "type": "object", "properties": {} },
+    handler: async (args) => handleGetInventoryDrops(args)
   }
 ];
