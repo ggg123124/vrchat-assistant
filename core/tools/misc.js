@@ -263,6 +263,8 @@ export function handleGetNewWorlds({ onlyUnvisited = false, limit = 10, sortBy =
  * 回填顺序：本地 world_cache（零成本）→ 缓存缺失才按限流拉一次 /worlds/{id} 并写回缓存。
  * 幂等：backfillWorldKbInfo 仅在对应列为空时写入，不覆盖已有真实值。
  * 任何一步失败都只记日志、不阻断主操作（回填属增强，缺元数据不该让写入失败）。
+ * 可观测性：缓存/API 回填成功各记一行 [世界KB] 兜底行回填(<来源>)，API 非 200 记一行"跳过"，
+ * 异常记一行"失败"——即每次触发恰好 1 行日志，成功与降级都不静默。
  */
 async function ensureWorldKbInfo(worldId) {
   const { storage, api, rateLimiter } = ctx;
@@ -270,27 +272,37 @@ async function ensureWorldKbInfo(worldId) {
   try {
     const cached = storage.getWorldName(worldId);
     if (cached && (cached.name || cached.author_name || cached.author_id)) {
-      return storage.backfillWorldKbInfo({
+      const info = storage.backfillWorldKbInfo({
         worldId,
         name: cached.name || '',
         authorName: cached.author_name || '',
         authorId: cached.author_id || '',
       });
+      log(`[世界KB] 兜底行回填(缓存): ${worldId} → ${info.worldName || '(空)'}${info.authorName ? ` / ${info.authorName}` : ''}`);
+      return info;
     }
-    if (!api) return null;
+    if (!api) {
+      log(`[世界KB] 兜底行回填跳过（无 API 客户端，缓存也未命中）: ${worldId}`);
+      return null;
+    }
     const fetchWorld = () => api._request('GET', `/worlds/${worldId}`);
     const r = rateLimiter ? await rateLimiter.execute(fetchWorld) : await fetchWorld();
-    if (!r || r.status !== 200 || !r.data || !r.data.id) return null;
+    if (!r || r.status !== 200 || !r.data || !r.data.id) {
+      log(`[世界KB] 兜底行回填跳过（API ${r ? r.status : '无响应'}）: ${worldId}`);
+      return null;
+    }
     const w = r.data;
     storage.upsertWorld({
       worldId: w.id, name: w.name || '', authorId: w.authorId || '', authorName: w.authorName || '',
       capacity: w.capacity, favorites: w.favorites, releaseStatus: w.releaseStatus || '',
       tags: w.tags || [], description: w.description || '', imageUrl: w.imageUrl || '',
     });
-    return storage.backfillWorldKbInfo({
+    const info = storage.backfillWorldKbInfo({
       worldId, name: w.name || '', authorName: w.authorName || '',
       authorId: w.authorId || '', createdAt: w.created_at || '',
     });
+    log(`[世界KB] 兜底行回填(API): ${worldId} → ${info.worldName || '(空)'}${info.authorName ? ` / ${info.authorName}` : ''}`);
+    return info;
   } catch (e) {
     log(`[世界KB] 兜底行元数据回填失败（不影响主操作）: ${worldId} ${String(e && e.message || e)}`);
     return null;

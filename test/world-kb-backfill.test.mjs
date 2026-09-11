@@ -140,3 +140,73 @@ test('回填后 get_backlog 能读到世界名（回归：此前恒为空串）'
   assert.equal(hit.worldName, '待逛的图');
   assert.equal(hit.authorName, '待逛作者');
 });
+
+
+// ── 可观测性：每次触发恰好一行 [世界KB] 日志（成功/降级都不静默）──
+const { logger } = await import(pathToFileURL(path.join(REPO, 'core', 'logger.js')).href);
+
+async function captureKbLogs(fn) {
+  const seen = [];
+  const orig = logger.info;
+  logger.info = (m) => { seen.push(String(m)); };
+  try { await fn(); } finally { logger.info = orig; }
+  return seen.filter((l) => l.includes('[世界KB]'));
+}
+
+const LOG_CACHE = 'wrld_kbtest-logcache-0000-0000-000000000011';
+const LOG_API = 'wrld_kbtest-logapi-0000-0000-000000000012';
+const LOG_404 = 'wrld_kbtest-log404-0000-0000-000000000013';
+const LOG_THROW = 'wrld_kbtest-logthrow-0000-0000-000000000014';
+const LOG_NOAPI = 'wrld_kbtest-logapi-none-0000-0000-000000000015';
+
+function logStub() {
+  return {
+    api: {
+      _request: async (method, p) => {
+        if (p.endsWith(LOG_API)) {
+          return { status: 200, data: { id: LOG_API, name: '日志图', authorName: '日志作者', tags: [] } };
+        }
+        if (p.endsWith(LOG_404)) return { status: 404, data: {} };
+        if (p.endsWith(LOG_THROW)) throw new Error('boom network');
+        throw new Error(`logStub 未预期: ${p}`);
+      },
+    },
+  };
+}
+
+test('日志：缓存路径恰好一行「回填(缓存)」', async () => {
+  ctx.api = logStub().api;
+  storage.upsertWorld({ worldId: LOG_CACHE, name: '缓存日志图', authorName: '缓存日志作者' });
+  const lines = await captureKbLogs(() => misc.handleAddToBacklog({ worldId: LOG_CACHE, priority: 1 }));
+  assert.equal(lines.length, 1, `应恰好 1 行，实际 ${JSON.stringify(lines)}`);
+  assert.equal(lines[0], `[世界KB] 兜底行回填(缓存): ${LOG_CACHE} → 缓存日志图 / 缓存日志作者`);
+});
+
+test('日志：API 路径恰好一行「回填(API)」', async () => {
+  ctx.api = logStub().api;
+  const lines = await captureKbLogs(() => misc.handleAddToBacklog({ worldId: LOG_API, priority: 1 }));
+  assert.equal(lines.length, 1, `应恰好 1 行，实际 ${JSON.stringify(lines)}`);
+  assert.equal(lines[0], `[世界KB] 兜底行回填(API): ${LOG_API} → 日志图 / 日志作者`);
+});
+
+test('日志：API 非 200 恰好一行「跳过」并带状态码', async () => {
+  ctx.api = logStub().api;
+  const lines = await captureKbLogs(() => misc.handleAddToBacklog({ worldId: LOG_404 }));
+  assert.equal(lines.length, 1, `应恰好 1 行，实际 ${JSON.stringify(lines)}`);
+  assert.equal(lines[0], `[世界KB] 兜底行回填跳过（API 404）: ${LOG_404}`);
+});
+
+test('日志：API 抛异常恰好一行「失败」并带原因', async () => {
+  ctx.api = logStub().api;
+  const lines = await captureKbLogs(() => misc.handleAddToBacklog({ worldId: LOG_THROW }));
+  assert.equal(lines.length, 1, `应恰好 1 行，实际 ${JSON.stringify(lines)}`);
+  assert.match(lines[0], new RegExp(`^\\[世界KB\\] 兜底行元数据回填失败（不影响主操作）: ${LOG_THROW} `));
+  assert.match(lines[0], /boom network/);
+});
+
+test('日志：无 API 客户端时也留一行「跳过」', async () => {
+  ctx.api = null;
+  const lines = await captureKbLogs(() => misc.handleAddToBacklog({ worldId: LOG_NOAPI }));
+  assert.equal(lines.length, 1, `应恰好 1 行，实际 ${JSON.stringify(lines)}`);
+  assert.equal(lines[0], `[世界KB] 兜底行回填跳过（无 API 客户端，缓存也未命中）: ${LOG_NOAPI}`);
+});
