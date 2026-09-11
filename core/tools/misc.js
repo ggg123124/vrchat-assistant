@@ -271,7 +271,9 @@ async function ensureWorldKbInfo(worldId) {
   if (!worldId) return null;
   try {
     const cached = storage.getWorldName(worldId);
-    if (cached && (cached.name || cached.author_name || cached.author_id)) {
+    // 判据用 name（主显示诉求）：只有 name 命中才算缓存可用；name 缺失就走 API 补全
+    // （避免 world_cache 里只有 author/note、没有名字的行把回填挡在门外，#183 review 💡1）
+    if (cached && cached.name) {
       const info = storage.backfillWorldKbInfo({
         worldId,
         name: cached.name || '',

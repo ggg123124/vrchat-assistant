@@ -210,3 +210,25 @@ test('日志：无 API 客户端时也留一行「跳过」', async () => {
   assert.equal(lines.length, 1, `应恰好 1 行，实际 ${JSON.stringify(lines)}`);
   assert.equal(lines[0], `[世界KB] 兜底行回填跳过（无 API 客户端，缓存也未命中）: ${LOG_NOAPI}`);
 });
+
+
+test('缓存行只有 author 没有 name：走 API 补全名字（review 💡1 判据）', async () => {
+  const stub = apiStub();
+  ctx.api = stub.api;
+  const AUTHOR_ONLY = 'wrld_kbtest-authoronly-0000-0000-000000000016';
+  storage.run(
+    `INSERT INTO world_cache (world_id, name, author_name, author_id) VALUES ($w, '', '只有作者', 'usr_kbtest-onlyauthor')`,
+    { $w: AUTHOR_ONLY }
+  );
+  // stub 只认 FETCHED/FETCHFAIL，这里给它一个通用响应
+  stub.api._request = async (method, p) => {
+    stub.calls.push(`${method} ${p}`);
+    return { status: 200, data: { id: AUTHOR_ONLY, name: 'API 补的名字', authorName: '只有作者', tags: [] } };
+  };
+  const lines = await captureKbLogs(() => misc.handleAddToBacklog({ worldId: AUTHOR_ONLY }));
+  assert.equal(stub.calls.length, 1, 'name 为空时应走 API 而不是只吃缓存');
+  const kb = storage.getWorldKbInfo(AUTHOR_ONLY);
+  assert.equal(kb.worldName, 'API 补的名字');
+  assert.equal(lines.length, 1);
+  assert.match(lines[0], /^\[世界KB\] 兜底行回填\(API\): wrld_kbtest-authoronly-0000-0000-000000000016 → API 补的名字 \/ 只有作者$/);
+});
