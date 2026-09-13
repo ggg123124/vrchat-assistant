@@ -60,10 +60,16 @@ export function buildPluginApi(pluginName, { registry, ctx, services, serviceOwn
     log: apiLog,
 
     // 运行态上报扩展点（issue #186）：插件把需要运维可见的状态并入 /health。
-    // 用法：api.health({ dashboardUi: { state: 'built' } })；同名键后者覆盖前者。
+    // 用法：api.health({ dashboardUi: { state: 'built' } }) → /health.extras.<pluginName>.dashboardUi。
+    // 键空间按插件名隔离（review #187 ⚠️2）：插件无法覆盖核心字段（auth/plugins/ws 等，
+    // 避免误报认证状态——issue #59 专项语义）；卸载时由 loader 清理（review #187 ⚠️3）。
     health(obj) {
       if (!obj || typeof obj !== 'object') return;
-      ctx.healthExtras = { ...(ctx.healthExtras || {}), ...obj };
+      if (!ctx.healthExtras) ctx.healthExtras = {};
+      ctx.healthExtras[pluginName] = { ...(ctx.healthExtras[pluginName] || {}), ...obj };
+    },
+    removeHealth() {
+      if (ctx.healthExtras) delete ctx.healthExtras[pluginName];
     },
 
     // HTTP 路由注册：插件可挂载自定义路由（/mcp、/health 之外的路径）。

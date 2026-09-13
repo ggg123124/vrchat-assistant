@@ -72,7 +72,7 @@ const uiStatus = (() => {
       builtAt: new Date(builtAt).toISOString(),
       sourceUpdatedAt: src ? new Date(src).toISOString() : '',
     };
-  } catch { return { state: 'built', builtAt: '', sourceUpdatedAt: '' }; }
+  } catch { return { state: 'unknown', builtAt: '', sourceUpdatedAt: '' }; }  // review #187 💡4：statSync 失败不乐观报 built
 })();
 // 三态自检 + 上报 /health 在 register(api) 内执行（api.log / api.health 可用，见下）
 

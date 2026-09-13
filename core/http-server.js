@@ -143,8 +143,8 @@ async function handleRequest(req, res) {
       friendState: friendState?.getStats(),
       eventPipeline: eventPipeline?.getStats(),
       plugins: ctx.pluginLoader?.getStatus() || [],
-      // 插件侧运行态扩展（如 web-dashboard 前端产物状态 dashboardUi）——通用扩展点：ctx.healthExtras
-      ...(ctx.healthExtras || {}),
+      // 插件侧运行态扩展（issue #186）：按插件名隔离，位于 extras 段内，不参与核心字段命名空间
+      extras: ctx.healthExtras || {},
       uptime,
     };
     const body = JSON.stringify(status, null, 2);

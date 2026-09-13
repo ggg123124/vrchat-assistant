@@ -74,7 +74,7 @@ export default function register(api) {
 
 插件代码只准通过 `api` 对象与核心交互。**禁止** import 核心内部模块、触碰 `ctx`、直连数据库文件——见 §7 禁止事项。
 
-## 4. API 表面（v1-experimental 共 6 个）
+## 4. API 表面（v1-experimental 共 7 个）
 
 ### 4.1 api.registerTool(def) — 注册一个 MCP 工具
 
@@ -172,6 +172,20 @@ const digest = await api.consume("query_digest", wrld_xxx);
 - **职责划分**：共享「查询/逻辑」→ `provide/consume`；共享「能力但需要完整 MCP 语义或参数校验」→ `api.tools.call`（§4.5）。**对外暴露给客户端的工具，永远用 `registerTool`，不因 provide/consume 而绕过**。
 - 能力探测：`api.hasService(name)` 查询某服务是否已提供（配合 §2 区分「插件没装」vs「版本不兼容」）。
 
+### 4.7 api.health(obj) — 运行态上报（并入 `/health`）
+
+\`\`\`js
+export default function register(api) {
+  api.health({ dashboardUi: { state: 'built' } });
+  // → GET /health 的 extras.<pluginName>.dashboardUi
+}
+\`\`\`
+
+- **用途**：把插件自身的运行态（就绪/降级/缺失等）暴露给运维与 Agent 诊断，无需自建端点。
+- **键空间隔离**：上报内容按 **插件名** 收纳在 `/health` 的 \`extras\` 段（\`extras: { <pluginName>: {...} }\`），**不参与核心字段命名空间**——插件无法覆盖 \`auth\`/\`plugins\`/\`ws\` 等核心字段（避免误报认证状态等语义破坏）。
+- **清理**：插件卸载/热重载时 loader 自动清除该插件的 \`extras\` 键（与路由/服务/工具同路径），无需在 \`dispose()\` 中手工清理。
+- **兼容**：旧核心（无此 API 面）下应做能力探测（\`typeof api.health === 'function'\`）后再调用，否则插件加载会因 \`api.health is not a function\` 失败。
+
 ## 5. 生命周期与热加载
 
 1. **加载**：服务启动时扫描全部插件目录 → 校验清单（含 `depends` 拓扑排序：被依赖者优先加载；依赖缺失 → 拒绝加载该插件并报错指引；依赖环 → 拒绝加载并报环）→ 执行 schema.sql → 调用 `register(api)`（若是 Promise 则 await）。加载失败（语法错误/校验失败/注册冲突）只禁用该插件，日志给出修复指引，服务与其他插件正常。
@@ -267,6 +281,7 @@ export default function register(api) {
 
 ## Changelog
 
+- **v1.3 (2026-09-13)**：新增 §4.7 `api.health(obj)` 运行态上报（`/health.extras.<pluginName>`，键空间按插件名隔离、卸载自动清理；共 7 个 API）。
 - **v1.2 (2026-09-05)**：放开插件第三方库限制，落地「插件自带 package.json」依赖机制。
 - **v1.0 (2026-08-23)**：初始契约（registerTool / db / vrchat.fetch / log / tools.call 共 5 个 API）。
 - **v1.1 (2026-08-23)**：experimental 化；新增 §4.6 `api.provide/consume`（共 6 个 API）+ `api.tools.has`/`api.hasService` 能力探测；§4.2 改显式表句柄 + schema 只增不删约定；§4.1 补 destructive 对偶拦截 / outputSchema 扩展位 / 逻辑隔离定性；§2 补 depends 能力探测与加载期环检测＋破坏性前缀校验；§5 补热加载不中断 + schema 版本可见；§7 补敏感文件/env/加密存储禁读 + loader 静态扫描；凭据入库加密（核心基建，随 PR 演进）。

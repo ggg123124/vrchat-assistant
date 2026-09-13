@@ -512,6 +512,8 @@ export class PluginLoader {
     for (const [key, route] of this.ctx.httpRoutes?.entries() || []) {
       if (route.pluginName === name) this.ctx.httpRoutes.delete(key);
     }
+    // 运行态上报清理（review #187 ⚠️3）：插件卸载/重载后不得让 /health 残留其上报键
+    if (this.ctx.healthExtras) delete this.ctx.healthExtras[name];
     for (const [svc, owner] of this.serviceOwners.entries()) {
       if (owner === name) {
         this.services.delete(svc);
@@ -545,6 +547,8 @@ export class PluginLoader {
     for (const [key, route] of this.ctx.httpRoutes?.entries() || []) {
       if (route.pluginName === name) this.ctx.httpRoutes.delete(key);
     }
+    // 运行态上报清理（review #187 ⚠️3）：插件卸载/重载后不得让 /health 残留其上报键
+    if (this.ctx.healthExtras) delete this.ctx.healthExtras[name];
     // 移除该插件提供的服务
     const oldServices = [];
     for (const [svc, owner] of this.serviceOwners.entries()) {
