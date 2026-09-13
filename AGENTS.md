@@ -92,6 +92,7 @@
 - `VRC_MONITOR_DB_PATH`：SQLite 数据库文件路径（默认 `<仓库>/data/vrc-monitor.sqlite3`）。可将数据库迁移到任意位置（如独立数据盘），配合常驻服务使用。
 - `VRC_MONITOR_BACKUP_DIR`：自动备份目录（默认 `<仓库>/data/backups`）。
 - `VRC_MONITOR_LOG_DIR`：常驻服务脚本的日志 / 修复记录目录（默认 `<仓库>/service-logs`，仅 `service-windows/` 脚本使用；Linux systemd 方案日志走 journald，无需设置）。
+- `VRC_MONITOR_CAPTURE_LOG_MAX_SIZE`：Hermes 插件 stdout 捕获文件（`$HERMES_HOME/workspace/vrc-monitor/monitor.log`，node 子进程 stdout/stderr 合并写入）的轮转阈值字节（默认 `10485760`=10MB）。注意：与 `VRC_MONITOR_LOGGER_MAX_SIZE`（logger 模块结构化日志 `<VRC_MONITOR_DIR>/logs/monitor.log` 的轮转阈值）**不同名不同义**，勿混用。
 - `VRC_MONITOR_LOGGER_DIR`：应用日志模块（`core/logger.js`）日志文件目录（默认 `<VRC_MONITOR_DIR>/logs`）。注意：与上面 `VRC_MONITOR_LOG_DIR`（service 脚本用）不同名不同义，勿混用。
 - `VRC_MONITOR_LOGGER_LEVEL`：日志最低输出级别（默认 `info`，取值 `debug|info|warn|error|silent`）。
 - `VRC_MONITOR_LOGGER_FORMAT`：日志格式（默认 `text`，`json`=每行 JSONL 供 agent 解析）。

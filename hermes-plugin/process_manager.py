@@ -11,6 +11,7 @@ descriptors open, so the parent agent loop can't block on it.
 
 from __future__ import annotations
 
+import gzip
 import json
 import os
 import shutil
@@ -32,6 +33,16 @@ from hermes_constants import get_hermes_home
 
 MONITOR_SCRIPT = "start-monitor.js"
 HEALTH_URL = "http://127.0.0.1:8799/health"
+
+# stdout capture file (monitor.log) grows unbounded without rotation (3.7MB
+# observed in the wild). Threshold/keep align with core/logger.js defaults
+# (maxSize 10MB / maxFiles 5); archive naming matches logger.js doRotate():
+# monitor-<UTC YYYYMMDD-HHMMSS>-<pid>.log.gz. Threshold overridable via env
+# VRC_MONITOR_CAPTURE_LOG_MAX_SIZE (bytes) — 只管本插件捕获的
+# $HERMES_HOME/workspace/vrc-monitor/monitor.log，与 logger 模块结构化日志的
+# VRC_MONITOR_LOGGER_MAX_SIZE 不同名不同义，勿混用（PR #189 审查 ⚠️2 改名）。
+MAX_LOG_SIZE = 10 * 1024 * 1024
+MAX_ARCHIVES = 5
 
 
 def _config_path() -> Path:
@@ -79,6 +90,214 @@ def _state_file() -> Path:
 
 def _log_file() -> Path:
     return _root() / "monitor.log"
+
+
+# ── log rotation ───────────────────────────────────────────────────────
+
+
+def _max_log_size_from_env() -> int:
+    """VRC_MONITOR_CAPTURE_LOG_MAX_SIZE 覆盖捕获文件轮转阈值（字节）。
+
+    只认新名：旧名 VRC_MONITOR_LOG_MAX_SIZE 是 PR #189 审查前的未发布命名
+    （从未登记进文档），直接废弃不兼容——PR 未合并，无兼容负担。
+    """
+    raw = os.environ.get("VRC_MONITOR_CAPTURE_LOG_MAX_SIZE")
+    if raw:
+        try:
+            value = int(raw)
+            if value > 0:
+                return value
+        except ValueError:
+            pass
+    return MAX_LOG_SIZE
+
+
+def _prune_archives(directory: Path, keep: int) -> list:
+    """Delete oldest archives beyond *keep* (mtime order, shared budget).
+
+    Matches both ``monitor-*.log.gz`` and uncompressed ``monitor-*.log`` —
+    gzip 失败会遗留未压缩的 monitor-<ts>-<pid>.log，只 glob .gz 会让它永久
+    残留（PR #189 审查 💡1）。两类共享同一个 keep 预算（总数口径），避免
+    各留 N 份。active 文件 monitor.log 不含 "monitor-<ts>-" 前缀，两个
+    glob 都匹配不到它，永远不会被误删。
+    """
+    candidates = list(directory.glob("monitor-*.log.gz")) + list(
+        directory.glob("monitor-*.log")
+    )
+    candidates.sort(key=lambda f: f.stat().st_mtime)
+    removed = []
+    while len(candidates) > keep:
+        oldest = candidates.pop(0)
+        oldest.unlink()
+        removed.append(oldest.name)
+    return removed
+
+
+def _copytruncate_rotate(p: Path, keep_n: int, size: int) -> Dict[str, Any]:
+    """rename 被占用时的运行中轮转兜底：copy → gzip 归档 → truncate(0)。
+
+    竞态（微秒级，与 Unix logrotate copytruncate 同性质）：拷贝与清空之间
+    子进程新写入的行会随 truncate 一起消失。缓解：最多 3 次「stat 得 S1 →
+    读内容 → 再 stat 得 S2」，仅当 S2 == S1（期间无新写入）才执行归档与
+    truncate；3 次都稳定不下来说明子进程在持续高频写入，此时仍用最后一次
+    读到的快照执行（否则文件无限增长、轮转失去意义），最多丢失最后一次读
+    与 truncate 之间的窗口行。归档命名与 rename 路径一致（对齐
+    core/logger.js doRotate()）。
+    """
+    ts = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
+    gz_path = p.with_name(f"monitor-{ts}-{os.getpid()}.log.gz")
+    data = b""
+    for _ in range(3):
+        s1 = p.stat().st_size
+        with open(p, "rb") as f_in:
+            data = f_in.read()
+        s2 = p.stat().st_size
+        if s2 == s1:
+            break
+    # 先写归档、后 truncate：gzip 失败时 active 文件保持原样，零损失。
+    with gzip.open(gz_path, "wb") as f_out:
+        f_out.write(data)
+    with open(p, "r+b") as f:
+        f.truncate(0)
+    try:
+        removed = _prune_archives(p.parent, keep_n)
+    except Exception:
+        # 归档清理失败不影响本次轮转结果（与 rename 路径同策略）。
+        removed = []
+    return {
+        "ok": True,
+        "rotated": True,
+        "archive": gz_path.name,
+        "size": size,
+        "kept": keep_n,
+        "removed": removed,
+        "method": "copytruncate",
+    }
+
+
+def rotate_log_if_needed(path, max_size=None, keep=None) -> Dict[str, Any]:
+    """Rotate *path* once if it reached the size threshold. Pure function.
+
+    Checked at process start AND on every ``status()`` call (long-running
+    service without restart would otherwise never cross the threshold again).
+    Rotation tries ``rename`` first (atomic, lossless) and falls back to
+    ``copytruncate`` when the file is held open by the child (Windows:
+    rename fails with WinError 32). Never raises — failures are reported via
+    the return dict so the caller can degrade to plain append:
+
+      {"ok": True,  "rotated": False, "reason": "missing"|"below_threshold",
+       "size": int, "threshold": int}
+      {"ok": True,  "rotated": True,  "archive": "<name>.gz", "size": int,
+       "kept": int, "removed": [<names>], "method": "rename"|"copytruncate"}
+      {"ok": False, "rotated": False, "error": "<reason>"}
+
+    After a successful rotation the active file is empty (rename: recreated;
+    copytruncate: truncated in place), ready for continued append-mode writes.
+    """
+    p = Path(path)
+    limit = max_size if max_size is not None else _max_log_size_from_env()
+    keep_n = keep if keep is not None else MAX_ARCHIVES
+    try:
+        if not p.is_file():
+            return {
+                "ok": True,
+                "rotated": False,
+                "reason": "missing",
+                "size": 0,
+                "threshold": limit,
+            }
+        size = p.stat().st_size
+        if size < limit:
+            return {
+                "ok": True,
+                "rotated": False,
+                "reason": "below_threshold",
+                "size": size,
+                "threshold": limit,
+            }
+        # UTC YYYYMMDD-HHMMSS + pid, same naming as core/logger.js doRotate()
+        ts = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
+        rotated = p.with_name(f"monitor-{ts}-{os.getpid()}.log")
+        try:
+            p.rename(rotated)
+        except OSError:
+            # Windows 下子进程持有 stdout 句柄时运行中 rename 必失败
+            # （WinError 32「另一个程序正在使用此文件」，已实测）；启动时
+            # （无句柄）才会走到上面这条 rename 原子路径。回退 copytruncate。
+            return _copytruncate_rotate(p, keep_n, size)
+        gz_path = Path(str(rotated) + ".gz")
+        with open(rotated, "rb") as f_in, gzip.open(gz_path, "wb") as f_out:
+            shutil.copyfileobj(f_in, f_out)
+        rotated.unlink()
+        try:
+            removed = _prune_archives(p.parent, keep_n)
+        except Exception:
+            # 归档清理失败（占用/权限）不影响本次轮转结果，与 core/logger.js
+            # cleanupOldLogs() 同策略：清理是尽力而为，不降级、不阻断、不误报轮转失败。
+            removed = []
+        p.touch()  # recreate the active file so append-mode open can proceed
+        return {
+            "ok": True,
+            "rotated": True,
+            "archive": gz_path.name,
+            "size": size,
+            "kept": keep_n,
+            "removed": removed,
+            "method": "rename",
+        }
+    except Exception as e:
+        return {"ok": False, "rotated": False, "error": str(e)}
+
+
+def _rotate_log_with_notice(
+    log_path: Path, write_skip: bool = True
+) -> Dict[str, Any]:
+    """One rotation check, one log line per non-skip branch (into the active
+    capture file), result dict always returned.
+
+    ``write_skip=True``（start() 钩子）：低频事件，允许写「跳过（未达阈值）」
+    行。``write_skip=False``（status() 钩子）：vrc_status 是 Agent 高频调用，
+    若每次都写一行「跳过」，捕获文件会变成新的刷屏源——该分支静默，结果改由
+    status() 返回的 ``log_capture`` 字段可见。轮转成功 / 失败两个分支在两个
+    钩子里都各写一行（禁静默降级）。任何异常——包括写 notice 行本身失败——
+    都被吞掉：轮转问题必须永不阻断启动或状态查询，降级为纯追加。
+    """
+    try:
+        result = rotate_log_if_needed(log_path)
+    except Exception as e:
+        result = {"ok": False, "rotated": False, "error": str(e)}
+    if result.get("ok") is False:
+        line = f"[plugin] 日志轮转失败（不阻断启动/不影响本次状态查询，继续追加）：{result.get('error')}"
+    elif result.get("rotated"):
+        size_mb = result.get("size", 0) / (1024 * 1024)
+        method = result.get("method", "rename")
+        if method == "copytruncate":
+            line = (
+                f"[plugin] 日志轮转: monitor.log ({size_mb:.1f}MB) → "
+                f"{result.get('archive')}（方式 copytruncate，运行中无法 rename，"
+                f"保留 {result.get('kept')} 个归档）"
+            )
+        else:
+            line = (
+                f"[plugin] 日志轮转: monitor.log ({size_mb:.1f}MB) → "
+                f"{result.get('archive')}（方式 rename，保留 {result.get('kept')} 个归档）"
+            )
+    elif write_skip:
+        size_mb = result.get("size", 0) / (1024 * 1024)
+        limit_mb = result.get("threshold", MAX_LOG_SIZE) / (1024 * 1024)
+        line = f"[plugin] 日志轮转跳过（未达阈值 {limit_mb:.1f}MB，当前 {size_mb:.1f}MB）"
+    else:
+        return result
+    try:
+        with open(str(log_path), "ab", buffering=0) as fh:
+            fh.write(
+                f"[{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}] {line}\n".encode(
+                    "utf-8"
+                )
+            )
+    except Exception:
+        pass
+    return result
 
 
 # ── helpers ────────────────────────────────────────────────────────────
@@ -260,7 +479,7 @@ def _find_monitor_pid() -> Optional[int]:
 # ── public API ─────────────────────────────────────────────────────────
 
 
-def status() -> Dict[str, Any]:
+def status(check_log_rotation: bool = True) -> Dict[str, Any]:
     """Return the current process state and health.
 
     Returns a dict::
@@ -273,7 +492,19 @@ def status() -> Dict[str, Any]:
             "started_at": float|None,
             "log_file": str|None,
             "inferred": true|false,  # running detected via health probe, no known pid
+            "log_capture": {
+                "path": str, "size": int, "threshold": int,
+                "rotated": bool, "method": "rename"|"copytruncate"|None,
+                "removed": [...], "error": str|None
+            },
         }
+
+    ``log_capture`` 是 PR #189 审查后新增的字段（只增不改，既有字段语义
+    不动）：每次 status() 顺路做一次捕获文件轮转检查（常驻服务数周不重启
+    时这是唯一的阈值检查时机）。「跳过（未达阈值）」分支不写日志行（防
+    高频调用刷屏），结果经本字段可见；轮转成功/失败各写一行进 active
+    文件。``check_log_rotation=False`` 仅供 start() 内部使用（start() 有
+    自己的显式检查，避免同一进程启动时双检双行）。
 
     All exceptions are caught — this function never raises.
     """
@@ -322,6 +553,38 @@ def status() -> Dict[str, Any]:
             inferred = True
             pid = None
 
+    # 运行中轮转检查（PR #189 审查 ⚠️1）：常驻服务数周不重启时仅靠 start()
+    # 的一次性检查，阈值永远不再被检查、捕获文件无界增长。vrc_status 是
+    # Agent 高频调用，这里顺路做一次检查（内部只读一次 stat，不引入额外
+    # I/O 抖动）。「跳过」分支不写日志行（防刷屏），结果经 log_capture
+    # 字段返回；轮转成功/失败各写一行（禁静默降级）。轮转异常绝不污染
+    # status 主流程。
+    capture_path = Path(log_file) if log_file else _log_file()
+    log_capture: Dict[str, Any] = {
+        "path": str(capture_path),
+        "size": 0,
+        "threshold": _max_log_size_from_env(),
+        "rotated": False,
+        "method": None,
+        "removed": [],
+        "error": None,
+    }
+    if check_log_rotation:
+        try:
+            result = _rotate_log_with_notice(capture_path, write_skip=False)
+            log_capture = {
+                "path": str(capture_path),
+                "size": result.get("size", 0),
+                "threshold": result.get("threshold", log_capture["threshold"]),
+                "rotated": bool(result.get("rotated")),
+                "method": result.get("method"),
+                "removed": result.get("removed", []),
+                "error": result.get("error") if result.get("ok") is False else None,
+            }
+        except Exception as e:
+            # _rotate_log_with_notice 自身已吞异常，此处是最后的保险。
+            log_capture["error"] = str(e)
+
     return {
         "ok": True,
         "running": alive or inferred,
@@ -330,6 +593,7 @@ def status() -> Dict[str, Any]:
         "started_at": started_at,
         "log_file": log_file,
         "inferred": inferred,
+        "log_capture": log_capture,
         "resolved": {
             "monitor_dir": _resolve_monitor_dir(),
             "node_exe": _resolve_node_exe(),
@@ -344,7 +608,9 @@ def start() -> Dict[str, Any]:
     All exceptions are caught — this function never raises.
     """
     try:
-        current = status()
+        # check_log_rotation=False：start() 下方有自己的一次性显式检查
+        # （open 日志之前），这里再查会双检双行（轮转成功行 + 跳过行）。
+        current = status(check_log_rotation=False)
         if current.get("running"):
             # Already running (pid alive or health probe) — refresh the
             # state record so later calls can find it; when inferred there
@@ -388,6 +654,11 @@ def start() -> Dict[str, Any]:
         }
 
     log_path = _log_file()
+    # Rotation check BEFORE opening the log. 双钩子之一（start()，低频）：
+    # 允许写「跳过」行；另一处是 status()（高频，跳过分支静默、经
+    # log_capture 字段可见）——常驻服务不重启时靠 status() 触发阈值检查。
+    # Never blocks startup.
+    _rotate_log_with_notice(log_path)
     try:
         log_fh = open(str(log_path), "ab", buffering=0)
     except Exception as e:
