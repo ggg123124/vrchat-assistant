@@ -75,3 +75,45 @@ jobs:
           elif command -v python >/dev/null 2>&1; then PY=python
           else echo "::error::python not found"; exit 2; fi
           "$PY" scripts/check-doc-drift.py --json
+
+  # 产物出库后（issue #186 方案 A）前端必须有可复现构建路径：
+  # 断言 ui/dist 不被入库、且能从源码构建出产物（防「装完没有 UI」/构建静默失败）
+  ui-build:
+    name: UI buildable (dist out-of-repo)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Assert dist is NOT tracked (out-of-repo)
+        shell: bash
+        run: |
+          if git ls-files --error-unmatch plugins/official/web-dashboard/ui/dist/index.html >/dev/null 2>&1; then
+            echo "::error::ui/dist is tracked — issue #186 方案 A 要求产物出库"
+            exit 1
+          fi
+
+      - name: Install UI deps
+        run: npm ci --prefix plugins/official/web-dashboard/ui
+
+      - name: UI unit tests (front-end regressions)
+        run: npm test --prefix plugins/official/web-dashboard/ui
+
+      - name: Build UI
+        run: npm run build --prefix plugins/official/web-dashboard/ui
+
+      - name: Assert artifact exists and is non-trivial
+        shell: bash
+        run: |
+          f=plugins/official/web-dashboard/ui/dist/index.html
+          if [ ! -f "$f" ]; then echo "::error::ui/dist/index.html missing after build"; exit 1; fi
+          size=$(wc -c < "$f")
+          echo "dist size: $size bytes"
+          if [ "$size" -lt 500000 ]; then echo "::error::dist suspiciously small ($size) — 构建可能静默失败"; exit 1; fi

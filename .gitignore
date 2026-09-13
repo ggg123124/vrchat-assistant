@@ -52,3 +52,6 @@ backups/
 img_cache/
 pdf/
 /tmp/
+
+# 前端构建产物出库（issue #186 方案 A）：安装期/镜像构建生成，禁止提交
+plugins/official/web-dashboard/ui/dist/

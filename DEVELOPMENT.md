@@ -54,6 +54,16 @@ PR 由 AI Agent 编写提交（人类只提出需求、不直接编码）。以�
 
 > 目前仓库没有 CI，上述脚本是手动验证工具。合并决策由作者（或其 AI Agent）实际运行验证后作出。
 
+## 2.x 前端构建产物策略（issue #186，2026-09-13 起）
+
+**`plugins/official/web-dashboard/ui/dist/` 不入库**（`.gitignore` 强制），由构建步骤生成：
+
+- **谁构建**：`npm run install-plugins`（安装期，`scripts/install-plugin-deps.mjs` 识别插件内 `ui/package.json`）或 `npm run build:dashboard`（单独构建）；Docker 镜像由 `Dockerfile` 的 ui-builder 阶段构建后 COPY 进 runtime。
+- **为什么**：单文件产物 1.5 MB 且逐字符 diff 不可审——并发 UI PR 必然整文件冲突、产物漂移 CI 曾无法发现、仓库体积与审查成本持续增长（issue #186 实测数据）。
+- **运维注记**：`npm run install-plugins` 会**无条件**执行 `npm ci` + 构建（每次调用约 5s+ 依赖校验）；离线/内网用户拉不到 npm 依赖时前端产物缺失，服务回退旧版 UI（离线/内网：可在有网机器 `npm run build:dashboard` 后复制 `ui/dist/` 到目标机）。
+- **纪律**：**禁止提交 `ui/dist/`**（`.gitignore` 已强制；CI `ui-build` job 会断言其未被跟踪）。改了前端源码必须重建产物（本地开发）或依赖安装期/镜像构建（部署）。
+- **运行期行为**：启动三态判定并告警——`built`（正常）/`missing`（**回退旧版 UI** + 告警 + `/health` 上报）/`stale`（源码 mtime 晚于产物：**仍投递现有产物**并发过期告警，不回退）。**产物在插件加载时读入内存**：重建后需重启服务才生效（三态与 `/health` 亦反映启动时刻）。
+
 ## 3. 跨平台约束（重点，必读）
 
 **这个服务不一定运行在运行 VRChat 的那台电脑上。** 它可能跑在：

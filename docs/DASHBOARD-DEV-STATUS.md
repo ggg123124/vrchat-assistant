@@ -301,7 +301,9 @@
 用户选定 **PrimeVue 4 + Vite 构建**，允许全面重写前端（保留后端 API 与信息架构），目标桌面+移动双端。
 
 **关键决策**：
-- 构建在本地跑（路由器只发产物，Dockerfile `COPY . .` 直接带 `ui/dist`）；`vite-plugin-singlefile` 把所有 JS/CSS 打进一个 index.html（~1.06MB）→ `/dashboard` 仍是单文件请求，**无需静态资源鉴权白名单**（PrimeIcons 的 woff2/woff/eot 已内联，仅 SVG 因 `?#primeicons` 片段留在外部但现代浏览器走 woff2 不会请求，已从 dist 删除）
+> ⚠️ **本节决策已失效（2026-09-13，issue #186 方案 A）**：`ui/dist` 已出库，改为安装期（`npm run install-plugins` / `npm run build:dashboard`）与 Dockerfile 的 ui-builder 阶段构建；保留以下原始记录供追溯。
+
+- ~~构建在本地跑（路由器只发产物，Dockerfile `COPY . .` 直接带 `ui/dist`）~~；`vite-plugin-singlefile` 把所有 JS/CSS 打进一个 index.html（~1.06MB）→ `/dashboard` 仍是单文件请求，**无需静态资源鉴权白名单**（PrimeIcons 的 woff2/woff/eot 已内联，仅 SVG 因 `?#primeicons` 片段留在外部但现代浏览器走 woff2 不会请求，已从 dist 删除）
 - 认证不变：`?token=`/Header 鉴权；`/dashboard?legacy=1` 回退旧版 UI
 
 **里程碑 1 已部署（plugins/official/web-dashboard/ui/）**：

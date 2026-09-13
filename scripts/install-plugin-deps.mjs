@@ -28,7 +28,37 @@ function installPluginsIn(root) {
   return count;
 }
 
+/**
+ * 前端子目录构建（issue #186 方案 A）：dist 已出库，安装期需为带前端源码的插件构建产物。
+ * 约定：插件目录下的 `ui/package.json` = 前端子目录（构建命令 `npm run build --prefix <ui>`）。
+ * 失败只 warn + 打印手动命令，不阻断其他插件安装（前端产物缺失时服务回退旧版 UI 仍可用）。
+ */
+function buildPluginUisIn(root) {
+  if (!existsSync(root)) return 0;
+  let count = 0;
+  for (const name of readdirSync(root)) {
+    const uiDir = path.join(root, name, 'ui');
+    if (!existsSync(path.join(uiDir, 'package.json'))) continue;
+    const rel = path.relative(repoRoot, uiDir);
+    const built = path.join(uiDir, 'dist', 'index.html');
+    try {
+      console.log(`[install-plugins] npm ci --prefix ${rel}`);
+      execFileSync(npmBin, ['ci', '--prefix', uiDir], { stdio: 'inherit', cwd: repoRoot, shell: true });
+      console.log(`[install-plugins] npm run build --prefix ${rel}`);
+      execFileSync(npmBin, ['run', 'build', '--prefix', uiDir], { stdio: 'inherit', cwd: repoRoot, shell: true });
+      count++;
+    } catch (e) {
+      // 降级可见：前端产物属增强，构建失败不阻断插件安装（运行时回退旧版 UI 并有启动告警）
+      console.warn(`[install-plugins] [警告] 前端构建失败（不阻断）: ${rel} — ${String((e && e.message) || e)}`);
+      console.warn(`[install-plugins] 手动修复: npm run build:dashboard`);
+      if (!existsSync(built)) console.warn(`[install-plugins] 注意: ${path.relative(repoRoot, built)} 不存在，服务将回退旧版 UI`);
+    }
+  }
+  return count;
+}
+
 let n = 0;
 n += installPluginsIn(OFFICIAL);
 n += installPluginsIn(LOCAL);
-console.log(`[install-plugins] 完成，共安装 ${n} 个插件依赖。`);
+const uis = buildPluginUisIn(OFFICIAL) + buildPluginUisIn(LOCAL);
+console.log(`[install-plugins] 完成，共安装 ${n} 个插件依赖${uis ? `，构建 ${uis} 个前端产物` : ''}。`);
