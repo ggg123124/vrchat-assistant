@@ -10,7 +10,7 @@
   },
   "scripts": {
     "start": "node start-monitor.js",
-    "test": "node --test \"test/**/*.test.mjs\"",
+    "test": "node --test --import ./test/setup-log-isolation.mjs \"test/**/*.test.mjs\"",
     "install-plugins": "node scripts/install-plugin-deps.mjs"
   },
   "dependencies": {
