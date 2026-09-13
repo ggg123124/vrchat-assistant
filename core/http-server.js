@@ -8,6 +8,7 @@ import http from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { ctx, log } from './server-context.js';
 import { getLogger } from './logger.js';
+import { getExtStats } from './ext-log.js';
 import * as registry from './registry.js';
 
 /**
@@ -27,6 +28,13 @@ export function buildHealthStatus({ ctx: c, storage, rateLimiter, wsManager, fri
     totpAutoEnabled: !!(c.api?.totpFetcher),
     db: storage.getStats(),
     rateLimiter: rateLimiter.getStats(),
+    // 外部调用可观测性（只增字段）：VRChat API 客户端统计 + 外部服务失败/兜底统计。
+    // 设计：失败/超时/重试明细在 ops_log（get_ops_log kind=api|ext），此处只给聚合快照，
+    // payload 保持轻量（topFailures 限 5 条、不带堆栈）。
+    api: {
+      client: c.api?.getApiStats ? c.api.getApiStats() : null,
+      ext: getExtStats(),
+    },
     ws: wsManager?.getState(),
     friendState: friendState?.getStats(),
     eventPipeline: eventPipeline?.getStats(),
@@ -162,10 +170,18 @@ async function handleRequest(req, res) {
     return;
   }
 
-  // MCP endpoint probe
+  // MCP GET 流：本服务不推送 server→client 消息，按 MCP Streamable HTTP 规范必须
+  // 「返回 text/event-stream」或「返回 405」——**曾经返回 200+空 SSE 并立即 end**，
+  // 导致合规客户端（如 MCP Python SDK / Hermes）判定流断开并**每 1000ms 无限重连**，
+  // 刷屏日志「GET stream disconnected, reconnecting in 1000ms...」（用户实测反馈）。
+  // SDK 行为：405 会计入重连尝试（上限 2 次后停止）；200+立即结束则 attempt 归零 → 死循环。
   if (req.method === 'GET' && pathname === '/mcp') {
-    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Content-Length': 0 });
-    res.end();
+    res.writeHead(405, { 'Allow': 'POST, DELETE', 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      jsonrpc: '2.0',
+      error: { code: -32000, message: 'This MCP server does not offer a server-initiated SSE stream; use POST for requests (DELETE to end the session).' },
+      id: null,
+    }));
     return;
   }
 

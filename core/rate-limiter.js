@@ -6,6 +6,14 @@
  * 
  * 支持：请求队列、自动等待、并发控制
  */
+import { getLogger } from './logger.js';
+import { recordOpsLog } from './ops-log.js';
+
+const log = getLogger('limiter');
+
+// 慢等待阈值（毫秒，代码常量不走 env）：等待超过该值才记一行 INFO
+const SLOW_WAIT_MS = 1000;
+
 export class RateLimiter {
   constructor(options = {}) {
     this.minInterval = options.minInterval || 2600;  // 毫秒
@@ -18,6 +26,10 @@ export class RateLimiter {
     this._processing = false;
     this._totalCalls = 0;
     this._totalWaited = 0;
+    this._queueFull = 0;       // 队列满被拒次数
+    this._taskTimeouts = 0;    // 任务级超时次数
+    this._slowWaits = 0;       // 等待 >1000ms 的次数
+    this._maxQueueLen = 0;     // 队列长度峰值
   }
 
   /**
@@ -32,6 +44,9 @@ export class RateLimiter {
   async execute(fn, opts = {}) {
     return new Promise((resolve, reject) => {
       if (this._queue.length >= this.maxQueueSize) {
+        this._queueFull++;
+        log.warn('限流队列已满，拒绝新任务');
+        recordOpsLog('ops', 'warn', '限流队列已满，拒绝新任务');
         reject(new Error('Rate limiter queue full'));
         return;
       }
@@ -40,6 +55,7 @@ export class RateLimiter {
         ? opts.taskTimeoutMs
         : this.taskTimeoutMs;
       this._queue.push({ fn, resolve, reject, taskTimeout });
+      if (this._queue.length > this._maxQueueLen) this._maxQueueLen = this._queue.length;
       this._processQueue();
     });
   }
@@ -55,6 +71,10 @@ export class RateLimiter {
 
       if (waitTime > 0) {
         this._totalWaited += waitTime;
+        if (waitTime > SLOW_WAIT_MS) {
+          this._slowWaits++;
+          log.info(`限流等待 ${waitTime}ms（队列 ${this._queue.length} 个任务）`);
+        }
         await new Promise(r => setTimeout(r, waitTime));
       }
 
@@ -87,6 +107,11 @@ export class RateLimiter {
           item.resolve(result);
         }
       } catch (err) {
+        if (err && /任务超时/.test(err.message)) {
+          this._taskTimeouts++;
+          log.warn(`[限流] ${err.message}`);
+          recordOpsLog('ops', 'warn', `限流任务超时：${err.message}`);
+        }
         item.reject(err);
       }
     }
@@ -102,6 +127,10 @@ export class RateLimiter {
       queueLength: this._queue.length,
       isProcessing: this._processing,
       minInterval: this.minInterval,
+      queueFull: this._queueFull,
+      taskTimeouts: this._taskTimeouts,
+      slowWaits: this._slowWaits,
+      maxQueueLen: this._maxQueueLen,
     };
   }
 
@@ -109,5 +138,9 @@ export class RateLimiter {
   resetStats() {
     this._totalCalls = 0;
     this._totalWaited = 0;
+    this._queueFull = 0;
+    this._taskTimeouts = 0;
+    this._slowWaits = 0;
+    this._maxQueueLen = 0;
   }
 }

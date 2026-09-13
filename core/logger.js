@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
@@ -71,6 +72,15 @@ function resolveDir() {
   // 日志模块专属变量名（VRC_MONITOR_LOGGER_DIR），不与 AGENTS.md 里 service-windows 用的 VRC_MONITOR_LOG_DIR 撞名
   if (process.env.VRC_MONITOR_LOGGER_DIR) {
     return path.resolve(process.env.VRC_MONITOR_LOGGER_DIR);
+  }
+  // node --test 上下文（node --test 子进程 NODE_TEST_CONTEXT=child-v8，已实测）：
+  // 任何继承 VRC_MONITOR_DIR 的测试进程都会把日志写进生产目录（实测 96 行 wrld_kbtest-*
+  // 测试夹具污染主仓库生产日志），单点防御落到系统临时目录与生产日志物理隔离。
+  // 显式 VRC_MONITOR_LOGGER_DIR 永远优先（上方分支），此处只在未显式指定时兜底。
+  if (process.env.NODE_TEST_CONTEXT) {
+    const dir = path.join(os.tmpdir(), 'vrc-monitor-test-logs');
+    console.info(`[logger] 检测到 node --test 上下文，日志落盘改用临时目录: ${dir}（如需显式指定请设 VRC_MONITOR_LOGGER_DIR）`);
+    return dir;
   }
   if (process.env.VRC_MONITOR_DIR) {
     return path.join(process.env.VRC_MONITOR_DIR, 'logs');

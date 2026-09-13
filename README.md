@@ -46,8 +46,8 @@
 | [skills/](./skills/) | 开箱即用的 Agent Skill 合集（含 MCP 工具清单、查询工作流、开发规范等，安装说明见 AGENTS.md） | 查询 / 调用工具 / 开发功能前 |
 | [DEVELOPMENT.md](./DEVELOPMENT.md) | 开发规范：跨平台约束、PR 要求、数据隐私、代码规范 | 修改代码 / 提交 PR |
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | 系统架构：数据流、模块职责、插件化架构层次 | 理解代码结构 |
-| [docs/PLUGIN-API.md](./docs/PLUGIN-API.md) | 插件契约（v1.1）：插件与核心的唯一契约、6 面 API、安全与命名约束 | 编写插件前必读 |
-| [docs/PLUGIN-DEV.md](./docs/PLUGIN-DEV.md) | 插件开发指南：目录结构、register(api)、6 面 API 用法、核心服务消费 | 编写插件 / 扩展功能 |
+| [docs/PLUGIN-API.md](./docs/PLUGIN-API.md) | 插件契约（v1.3）：插件与核心的唯一契约、8 面 API、安全与命名约束 | 编写插件前必读 |
+| [docs/PLUGIN-DEV.md](./docs/PLUGIN-DEV.md) | 插件开发指南：目录结构、register(api)、8 面 API 用法、核心服务消费 | 编写插件 / 扩展功能 |
 | [docs/history/](./docs/history/INDEX.md) | 项目演进记录：里程碑时间线、每月发布/PR 与演进意义 | 新 Agent 上手先读 |
 | [service-windows/](./service-windows/README.md) | Windows 开机自启 + 崩溃自愈 + 每日修复报告（一键脚本） | Windows 常驻运行 |
 | [service-linux/](./service-linux/README.md) | Linux systemd 用户服务：开机自启 + 崩溃自愈 + journal 日志（一键脚本） | Linux 常驻运行 |

@@ -28,7 +28,7 @@ my_plugin_ping  （无参数）
 - 对外暴露能力一律 `api.registerTool({ name, description, inputSchema, handler })`。
 - 需要核心能力/数据 → `api.consume("<域>.<名>", args)`；需要调别的工具 → `api.tools.call(name, args)`；
   需要自有表 → `api.db.table("<alias>")`（核心自动加 `plg_<name>_` 前缀）。
-- 权威契约见 `docs/PLUGIN-API.md`（v1.2），开发指南见 `docs/PLUGIN-DEV.md`。
+- 权威契约见 `docs/PLUGIN-API.md`（v1.3），开发指南见 `docs/PLUGIN-DEV.md`。
 - 如需第三方依赖：在插件目录加 `package.json` 声明（模板本体保持零依赖），见 PLUGIN-API.md §6.1。
 
 > ⚠️ 重要：`api.registerTool` 注册的工具**只有其名字在 `core/tool-order.json` 中**，

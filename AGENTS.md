@@ -92,6 +92,7 @@
 - `VRC_MONITOR_DB_PATH`：SQLite 数据库文件路径（默认 `<仓库>/data/vrc-monitor.sqlite3`）。可将数据库迁移到任意位置（如独立数据盘），配合常驻服务使用。
 - `VRC_MONITOR_BACKUP_DIR`：自动备份目录（默认 `<仓库>/data/backups`）。
 - `VRC_MONITOR_LOG_DIR`：常驻服务脚本的日志 / 修复记录目录（默认 `<仓库>/service-logs`，仅 `service-windows/` 脚本使用；Linux systemd 方案日志走 journald，无需设置）。
+- `VRC_MONITOR_CAPTURE_LOG_MAX_SIZE`：Hermes 插件 stdout 捕获文件（`$HERMES_HOME/workspace/vrc-monitor/monitor.log`，node 子进程 stdout/stderr 合并写入）的轮转阈值字节（默认 `10485760`=10MB）。注意：与 `VRC_MONITOR_LOGGER_MAX_SIZE`（logger 模块结构化日志 `<VRC_MONITOR_DIR>/logs/monitor.log` 的轮转阈值）**不同名不同义**，勿混用。
 - `VRC_MONITOR_LOGGER_DIR`：应用日志模块（`core/logger.js`）日志文件目录（默认 `<VRC_MONITOR_DIR>/logs`）。注意：与上面 `VRC_MONITOR_LOG_DIR`（service 脚本用）不同名不同义，勿混用。
 - `VRC_MONITOR_LOGGER_LEVEL`：日志最低输出级别（默认 `info`，取值 `debug|info|warn|error|silent`）。
 - `VRC_MONITOR_LOGGER_FORMAT`：日志格式（默认 `text`，`json`=每行 JSONL 供 agent 解析）。
@@ -100,6 +101,10 @@
 - `VRC_MONITOR_LOGGER_SUPPRESS`：逗号分隔子串列表，命中即整条丢弃（如 `ping,keepalive` 压 MCP 保活噪音）。
 - `VRC_MONITOR_LOGGER_CONSOLE`：是否同时写 stdout（默认 `1`；`0` 仅写文件，一般不建议）。
 - `VRC_MONITOR_LOGGER_COLOR`：text 格式是否加 ANSI 色（默认 `auto`，写文件永无色）。
+- `VRC_MONITOR_LOG_API_SUCCESS`：设为 `1` 时**成功的 API 调用也记 INFO**（默认关闭——成功且快的调用只落 debug，避免逐条刷屏）。慢调用（>2000ms）无论该开关如何都会升格 INFO。**开启后会明显放大日志量，仅供临时排障**，建议配合 `VRC_MONITOR_LOGGER_SUPPRESS` 或改完即关。
+- `VRC_MONITOR_API_BASE`：**测试/调试开关**，覆盖 VRChat REST 基址（生产默认 `https://api.vrchat.cloud/api/1`）。只接受 `https` 或**回环 http**（`127.0.0.1` / `localhost` / `[::1]`，用于本地 stub）；非回环 `http://` 一律忽略并留一行 WARN（明文网关会泄露 auth cookie）。
+- `VRC_MONITOR_API_TIMEOUT_MS`：**测试/调试开关**，覆盖单请求 socket 空闲超时（生产默认 `15000`ms）。
+- **外部调用留痕规范**（PR 外部调用可观测性）：`[api]` = VRChat REST 调用，`[ext]` = 外部服务（PlanetVRC / X / BOOTH / Google Calendar / IMAP-OTP）。分级固定为「失败/超时/非 2xx → WARN；降级/兜底/缓存命中/跳过 → INFO；成功 → debug（>2000ms 升 INFO）」，且同一时间同步写入 ops_log（`kind='api'|'ext'`，`get_ops_log` 可查、保留 500 条）；聚合快照见 `GET /health` 的 `api` 字段（`api.client` / `api.ext` / `rateLimiter`）。新增外部调用点必须逐分支留痕，禁止静默降级。
 - `VRC_MONITOR_PYTHON`：执行 scripts/fetch-otp.py 的 Python 解释器路径（默认 PATH 中的 `python`）。以计划任务 / systemd / 容器等方式运行且 PATH 中无 python 时必须设置，否则 OTP 自动登录失败会陷入重试循环（每次循环 VRChat 都会重新发送验证码邮件）。**路径含空格无需自带引号**（如 `C:\Program Files\Python311\python.exe`），脚本执行时会自动加引号。
 - `VRC_MONITOR_SAFE_MODE`：**安全模式开关**（默认关闭）。设为 `true` 时，服务启动后自动移除全部破坏性 MCP 工具（删除好友 `remove_friend`、删除相册照片 `remove_print`、删除画廊图片 `remove_gallery_image`、移除好友收藏 `unfavorite_friend`、移除世界收藏 `unfavorite_world`、移动世界收藏分组 `move_world_group`、移动好友收藏分组 `move_friend_group`、清空收藏分组 `clear_favorite_group`、退出群组 `leave_group`、拒绝好友请求 `decline_friend_request`、隐藏通知 `hide_notification`、移出待逛列表 `remove_from_backlog`、移出关注名单 `remove_from_watchlist`、移除 X 博主 `x_remove_creator` 等）：`tools/list` 不再暴露这些工具，`tools/call` 直接拦截报错，防止 Agent 误删数据。**dashboard REST 层同受保护（#162 起，语义=云端不可逆操作保护）**：删除画廊图片 / 删除照片 / 取消收藏（世界/模型/好友）在安全模式下拦截（本地可恢复操作如移除追踪=软删除则放行）；同时所有破坏性 dashboard 按钮带 UI 二次确认（safe-mode 关闭时也有手滑保护）。可在仓库根 `.env` 中配置（推荐，已被 .gitignore 排除）。
   - ⚠️ **鉴权 fail-closed（#159 起）**：已配置 `VRC_MONITOR_AUTH_TOKEN` 而	auth-guard 插件缺失或加载失败时，服务**拒绝启动**（启动期报错）且运行期所有请求返回 401（含携带正确 token）——绝不静默放行。请确保 auth-guard 插件目录完整、依赖已安装（`npm run install-plugins`）。未配置 token 的本地开发模式不受影响。

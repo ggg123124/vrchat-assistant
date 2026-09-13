@@ -14,7 +14,7 @@ export function setOpsLogSink(fn) {
 
 /**
  * 记录一条运维日志。
- * @param {'auth'|'ws'|'ops'} kind 类别
+ * @param {'auth'|'ws'|'ops'|'api'|'ext'} kind 类别（`api`=VRChat REST 调用失败/超时，`ext`=外部服务失败与降级兜底）
  * @param {'info'|'warn'|'error'} level 级别
  * @param {string} message 消息（不含敏感值——调用方禁止传入 authToken/cookie）
  */

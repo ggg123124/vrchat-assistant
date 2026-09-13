@@ -81,26 +81,43 @@ function parseDetail(html) {
   return d;
 }
 
-async function enrich(cards, limit, log) {
+async function enrich(cards, limit, log, ext) {
   const n = Math.min(Math.max(parseInt(limit, 10) || 5, 1), 8);
   for (const c of cards.slice(0, n)) {
+    const startedAt = Date.now();
     try {
       const html = await fetchHtml(c.url);
       Object.assign(c, parseDetail(html));
+      // 成功 → debug（>2000ms 自动升 INFO）
+      ext?.success?.('PlanetVRC', `抓取详情 post ${c.postId}`, { durationMs: Date.now() - startedAt });
     } catch (e) {
-      log(`PlanetVRC 详情失败 ${c.postId}: ${e.message}`);
+      // 失败留痕（WARN + ops_log）：详情抓不到时保留列表项（部分降级，不阻断整体搜索）
+      if (ext?.failure) ext.failure('PlanetVRC', `抓取详情 post ${c.postId}`, e, { durationMs: Date.now() - startedAt });
+      else log(`PlanetVRC 详情失败 ${c.postId}: ${e.message}`);
     }
   }
   return cards;
 }
 
-async function fetchCards(queryParams, limit, log) {
+async function fetchCards(queryParams, limit, log, ext) {
   const n = Math.min(Math.max(parseInt(limit, 10) || 5, 1), 8);
   const qs = new URLSearchParams({ s: '', vkfs_submitted: '1', ...queryParams }).toString();
-  const html = await fetchHtml(`${BASE}/?${qs}`);
+  const startedAt = Date.now();
+  let html;
+  try {
+    html = await fetchHtml(`${BASE}/?${qs}`);
+  } catch (e) {
+    if (ext?.failure) ext.failure('PlanetVRC', '抓取排行列表', e, { durationMs: Date.now() - startedAt });
+    throw e;
+  }
+  ext?.success?.('PlanetVRC', '抓取排行列表', { durationMs: Date.now() - startedAt });
   const cards = parseCards(html);
-  if (!cards.length) throw new Error('PlanetVRC 无结果');
-  await enrich(cards, n, log);
+  if (!cards.length) {
+    // 降级留痕：远端可达但解析为空 → 视为该源无结果（调用方据此跳过该源）
+    if (ext?.fallback) ext.fallback('PlanetVRC', '抓取排行列表', '页面解析为空（该源无结果，跳过）');
+    throw new Error('PlanetVRC 无结果');
+  }
+  await enrich(cards, n, log, ext);
   return cards.slice(0, n);
 }
 
@@ -109,7 +126,7 @@ export default function register(api) {
     const q = String(query || '').trim();
     if (!q) throw new Error('query is required');
     api.log(`PlanetVRC 搜索: ${q}`);
-    const cards = await fetchCards({ s: q }, limit, api.log);
+    const cards = await fetchCards({ s: q }, limit, api.log, api.extLog);
     return {
       source: 'planetvrchat.net',
       query: q,
@@ -121,7 +138,7 @@ export default function register(api) {
   async function handleRecommendPlanetWorlds({ sort = 'popular', limit = 5 }) {
     const key = ORDERBY[sort] ? sort : 'popular';
     api.log(`PlanetVRC 推荐: ${key}`);
-    const cards = await fetchCards({ vkfs_orderby: ORDERBY[key] }, limit, api.log);
+    const cards = await fetchCards({ vkfs_orderby: ORDERBY[key] }, limit, api.log, api.extLog);
     return {
       source: 'planetvrchat.net',
       sort: key,

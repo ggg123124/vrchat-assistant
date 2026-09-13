@@ -652,7 +652,7 @@ export const tools = [
   },
   {
     "name": "get_ops_log",
-    "description": "[query·运维] 查询服务运维日志（认证/WS/运维生命周期事件，保留最近 500 条）：返回 items[{ id, kind, level, message, createdAt }]。limit(1-1000 默认 200)、kind(可选 filter，'auth'|'ws'|'ops')。",
+    "description": "[query·运维] 查询服务运维日志（认证/WS/运维生命周期/外部调用事件，保留最近 500 条）：返回 items[{ id, kind, level, message, createdAt }]。limit(1-1000 默认 200)、kind(可选 filter，'auth'|'ws'|'ops'|'api'|'ext')。其中 'api'=VRChat REST 调用失败/超时，'ext'=外部服务（PlanetVRC/X/BOOTH/Google Calendar/IMAP-OTP）失败与降级兜底。",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -662,7 +662,7 @@ export const tools = [
         },
         "kind": {
           "type": "string",
-          "description": "类别过滤：auth|ws|ops（可选）"
+          "description": "类别过滤：auth|ws|ops|api|ext（可选）"
         }
       }
     },

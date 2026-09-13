@@ -109,6 +109,7 @@ export class WsManager {
       return;
     }
 
+    const connectStartedAt = Date.now();
     try {
       // 1. 确保认证有效（需要 OTP 时自动获取）
       try {
@@ -199,7 +200,7 @@ export class WsManager {
       }
 
     } catch (err) {
-      log.error(`连接失败: ${err.message}`);
+      log.error(`连接失败: ${err.message}（耗时 ${Date.now() - connectStartedAt}ms，已重试 ${this.attempt} 次）`);
       this._scheduleReconnect();
     }
   }

@@ -2,7 +2,7 @@
 
 > 本文档面向需要理解系统内部结构的 AI Agent。部署配置见 [AGENTS.md](./AGENTS.md)，开发约束见 [DEVELOPMENT.md](./DEVELOPMENT.md)，插件开发见 [docs/PLUGIN-DEV.md](./docs/PLUGIN-DEV.md)，插件契约见 [docs/PLUGIN-API.md](./docs/PLUGIN-API.md)。
 
-> **当前架构（PR-2 插件化重构后）**：功能以「核心域工具 + 插件域工具」分层存在，统一由注册表（`core/registry.js`）按 `core/tool-order.json` 的**顺序混合索引**输出。插件通过 `core/plugin-loader.js` 加载、按 `core/plugin-api.js` 的 6 面 API 与核心交互，**不触碰全局 `ctx`**。旧的三件套（`mcp-definitions.js` / `rpc-router.js` / `core/handlers/*`）已被替换——本文档以此现状为准。
+> **当前架构（PR-2 插件化重构后）**：功能以「核心域工具 + 插件域工具」分层存在，统一由注册表（`core/registry.js`）按 `core/tool-order.json` 的**顺序混合索引**输出。插件通过 `core/plugin-loader.js` 加载、按 `core/plugin-api.js` 的 8 面 API 与核心交互，**不触碰全局 `ctx`**。旧的三件套（`mcp-definitions.js` / `rpc-router.js` / `core/handlers/*`）已被替换——本文档以此现状为准。
 
 ## 数据流总览
 
@@ -70,7 +70,7 @@ PR-2 起，系统分为四层：**底座层 → 服务层 → 插件层 → 工�
 
 ### 3. 插件 API 层（core/plugin-api.js）
 
-`buildPluginApi(pluginName, deps)` 构造**插件唯一合法的交互面**，共 6 面（契约 v1.1）：
+`buildPluginApi(pluginName, deps)` 构造**插件唯一合法的交互面**，共 8 面（契约 v1.3）：
 
 - `api.registerTool(def)` — 注册 MCP 工具（工具对外暴露的唯一入口）；
 - `api.db` — 命名空间存储，显式表句柄，强制 `plg_<name>_` 前缀，插件间不可跨表；
@@ -108,7 +108,7 @@ PR-2 起，系统分为四层：**底座层 → 服务层 → 插件层 → 工�
 | `storage.js` | SQLite 封装层。所有数据库读写通过此模块。WAL 模式即时落盘。含迁移逻辑（ALTER TABLE ADD COLUMN 幂等）、同屏/见面分析、推荐评分查询。插件私有表由 `api.db` 写入，与核心表隔离 | `Storage` 类 |
 | `registry.js` | 工具注册表。按 `tool-order.json` 混合索引核心+插件工具，产出 `listTools` / `dispatch` / 安全模式过滤 | `listTools` / `dispatch` / `registerTool` / `registerPluginTool` / `removePluginTools` / `hasTool` |
 | `plugin-loader.js` | 插件加载器。扫描/校验/依赖拓扑排序/执行 schema/热加载/失败隔离 | `PluginLoader` 类 |
-| `plugin-api.js` | 插件 API 面。构造插件唯一合法的交互对象（6 面） | `buildPluginApi` |
+| `plugin-api.js` | 插件 API 面。构造插件唯一合法的交互对象（8 面） | `buildPluginApi` |
 | `safe-mode.js` | 安全模式子系统。`VRC_MONITOR_SAFE_MODE=true` 时从 `tools/list` 剔除并拦截 `tools/call` 破坏性工具（删除/移除/退出/清除类），防御误删 | `DESTRUCTIVE_TOOLS` / `isSafeModeEnabled` / `filterTools` / `assertToolAllowed` |
 | `tool-order.json` | 工具顺序清单 `tool_order`（所有工具名的有序数组，核心+插件统一） | — |
 | `ws-manager.js` | WebSocket 连接生命周期。指数退避重连（1s→60s）、心跳保活（30s ping）、认证冷却、直连优先+代理回退、TOTP/2FA 重连处理 | `WsManager` 类 |
@@ -157,7 +157,7 @@ start-monitor.js
   ├── core/safe-mode.js       (filterTools / assertToolAllowed / isSafeModeEnabled / DESTRUCTIVE_TOOLS)
   ├── core/http-server.js     (createServer, SSE 辅助；/health + /mcp 路由)
   ├── core/plugin-loader.js   (PluginLoader：扫描/校验/拓扑排序/热加载)
-  │     └── core/plugin-api.js(buildPluginApi → 6 面 API)
+  │     └── core/plugin-api.js(buildPluginApi → 8 面 API)
   │           └── plugins/official/*（booth/favorites/groups/media/planet/recommend/
   │                                   world-kb/x-creators，register(api)）
   ├── core/otp-fetcher.js + core/totp.js         （认证）

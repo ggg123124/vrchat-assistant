@@ -1,6 +1,6 @@
 # 插件开发指南（PLUGIN-DEV.md）
 
-> 本指南教你如何为一个 **vrchat-assistant** 写一个插件。权威契约见 [PLUGIN-API.md](./PLUGIN-API.md)（v1.1，唯一契约）；本指南是契约的**实践化落地**，示例全部取自仓库真实的官方插件（`plugins/official/`）。
+> 本指南教你如何为一个 **vrchat-assistant** 写一个插件。权威契约见 [PLUGIN-API.md](./PLUGIN-API.md)（当前 **v1.3**，唯一契约，API 面数量与版本以该文 §4 与 Changelog 为准）；本指南是契约的**实践化落地**，示例全部取自仓库真实的官方插件（`plugins/official/`）。
 > 目标读者：编写插件的 AI Agent。读完本指南 + 契约，即可写出一个合规插件，无需阅读核心源码。
 
 ---
@@ -70,9 +70,9 @@ export default function register(api) {
 
 ---
 
-## 4. 6 面 API 用法示例
+## 4. 8 面 API 用法示例
 
-契约 v1.1 共 6 个 API 表面。以下是每个的用法，示例摘自真实官方插件。
+契约 v1.3 共 8 个 API 表面。以下是每个的用法，示例摘自真实官方插件。
 
 ### 4.1 api.registerTool(def) — 注册一个 MCP 工具
 
@@ -169,6 +169,50 @@ const digest = await api.consume("query_digest", "wrld_xxx");
 - 服务名全局唯一：同名跨插件冲突以后注册者被拒并告警（与 registerTool 冲突策略一致）；插件只能 `consume` 已被 `provide` 的命名空间（依赖拓扑保证提供方先加载）；
 - 能力探测：`api.hasService(name)` 查询某服务是否已提供；
 - **职责划分**：共享「查询/逻辑」→ `provide/consume`；共享「能力但需要完整 MCP 语义或参数校验」→ `api.tools.call`。**对外暴露给客户端的工具，永远用 `registerTool`。**
+
+### 4.7 api.extLog — 外部服务调用留痕（failure / fallback / success）
+
+插件抓取**非 VRChat 官方**的外部站点时（PlanetVRC / BOOTH / Google Calendar / 任意第三方 API），必须逐分支留痕——**失败与降级不许静默**（新增外部调用点不留痕，评审按阻断项处理，见 `DEVELOPMENT.md` 的「外部调用留痕规范」）：
+
+```js
+// 官方 booth 插件（plugins/official/booth/index.js）真实写法
+const startedAt = Date.now();
+let html;
+try {
+  html = await fetchText(`${BASE}/ja/search/${encodeURIComponent(query)}`);
+} catch (e) {
+  // 失败 → WARN + ops_log(kind='ext')
+  api.extLog?.failure("BOOTH", "抓取搜索结果页", e, { durationMs: Date.now() - startedAt });
+  throw e;
+}
+api.extLog?.success?.("BOOTH", "抓取搜索结果页", { durationMs: Date.now() - startedAt });
+
+// 降级/兜底/缓存命中/跳过 → INFO + ops_log(kind='ext')
+if (cached) {
+  api.extLog?.fallback?.("BOOTH", `读取商品 ${id}`, "本地缓存命中，跳过远端抓取");
+  return { ...cached, cached: true };
+}
+```
+
+- 三态与分级固定：`failure` → `WARN`；`fallback`（缓存命中/降级/跳过/部分失败保留旧数据） → `INFO`；`success` → `debug`（>2000ms 慢调用自动升 `INFO`）。**一次触发恰好一行**。
+- 文案由核心拼装（`服务 操作 失败: 原因（耗时 Xms）`），你只给 `service` / `op` / `err` / `reason`；错误信息会被压成单行并截断。**禁止把凭据（IMAP 授权码 / cookie）写进 `op`/`reason`。**
+- 明细检索 `get_ops_log(kind='ext')`；聚合快照见 `GET /health` 的 `api.ext`。
+- 完整语义与旧核心兼容写法（`api.extLog?.failure?.(...)`）见 [PLUGIN-API.md §4.7](./PLUGIN-API.md)。
+
+### 4.8 api.health(obj) — 运行态上报（并入 /health）
+
+把插件自身的运行态（就绪 / 降级 / 缺失等）暴露给运维与 Agent 诊断，无需自建端点：
+
+```js
+// plugins/official/web-dashboard/index.js 真实写法
+api.health({ dashboardUi: { state: hasDist ? "built" : "missing" } });
+// → GET /health 的 extras.web-dashboard.dashboardUi
+```
+
+- 上报内容按**插件名**收纳在 `/health` 的 `extras` 段，**不参与核心字段命名空间**（无法覆盖 `auth`/`plugins`/`ws` 等）；
+- **卸载 / 热重载 / 加载或重载失败回滚**时 loader 自动清除该插件的 `extras` 键，无需在 `dispose()` 里手工清理；
+- 旧核心能力探测：`typeof api.health === 'function'` 后再调用，否则插件加载会因 `api.health is not a function` 失败。
+- 完整语义见 [PLUGIN-API.md §4.8](./PLUGIN-API.md)。
 
 ---
 

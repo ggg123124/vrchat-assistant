@@ -45,8 +45,8 @@ This project is **AI-first**: it is built for AI agents to use and extend. Human
 | [skills/](./skills/) | Ready-to-use Agent Skill collection (MCP tool list, query workflows, development guidelines, etc.; install via AGENTS.md) | Before querying / calling tools / developing |
 | [DEVELOPMENT.md](./DEVELOPMENT.md) | Development guidelines: cross-platform constraints, PR requirements, data privacy, code style | Modifying code / submitting PRs |
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | System architecture: data flow, module responsibilities, dependencies | Understanding the codebase |
-| [docs/PLUGIN-API.md](./docs/PLUGIN-API.md) | Plugin contract (v1.1): the sole contract between a plugin & core — 6 API facets, safety & naming constraints | Read before writing a plugin |
-| [docs/PLUGIN-DEV.md](./docs/PLUGIN-DEV.md) | Plugin development guide: directory structure, register(api), 6 API facets, core service consumption | Writing a plugin / extending features |
+| [docs/PLUGIN-API.md](./docs/PLUGIN-API.md) | Plugin contract (v1.3): the sole contract between a plugin & core — 8 API facets, safety & naming constraints | Read before writing a plugin |
+| [docs/PLUGIN-DEV.md](./docs/PLUGIN-DEV.md) | Plugin development guide: directory structure, register(api), 8 API facets, core service consumption | Writing a plugin / extending features |
 | [docs/history/](./docs/history/INDEX.md) | Project evolution history: milestone timeline, monthly releases/PRs and their significance | New agents should read first |
 | [service-windows/](./service-windows/README.md) | Windows auto-start + crash recovery + daily repair reports (one-click script) | Running persistently on Windows |
 | [service-linux/](./service-linux/README.md) | Linux systemd user service: auto-start + crash recovery + journal logs (one-click script) | Running persistently on Linux |

@@ -16,15 +16,23 @@
  * 注：死任务用“挂起 > taskTimeoutMs 才 resolve”模拟而非“永不 resolve”，
  *     避免未清理的 pending Promise 阻止 node:test 的 event-loop 判定导致整个批次被 cancel。
  */
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pathToFileURL } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.join(__dirname, '..');
+
+// 本文件的动态限流测试会触发 rate-limiter 的 WARN 留痕——先把 logger 指到临时目录，
+// 防止惰性初始化把测试日志写进仓库 logs/（与 api-observability 测试同约定）
+const { initLogger } = await import(pathToFileURL(path.join(REPO, 'core', 'logger.js')).href);
+const tmpLogDir = mkdtempSync(path.join(os.tmpdir(), 'vrc-rl-timeout-'));
+initLogger({ dir: tmpLogDir, level: 'warn' });
+after(() => { try { rmSync(tmpLogDir, { recursive: true, force: true }); } catch {} });
 
 test('rateLimiter taskTimeoutMs：超时任务被 reject，队列不锁死，后续任务照常执行', async () => {
   const { RateLimiter } = await import(pathToFileURL(path.join(REPO, 'core', 'rate-limiter.js')).href);
@@ -94,16 +102,18 @@ test('rateLimiter per-task 超时覆盖：显式更小预算会提前 reject', a
   assert.match(String(err.message), /超时/, `错误信息应含“超时”: ${err.message}`);
 });
 
-test('vrchat-api.js：全部 https.request 均配置 req.setTimeout 超时兜底', () => {
+test('vrchat-api.js：全部底层请求站点均配置 req.setTimeout 超时兜底', () => {
   const src = readFileSync(path.join(REPO, 'vrchat-api.js'), 'utf8');
-  const requestSites = [...src.matchAll(/https\.request\(/g)].length;
-  const setTimeoutSites = [...src.matchAll(/req\.setTimeout\(REQUEST_TIMEOUT_MS/g)].length;
+  // R1 起请求站点为协议分流的 lib.request(options, ...)（生产 https / 测试 http stub），
+  // 超时调用为 requestTimeoutMs()（VRC_MONITOR_API_TIMEOUT_MS 测试开关，默认 15000ms）
+  const requestSites = [...src.matchAll(/lib\.request\(options/g)].length;
+  const setTimeoutSites = [...src.matchAll(/req\.setTimeout\(requestTimeoutMs\(\)/g)].length;
 
-  assert.ok(requestSites >= 1, 'vrchat-api.js 应至少有一处 https.request');
+  assert.ok(requestSites >= 1, 'vrchat-api.js 应至少有一处底层请求站点');
   assert.equal(
     setTimeoutSites,
     requestSites,
-    `每一处 https.request 都需配 req.setTimeout(REQUEST_TIMEOUT_MS)：request=${requestSites}, setTimeout=${setTimeoutSites}`
+    `每一处 lib.request(options 都需配 req.setTimeout(requestTimeoutMs())：request=${requestSites}, setTimeout=${setTimeoutSites}`
   );
 });
 

@@ -14,6 +14,7 @@
 import { ctx, log } from './server-context.js';
 import { getThemeRegex } from './theme-config.js';
 import { handleSearchWorlds } from './tools/misc.js';
+import { logExtFailure, logExtSuccess } from './ext-log.js';
 
 // ── PlanetVRC 抓取（planet 插件迁走后，recommend_worlds 内部保留最小抓取能力）──
 const PLANET_BASE = 'https://planetvrchat.net';
@@ -29,13 +30,24 @@ const PLANET_ORDERBY = {
 async function _planetFetchHtml(url) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 15000);
+  const startedAt = Date.now();
+  const op = (() => {
+    try { return `抓取 ${new URL(url).pathname}`; } catch { return '抓取列表页'; }
+  })();
   try {
     const res = await fetch(url, {
       headers: { 'User-Agent': PLANET_UA, 'Accept-Language': 'ja,en;q=0.8' },
       signal: ctrl.signal,
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.text();
+    const text = await res.text();
+    // 成功 → debug（>2000ms 自动升 INFO）；失败 → WARN + ops_log(kind='ext')
+    logExtSuccess('PlanetVRC', op, { durationMs: Date.now() - startedAt });
+    return text;
+  } catch (e) {
+    const reason = e && e.name === 'AbortError' ? '抓取超时（15000ms 未响应）' : e;
+    logExtFailure('PlanetVRC', op, reason, { durationMs: Date.now() - startedAt });
+    throw e;
   } finally {
     clearTimeout(timer);
   }

@@ -8,6 +8,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { rmSync, readdirSync, readFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -224,8 +225,12 @@ test('脱敏：中文键「授权码」宽松值也替换', () => {
 test('默认目录：无任何 env 时落到仓库根/logs（非 cwd 父目录）', () => {
   const savedD = process.env.VRC_MONITOR_LOGGER_DIR;
   const savedM = process.env.VRC_MONITOR_DIR;
+  const savedCtx = process.env.NODE_TEST_CONTEXT;
   delete process.env.VRC_MONITOR_LOGGER_DIR;
   delete process.env.VRC_MONITOR_DIR;
+  // 本测试进程自带 NODE_TEST_CONTEXT=child-v8（node --test 子进程）——删除它模拟生产进程，
+  // 否则 resolveDir 会按「测试上下文兜底」落到系统临时目录（B1 防御，见下方用例）。
+  delete process.env.NODE_TEST_CONTEXT;
   try {
     const s = initLogger({});
     const expected = path.join(REPO, 'logs');
@@ -234,8 +239,55 @@ test('默认目录：无任何 env 时落到仓库根/logs（非 cwd 父目录�
     // 复位后用隔离目录重建，避免向 <仓库>/logs 写日志
     if (savedD !== undefined) process.env.VRC_MONITOR_LOGGER_DIR = savedD;
     if (savedM !== undefined) process.env.VRC_MONITOR_DIR = savedM;
+    if (savedCtx !== undefined) process.env.NODE_TEST_CONTEXT = savedCtx;
     initLogger({ dir: path.join(dir, 'reset') });
     rmSync(path.join(REPO, 'logs'), { recursive: true, force: true }); // 清掉断言时创建的目录
+  }
+});
+
+// ===== 交付 B1 回归：node --test 上下文未显式设 LOGGER_DIR 时，日志必须落到系统临时目录 =====
+test('B1：NODE_TEST_CONTEXT 下 initLogger({}) 落到系统临时目录（不写继承的 VRC_MONITOR_DIR/logs）', () => {
+  const savedD = process.env.VRC_MONITOR_LOGGER_DIR;
+  const savedM = process.env.VRC_MONITOR_DIR;
+  const savedCtx = process.env.NODE_TEST_CONTEXT;
+  const noticeLines = [];
+  const origInfo = console.info;
+  delete process.env.VRC_MONITOR_LOGGER_DIR;
+  // 模拟继承的生产 VRC_MONITOR_DIR（虚构路径，勿写真实环境路径）与 NODE_TEST_CONTEXT：
+  // 正是「测试子进程继承生产 env」的真实条件
+  process.env.VRC_MONITOR_DIR = 'D:\\somewhere\\production-checkout';
+  process.env.NODE_TEST_CONTEXT = 'child-v8';
+  console.info = (m) => { noticeLines.push(String(m)); };
+  try {
+    const s = initLogger({});
+    const expected = path.join(os.tmpdir(), 'vrc-monitor-test-logs');
+    assert.equal(s.dir, expected, `测试上下文应落到系统临时目录 ${expected}`);
+    assert.ok(!s.dir.includes('production-checkout'), '不得落到继承的 VRC_MONITOR_DIR/logs');
+    assert.ok(noticeLines.some((l) => l.includes('检测到 node --test 上下文')), '必须打一行非静默提示（禁静默降级）');
+    // 隔离目录真实可写（与生产日志目录物理隔离）
+    assert.ok(readdirSync(expected).length >= 0, '临时日志目录应可创建');
+  } finally {
+    console.info = origInfo;
+    if (savedD !== undefined) process.env.VRC_MONITOR_LOGGER_DIR = savedD;
+    if (savedM !== undefined) process.env.VRC_MONITOR_DIR = savedM;
+    if (savedCtx !== undefined) process.env.NODE_TEST_CONTEXT = savedCtx;
+    initLogger({ dir: path.join(dir, 'reset-b1') });
+  }
+});
+
+test('B1：显式 VRC_MONITOR_LOGGER_DIR 永远优先（压过 NODE_TEST_CONTEXT）', () => {
+  const savedD = process.env.VRC_MONITOR_LOGGER_DIR;
+  const savedCtx = process.env.NODE_TEST_CONTEXT;
+  const d = path.join(dir, 'b1-explicit');
+  process.env.VRC_MONITOR_LOGGER_DIR = d;
+  process.env.NODE_TEST_CONTEXT = 'child-v8';
+  try {
+    const s = initLogger({});
+    assert.equal(s.dir, path.resolve(d), '显式 LOGGER_DIR 必须压过测试上下文兜底');
+  } finally {
+    if (savedD !== undefined) process.env.VRC_MONITOR_LOGGER_DIR = savedD;
+    if (savedCtx !== undefined) process.env.NODE_TEST_CONTEXT = savedCtx;
+    initLogger({ dir: path.join(dir, 'reset-b1b') });
   }
 });
 
