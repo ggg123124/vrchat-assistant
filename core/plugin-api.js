@@ -68,9 +68,6 @@ export function buildPluginApi(pluginName, { registry, ctx, services, serviceOwn
       if (!ctx.healthExtras) ctx.healthExtras = {};
       ctx.healthExtras[pluginName] = { ...(ctx.healthExtras[pluginName] || {}), ...obj };
     },
-    removeHealth() {
-      if (ctx.healthExtras) delete ctx.healthExtras[pluginName];
-    },
 
     // HTTP 路由注册：插件可挂载自定义路由（/mcp、/health 之外的路径）。
     // 核心 http-server 统一分发，路由随插件卸载自动清理。

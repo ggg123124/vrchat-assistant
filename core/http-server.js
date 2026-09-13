@@ -10,6 +10,33 @@ import { ctx, log } from './server-context.js';
 import { getLogger } from './logger.js';
 import * as registry from './registry.js';
 
+/**
+ * 组装 /health 响应体（review #187 💡E：独立导出以便单测——不依赖请求上下文，仅用传入的运行时对象）。
+ * 关键约束：插件上报只能落 `extras` 段（键空间按插件名隔离），不得参与核心字段命名空间，
+ * 否则插件可覆盖 auth/plugins 等字段（issue #59 的认证语义保护）。
+ */
+export function buildHealthStatus({ ctx: c, storage, rateLimiter, wsManager, friendState, eventPipeline, serverState }) {
+  const uptime = serverState.started ? Math.floor((Date.now() - serverState.started) / 1000) : 0;
+  return {
+    ok: true,
+    // needsTotp 状态下账号并未真正登录（运行期 401 需 TOTP），即使 authUser 仍保留上次缓存，
+    // 也必须报 authenticated:false 并暴露 needsTotp，避免 /health 误报已认证（issue #59）
+    auth: serverState.authUser && !serverState.needsTotp
+      ? { authenticated: true, user: serverState.authUser }
+      : { authenticated: false, needsOtp: serverState.needsOtp, needsTotp: serverState.needsTotp },
+    totpAutoEnabled: !!(c.api?.totpFetcher),
+    db: storage.getStats(),
+    rateLimiter: rateLimiter.getStats(),
+    ws: wsManager?.getState(),
+    friendState: friendState?.getStats(),
+    eventPipeline: eventPipeline?.getStats(),
+    plugins: c.pluginLoader?.getStatus() || [],
+    // 插件侧运行态扩展（issue #186）：按插件名隔离，位于 extras 段内，不参与核心字段命名空间
+    extras: c.healthExtras || {},
+    uptime,
+  };
+}
+
 // 命名日志：MCP 协议层（JSON-RPC 往返），请求日志默认降为 debug 级避免 ping/keepalive 刷屏
 const logMCP = getLogger('mcp');
 const logApp = getLogger('app');
@@ -128,25 +155,7 @@ async function handleRequest(req, res) {
 
   // Health check
   if (req.method === 'GET' && pathname === '/health') {
-    const uptime = serverState.started ? Math.floor((Date.now() - serverState.started) / 1000) : 0;
-    const status = {
-      ok: true,
-      // needsTotp 状态下账号并未真正登录（运行期 401 需 TOTP），即使 authUser 仍保留上次缓存，
-      // 也必须报 authenticated:false 并暴露 needsTotp，避免 /health 误报已认证（issue #59）
-      auth: serverState.authUser && !serverState.needsTotp
-        ? { authenticated: true, user: serverState.authUser }
-        : { authenticated: false, needsOtp: serverState.needsOtp, needsTotp: serverState.needsTotp },
-      totpAutoEnabled: !!(ctx.api?.totpFetcher),
-      db: storage.getStats(),
-      rateLimiter: rateLimiter.getStats(),
-      ws: wsManager?.getState(),
-      friendState: friendState?.getStats(),
-      eventPipeline: eventPipeline?.getStats(),
-      plugins: ctx.pluginLoader?.getStatus() || [],
-      // 插件侧运行态扩展（issue #186）：按插件名隔离，位于 extras 段内，不参与核心字段命名空间
-      extras: ctx.healthExtras || {},
-      uptime,
-    };
+    const status = buildHealthStatus({ ctx, storage, rateLimiter, wsManager, friendState, eventPipeline, serverState });
     const body = JSON.stringify(status, null, 2);
     res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) });
     res.end(body);

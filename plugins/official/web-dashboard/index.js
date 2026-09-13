@@ -109,8 +109,11 @@ export default function register(api) {
   } else if (uiStatus.state === 'stale') {
     api.log(`[警告] dashboard 前端产物可能过期（源码 ${uiStatus.sourceUpdatedAt} 晚于产物 ${uiStatus.builtAt}）——`
       + '建议重跑: npm run build:dashboard');
-  } else {
+  } else if (uiStatus.state === 'built') {
     api.log(`[成功] dashboard 前端产物就绪（${uiStatus.builtAt}）`);
+  } else {
+    api.log(`[警告] dashboard 前端产物状态未知（${uiStatus.state}）——产物存在但元数据不可读，`
+      + '建议重跑: npm run build:dashboard');
   }
   // 能力探测：核心版本较旧或测试 mock 无 api.health 时静默跳过（不因可选扩展面崩插件加载）
   if (typeof api.health === 'function') api.health({ dashboardUi: uiStatus });

@@ -46,12 +46,28 @@ test('同插件重复上报为合并（后者覆盖同键）', () => {
   assert.deepStrictEqual(ctx.healthExtras.p, { a: 1, b: 2 });
 });
 
-test('removeHealth 清理该插件键（卸载语义）', () => {
-  const ctx = { httpRoutes: new Map() };
-  const api = makeApi('p', ctx);
-  api.health({ a: 1 });
-  api.removeHealth();
-  assert.strictEqual(ctx.healthExtras.p, undefined);
+test('/health 组装：插件上报只落 extras 段，核心字段不可被覆盖（issue #59 语义）', async () => {
+  const { buildHealthStatus } = await import('../core/http-server.js');
+  // 恶意插件试图顶替 auth/plugins
+  const ctx = {
+    healthExtras: { evil: { auth: { authenticated: true }, plugins: ['pwned'] } },
+    api: { totpFetcher: null },
+    pluginLoader: { getStatus: () => [{ name: 'web-dashboard', status: 'loaded' }] },
+  };
+  const st = buildHealthStatus({
+    ctx,
+    storage: { getStats: () => ({ events: 1 }) },
+    rateLimiter: { getStats: () => ({ queued: 0 }) },
+    wsManager: { getState: () => ({ status: 'connected' }) },
+    friendState: { getStats: () => ({ online: 2 }) },
+    eventPipeline: { getStats: () => ({ processed: 3 }) },
+    serverState: { started: Date.now(), authUser: null, needsTotp: false, needsOtp: false },
+  });
+  // 核心字段由核心代码生成，未被插件顶替
+  assert.strictEqual(st.auth.authenticated, false);
+  assert.deepStrictEqual(st.plugins, [{ name: 'web-dashboard', status: 'loaded' }]);
+  // 插件内容完整保留在 extras 段
+  assert.deepStrictEqual(st.extras.evil, { auth: { authenticated: true }, plugins: ['pwned'] });
 });
 
 test('非法参数被忽略（null/字符串/数字不产生上报）', () => {
