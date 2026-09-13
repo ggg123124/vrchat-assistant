@@ -11,7 +11,8 @@
   "scripts": {
     "start": "node start-monitor.js",
     "test": "node --test \"test/**/*.test.mjs\"",
-    "install-plugins": "node scripts/install-plugin-deps.mjs"
+    "install-plugins": "node scripts/install-plugin-deps.mjs",
+    "build:dashboard": "npm ci --prefix plugins/official/web-dashboard/ui && npm run build --prefix plugins/official/web-dashboard/ui"
   },
   "dependencies": {
     "better-sqlite3": "^12.2.0",

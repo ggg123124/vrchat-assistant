@@ -143,6 +143,8 @@ async function handleRequest(req, res) {
       friendState: friendState?.getStats(),
       eventPipeline: eventPipeline?.getStats(),
       plugins: ctx.pluginLoader?.getStatus() || [],
+      // 插件侧运行态扩展（如 web-dashboard 前端产物状态 dashboardUi）——通用扩展点：ctx.healthExtras
+      ...(ctx.healthExtras || {}),
       uptime,
     };
     const body = JSON.stringify(status, null, 2);

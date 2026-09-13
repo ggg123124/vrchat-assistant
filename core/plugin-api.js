@@ -59,6 +59,13 @@ export function buildPluginApi(pluginName, { registry, ctx, services, serviceOwn
 
     log: apiLog,
 
+    // 运行态上报扩展点（issue #186）：插件把需要运维可见的状态并入 /health。
+    // 用法：api.health({ dashboardUi: { state: 'built' } })；同名键后者覆盖前者。
+    health(obj) {
+      if (!obj || typeof obj !== 'object') return;
+      ctx.healthExtras = { ...(ctx.healthExtras || {}), ...obj };
+    },
+
     // HTTP 路由注册：插件可挂载自定义路由（/mcp、/health 之外的路径）。
     // 核心 http-server 统一分发，路由随插件卸载自动清理。
     http: {

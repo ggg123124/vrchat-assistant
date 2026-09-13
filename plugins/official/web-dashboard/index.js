@@ -1,4 +1,4 @@
-import { readFileSync, existsSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseLimit, readJsonBody, sendHtml, sendJson } from './server/http.js';
@@ -42,8 +42,39 @@ const indexHtml = readFileSync(path.join(__dirname, 'dashboard.html'), 'utf8')
   .replaceAll('__DASHBOARD_APP_JS__', readFileSync(path.join(__dirname, 'client', 'js', 'vue', 'app.js'), 'utf8'));
 
 // 新 UI（Vite + PrimeVue 单文件构建）：存在则优先服务；?legacy=1 回退旧版
+// 产物出库（issue #186 方案 A）：dist 不入库，由安装期 `npm run install-plugins`（或
+// `npm run build:dashboard`）生成——此处做三态自检并暴露到 /health，杜绝静默降级。
 const uiDistIndex = path.join(__dirname, 'ui', 'dist', 'index.html');
+const uiSrcDir = path.join(__dirname, 'ui', 'src');
 const uiHtml = existsSync(uiDistIndex) ? readFileSync(uiDistIndex, 'utf8') : null;
+
+function newestMtimeMs(dir) {
+  let newest = 0;
+  try {
+    const walk = (d) => {
+      for (const e of readdirSync(d, { withFileTypes: true })) {
+        const p = path.join(d, e.name);
+        if (e.isDirectory()) walk(p);
+        else newest = Math.max(newest, statSync(p).mtimeMs);
+      }
+    };
+    walk(dir);
+  } catch { /* 源码目录缺失时按 0 处理 */ }
+  return newest;
+}
+const uiStatus = (() => {
+  if (!uiHtml) return { state: 'missing', builtAt: '', sourceUpdatedAt: '' };
+  try {
+    const builtAt = statSync(uiDistIndex).mtimeMs;
+    const src = newestMtimeMs(uiSrcDir);
+    return {
+      state: src > builtAt ? 'stale' : 'built',
+      builtAt: new Date(builtAt).toISOString(),
+      sourceUpdatedAt: src ? new Date(src).toISOString() : '',
+    };
+  } catch { return { state: 'built', builtAt: '', sourceUpdatedAt: '' }; }
+})();
+// 三态自检 + 上报 /health 在 register(api) 内执行（api.log / api.health 可用，见下）
 
 // 群组信息缓存：VRChat API 限流 + 路由器网络延迟高（单请求 ~8-20s）。
 // info（名称/描述/公告）少变 → 30min；实例（当前开的房）动态 → 2min。
@@ -71,6 +102,19 @@ const EVT_TTL = 30 * 60_000;
 const evtInflight = new Map();   // window -> in-flight Promise（去重）
 
 export default function register(api) {
+  // 前端产物三态自检（issue #186 方案 A：dist 出库，安装期构建）+ 上报 /health
+  if (uiStatus.state === 'missing') {
+    api.log('[警告] dashboard 前端产物缺失（ui/dist/index.html）——/dashboard 将回退旧版 UI；'
+      + '修复: npm run build:dashboard（或 npm run install-plugins）');
+  } else if (uiStatus.state === 'stale') {
+    api.log(`[警告] dashboard 前端产物可能过期（源码 ${uiStatus.sourceUpdatedAt} 晚于产物 ${uiStatus.builtAt}）——`
+      + '建议重跑: npm run build:dashboard');
+  } else {
+    api.log(`[成功] dashboard 前端产物就绪（${uiStatus.builtAt}）`);
+  }
+  // 能力探测：核心版本较旧或测试 mock 无 api.health 时静默跳过（不因可选扩展面崩插件加载）
+  if (typeof api.health === 'function') api.health({ dashboardUi: uiStatus });
+
   const dashboardState = createDashboardState();
   const { homeFavorites: homeFavCache } = dashboardState;
   const HOME_FAV_TTL = CACHE_TTLS.homeFavorites;

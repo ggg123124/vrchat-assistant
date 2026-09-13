@@ -10,3 +10,6 @@ backups
 *.sqlite3*
 service-logs
 .system_generated
+# 前端产物以 builder 阶段为准（issue #186）
+plugins/official/web-dashboard/ui/dist
+plugins/official/web-dashboard/ui/node_modules
