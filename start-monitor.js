@@ -905,11 +905,13 @@ main().catch(err => {
 // ── 优雅关闭 ──
 async function shutdown(signal) {
   recordOpsLog('ops', 'info', `服务进程停止（${signal}——容器重建/手动停止）`);
-  const { wsManager, eventPipeline, storage } = ctx;
+  const { wsManager, eventPipeline, storage, rateLimiter } = ctx;
   log(`\n[警告] 收到 ${signal}，正在关闭...`);
   try {
     if (wsManager) wsManager.stop();
     if (eventPipeline) eventPipeline.flush();
+    // review #193 🟡：退出前把未满窗口的慢等待聚合桶 flush 出来，否则「禁静默降级」只对运行期成立
+    if (rateLimiter && typeof rateLimiter.flushSlowWaitAgg === 'function') rateLimiter.flushSlowWaitAgg();
     if (storage) storage.save();
     log('[成功] 已保存数据');
   } catch (e) {
@@ -921,6 +923,7 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('beforeExit', () => {
   if (ctx.eventPipeline) ctx.eventPipeline.flush();
+  if (ctx.rateLimiter && typeof ctx.rateLimiter.flushSlowWaitAgg === 'function') ctx.rateLimiter.flushSlowWaitAgg();
   if (ctx.storage) ctx.storage.save();
 });
 

@@ -2,11 +2,12 @@
  * test/rate-limiter-logging.test.mjs — R2 限流器可观测性回归测试
  *
  * 覆盖：
- *   - 等待 >1000ms → INFO 一行「限流等待」+ slowWaits 计数（minInterval=1100）
+ *   - 等待 >1000ms → **去抖聚合后 INFO 一行**「限流等待聚合（近 Ns 无新等待）：N 次…」+ slowWaits 逐次计数（issue #192/#193）
  *   - 等待 ≤1000ms → 不记日志仅计数（slowWaits=0，totalWaitedMs 照常累计）
  *   - 队列满 → WARN + ops_log('ops','warn') + queueFull 计数 + maxQueueLen 峰值
  *   - 任务超时 → WARN + ops_log + taskTimeouts 计数，后续任务照常执行
  *   - getStats：既有字段不变 + 新增 queueFull/taskTimeouts/slowWaits/maxQueueLen
+ *   - 突发聚合（N 次 → 1 行、计数准确）与持续饱和兜底（周期性输出、计数守恒）
  *
  * 自包含：纯本地逻辑，无 VRChat 凭据/网络依赖。
  */
@@ -85,15 +86,19 @@ test('串行批刷新突发：N 次慢等待 → 1 行聚合，计数/累计/峰
   assert.equal(rl.getStats().slowWaits, 4, 'slowWaits 仍逐次计数（/health 语义不变）');
 });
 
-test('持续饱和兜底：等待不断出现时也会在最大跨度处输出（禁静默降级）', async () => {
-  const rl = new RateLimiter({ minInterval: 1040, maxQueueSize: 10, taskTimeoutMs: 5000, slowWaitIdleMs: 5000, slowWaitMaxSpanMs: 10 });
+test('持续饱和兜底：等待不断出现时按最大跨度周期性输出，且计数守恒（禁静默降级）', async () => {
+  const rl = new RateLimiter({ minInterval: 1040, maxQueueSize: 10, taskTimeoutMs: 5000, slowWaitIdleMs: 1050, slowWaitMaxSpanMs: 1050 });
   const cap = captureConsole();
-  await rl.execute(async () => 1);   // 首次不等待
-  await rl.execute(async () => 2);   // 第 1 次慢等待：建桶
-  await rl.execute(async () => 3);   // 第 2 次慢等待：距首次已 > maxSpan(10ms) → 立即 flush
+  await rl.execute(async () => 1);            // 首次不等待
+  for (let i = 0; i < 5; i++) await rl.execute(async () => i);  // 5 次慢等待（每次 ~1040ms，跨度到顶即 flush）
+  await new Promise((r) => setTimeout(r, 1200));                // 等最后一次的空闲窗口收尾
   cap.restore();
-  const agg = cap.lines.info.find((l) => l.includes('限流等待聚合')) || '';
-  assert.match(agg, /持续饱和 ≥\d+s/, `应输出「持续饱和」形态并定期上报: ${agg}`);
+
+  const aggs = cap.lines.info.filter((l) => l.includes('限流等待聚合'));
+  const sum = aggs.reduce((n, l) => n + Number((l.match(/：(\d+) 次/) || [])[1] || 0), 0);
+  assert.ok(aggs.length >= 2, `持续饱和应周期性输出多行: ${aggs.length}`);
+  assert.ok(aggs.some((l) => /持续饱和 ≥\d+s/.test(l)), '至少一行应为「持续饱和」形态');
+  assert.equal(sum, rl.getStats().slowWaits, '聚合行计数之和必须等于 slowWaits（无丢报/无重复）');
 });
 
 test('等待 ≤1000ms：不记日志仅计数（minInterval=40）', async () => {

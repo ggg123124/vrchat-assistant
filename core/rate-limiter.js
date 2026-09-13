@@ -35,8 +35,12 @@ export class RateLimiter {
     this._queueFull = 0;       // 队列满被拒次数
     this._taskTimeouts = 0;    // 任务级超时次数
     this._slowWaits = 0;       // 等待 >1000ms 的次数（语义不变：每次慢等待都自增）
-    this.slowWaitIdleMs = options.slowWaitIdleMs ?? SLOW_WAIT_IDLE_MS;   // 聚合空闲窗口（测试可调小）
-    this.slowWaitMaxSpanMs = options.slowWaitMaxSpanMs ?? SLOW_WAIT_MAX_SPAN_MS; // 聚合最大跨度（持续饱和兜底）
+    // 聚合旋钮（构造参数；生产走默认值，测试可调小）。约束 idle ≤ maxSpan：
+    // 若 maxSpan 反而更小，单次等待也会在 maxSpan 处被 flush 并标注「持续饱和」，文案失真 → 取两者较大值兜底。
+    const idle = Number(options.slowWaitIdleMs) > 0 ? Number(options.slowWaitIdleMs) : SLOW_WAIT_IDLE_MS;
+    const span = Number(options.slowWaitMaxSpanMs) > 0 ? Number(options.slowWaitMaxSpanMs) : SLOW_WAIT_MAX_SPAN_MS;
+    this.slowWaitIdleMs = idle;
+    this.slowWaitMaxSpanMs = Math.max(span, idle);
     this._slowAgg = null;      // 当前聚合桶
     this._slowAggTimer = null; // 去抖定时器（unref，不阻塞进程退出）
     this._maxQueueLen = 0;     // 队列长度峰值
