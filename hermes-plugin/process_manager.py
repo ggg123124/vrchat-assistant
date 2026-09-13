@@ -11,6 +11,7 @@ descriptors open, so the parent agent loop can't block on it.
 
 from __future__ import annotations
 
+import gzip
 import json
 import os
 import shutil
@@ -32,6 +33,14 @@ from hermes_constants import get_hermes_home
 
 MONITOR_SCRIPT = "start-monitor.js"
 HEALTH_URL = "http://127.0.0.1:8799/health"
+
+# stdout capture file (monitor.log) grows unbounded without rotation (3.7MB
+# observed in the wild). Threshold/keep align with core/logger.js defaults
+# (maxSize 10MB / maxFiles 5); archive naming matches logger.js doRotate():
+# monitor-<UTC YYYYMMDD-HHMMSS>-<pid>.log.gz. Threshold overridable via env
+# VRC_MONITOR_LOG_MAX_SIZE (bytes).
+MAX_LOG_SIZE = 10 * 1024 * 1024
+MAX_ARCHIVES = 5
 
 
 def _config_path() -> Path:
@@ -79,6 +88,133 @@ def _state_file() -> Path:
 
 def _log_file() -> Path:
     return _root() / "monitor.log"
+
+
+# ── log rotation ───────────────────────────────────────────────────────
+
+
+def _max_log_size_from_env() -> int:
+    raw = os.environ.get("VRC_MONITOR_LOG_MAX_SIZE")
+    if raw:
+        try:
+            value = int(raw)
+            if value > 0:
+                return value
+        except ValueError:
+            pass
+    return MAX_LOG_SIZE
+
+
+def _prune_archives(directory: Path, keep: int) -> list:
+    """Delete oldest monitor-*.log.gz beyond *keep* (mtime order)."""
+    archives = sorted(
+        directory.glob("monitor-*.log.gz"),
+        key=lambda f: f.stat().st_mtime,
+    )
+    removed = []
+    while len(archives) > keep:
+        oldest = archives.pop(0)
+        oldest.unlink()
+        removed.append(oldest.name)
+    return removed
+
+
+def rotate_log_if_needed(path, max_size=None, keep=None) -> Dict[str, Any]:
+    """Rotate *path* once if it reached the size threshold. Pure function.
+
+    Rotation is checked at process start only (low-frequency event, no
+    runtime watcher). Never raises — failures are reported via the return
+    dict so the caller can degrade to plain append:
+
+      {"ok": True,  "rotated": False, "reason": "missing"|"below_threshold",
+       "size": int, "threshold": int}
+      {"ok": True,  "rotated": True,  "archive": "<name>.gz", "size": int,
+       "kept": int, "removed": [<names>]}
+      {"ok": False, "rotated": False, "error": "<reason>"}
+
+    After a successful rotation the active file is recreated empty, ready
+    for the caller's append-mode open.
+    """
+    p = Path(path)
+    limit = max_size if max_size is not None else _max_log_size_from_env()
+    keep_n = keep if keep is not None else MAX_ARCHIVES
+    try:
+        if not p.is_file():
+            return {
+                "ok": True,
+                "rotated": False,
+                "reason": "missing",
+                "size": 0,
+                "threshold": limit,
+            }
+        size = p.stat().st_size
+        if size < limit:
+            return {
+                "ok": True,
+                "rotated": False,
+                "reason": "below_threshold",
+                "size": size,
+                "threshold": limit,
+            }
+        # UTC YYYYMMDD-HHMMSS + pid, same naming as core/logger.js doRotate()
+        ts = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
+        rotated = p.with_name(f"monitor-{ts}-{os.getpid()}.log")
+        p.rename(rotated)
+        gz_path = Path(str(rotated) + ".gz")
+        with open(rotated, "rb") as f_in, gzip.open(gz_path, "wb") as f_out:
+            shutil.copyfileobj(f_in, f_out)
+        rotated.unlink()
+        try:
+            removed = _prune_archives(p.parent, keep_n)
+        except Exception:
+            # 归档清理失败（占用/权限）不影响本次轮转结果，与 core/logger.js
+            # cleanupOldLogs() 同策略：清理是尽力而为，不降级、不阻断、不误报轮转失败。
+            removed = []
+        p.touch()  # recreate the active file so append-mode open can proceed
+        return {
+            "ok": True,
+            "rotated": True,
+            "archive": gz_path.name,
+            "size": size,
+            "kept": keep_n,
+            "removed": removed,
+        }
+    except Exception as e:
+        return {"ok": False, "rotated": False, "error": str(e)}
+
+
+def _rotate_log_with_notice(log_path: Path) -> None:
+    """Pre-open rotation check with one log line per branch.
+
+    The line goes into the (new) active monitor.log. Any exception —
+    including failure to write the notice itself — is swallowed: rotation
+    problems must never block startup, degrade to plain append.
+    """
+    try:
+        result = rotate_log_if_needed(log_path)
+        if result.get("ok") is False:
+            line = f"[plugin] 日志轮转失败（不阻断启动，继续追加）：{result.get('error')}"
+        elif result.get("rotated"):
+            size_mb = result.get("size", 0) / (1024 * 1024)
+            line = (
+                f"[plugin] 日志轮转: monitor.log ({size_mb:.1f}MB) → "
+                f"{result.get('archive')}（保留 {result.get('kept')} 个归档）"
+            )
+        else:
+            size_mb = result.get("size", 0) / (1024 * 1024)
+            limit_mb = result.get("threshold", MAX_LOG_SIZE) / (1024 * 1024)
+            line = f"[plugin] 日志轮转跳过（未达阈值 {limit_mb:.1f}MB，当前 {size_mb:.1f}MB）"
+    except Exception as e:
+        line = f"[plugin] 日志轮转失败（不阻断启动，继续追加）：{e}"
+    try:
+        with open(str(log_path), "ab", buffering=0) as fh:
+            fh.write(
+                f"[{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}] {line}\n".encode(
+                    "utf-8"
+                )
+            )
+    except Exception:
+        pass
 
 
 # ── helpers ────────────────────────────────────────────────────────────
@@ -388,6 +524,9 @@ def start() -> Dict[str, Any]:
         }
 
     log_path = _log_file()
+    # Rotation check BEFORE opening the log — process start is low-frequency,
+    # so a one-shot check suffices (no runtime watcher). Never blocks startup.
+    _rotate_log_with_notice(log_path)
     try:
         log_fh = open(str(log_path), "ab", buffering=0)
     except Exception as e:
