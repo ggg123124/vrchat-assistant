@@ -62,12 +62,17 @@ export function useFriendGroups() {
       if (!m.has(k)) m.set(k, []);
       m.get(k).push(f);
     }
-    const gs = [...m.entries()].map(([wid, l]) => ({
-      label: (l[0].worldName && l[0].worldName !== wid) ? l[0].worldName : '未公开位置',
-      list: l,
-      worldId: wid,
-      loc: (l[0].worldName && l[0].worldName !== wid) ? locLabelFull(l[0].location) : '',
-    }));
+    const gs = [...m.entries()].map(([wid, l]) => {
+      const named = l[0].worldName && l[0].worldName !== wid;
+      // 无名世界：用地点语义区分（private=私密实例 / local / none=未公开位置），避免多个同名分组
+      const fallback = wid === 'private' ? '私密实例' : '未公开位置';
+      return {
+        label: named ? l[0].worldName : fallback,
+        list: l,
+        worldId: wid,
+        loc: named ? locLabelFull(l[0].location) : '',
+      };
+    });
     if (web.length) gs.push({ label: '网页端在线', list: web });
     return gs;
   }

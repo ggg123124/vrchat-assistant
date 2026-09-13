@@ -131,7 +131,7 @@ function offlineSince(f) {
       </div>
 
       <!-- 世界分组 -->
-      <div v-for="g in grouped.groups" :key="g.label" class="fg">
+      <div v-for="(g, gi) in grouped.groups" :key="(g.worldId || g.label) + '#' + gi" class="fg">
         <div class="fg-head" role="button" tabindex="0" title="点击折叠/展开" @click="toggleGroup('w:' + (g.worldId || g.label))" @keydown.enter="toggleGroup('w:' + (g.worldId || g.label))">
           <img v-if="groupIcon(g)" :src="groupIcon(g)" class="fg-thumb" alt="" loading="lazy" />
           <span>{{ g.label }}</span>
