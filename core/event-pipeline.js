@@ -265,7 +265,12 @@ export class EventPipeline {
 
           switch (c.type) {
             case 'avatar': {
-              log.info(`${displayName} 头像变更`);
+              // 头像变更是热路径（实测单好友 5 分钟窗口最多 26 条 ≈ 12 秒一条、2 天 683 条，
+              // 占日志 34.5%），逐条 INFO 信噪比过低；且 DB 事件流已完整记录
+              // （get_friend_profile_changes / 看板「Avatar/头像变更」页可查全量含新旧图 URL），
+              // 日志层无需逐条回显。需要排查时用 VRC_MONITOR_LOGGER_LEVEL=debug 打开。
+              // 先例：core/http-server.js:13「MCP 协议层请求日志默认降为 debug 级避免 ping/keepalive 刷屏」。
+              log.debug(`${displayName} 头像变更`);
               break;
             }
             case 'bio': {
