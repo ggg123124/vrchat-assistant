@@ -114,7 +114,10 @@ export class EventPipeline {
 
     // 存储事件（带解析到的世界名）
     this._storeEvent(event, worldName);
-    log.info(`${displayName} 上线「${worldName || worldId || location || '未知'}」`);
+    // 上线是热路径（生产实测「上线+下线」合计占日志 22.3%），逐条 INFO 信噪比过低：
+    // DB 事件流 / SSE / 看板不受影响（events 表照常落库），日志层无需逐条回显。
+    // 排查时用 VRC_MONITOR_LOGGER_LEVEL=debug 恢复。先例：头像变更（34.5%，已降 debug）。
+    log.debug(`${displayName} 上线「${worldName || worldId || location || '未知'}」`);
   }
 
   async _handleOffline(event) {
@@ -129,7 +132,9 @@ export class EventPipeline {
     });
 
     this._storeEvent(event);
-    log.info(`${event.displayName || userId} 下线`);
+    // 下线同属热路径（「上线+下线」合计 22.3%），降 debug 理由同 _handleOnline：
+    // 事件照旧落库，VRC_MONITOR_LOGGER_LEVEL=debug 可恢复。
+    log.debug(`${event.displayName || userId} 下线`);
   }
 
   async _handleLocation(event) {
@@ -161,7 +166,11 @@ export class EventPipeline {
     this._storeEvent(event, worldName);
 
     if (worldId && worldId !== 'private' && worldId !== prevWorldId) {
-      log.info(`${displayName} 换世界 → ${worldName || worldId}`);
+      // 换世界是剩余热路径里最大头（生产实测占日志 26.0%），同样降 debug：
+      // DB 事件流 / SSE / 看板不受影响（events 表照常落库含世界名），
+      // 排查用 VRC_MONITOR_LOGGER_LEVEL=debug 恢复。
+      // 至此 INFO 日志累计压掉：换世界 26.0% + 上线/下线 22.3% + 头像变更 34.5%。
+      log.debug(`${displayName} 换世界 → ${worldName || worldId}`);
     } else {
       log.debug(`${displayName} 位置更新: ${truncateCodePoints(worldName || worldId || location, 60)}`);
     }
