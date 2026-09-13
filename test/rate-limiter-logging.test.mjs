@@ -52,17 +52,48 @@ function captureConsole() {
   };
 }
 
-test('等待 >1000ms：INFO 一行留痕 + slowWaits 计数（minInterval=1100）', async () => {
-  const rl = new RateLimiter({ minInterval: 1100, maxQueueSize: 10, taskTimeoutMs: 5000 });
+test('等待 >1000ms：聚合 INFO 一行 + slowWaits 计数（minInterval=1100，issue #192）', async () => {
+  // 空闲窗口设很大 → 靠 flushSlowWaitAgg() 显式触发，断言确定（不依赖真实 30s 窗口）
+  const rl = new RateLimiter({ minInterval: 1100, maxQueueSize: 10, taskTimeoutMs: 5000, slowWaitIdleMs: 60000 });
   const cap = captureConsole();
   await rl.execute(async () => 'a');
-  await rl.execute(async () => 'b');
+  await rl.execute(async () => 'b');   // 该次等待 ~1100ms > 1000ms → 计入聚合并启动去抖窗口
+  assert.equal(cap.lines.info.filter((l) => l.includes('限流等待')).length, 0, '窗口内不应立即输出（去抖）');
+  rl.flushSlowWaitAgg();
   cap.restore();
 
   const s = rl.getStats();
-  assert.equal(s.slowWaits, 1, '第二次调用等待 ~1100ms 应计 1 次慢等待');
-  assert.match(cap.lines.info.join('\n'), /限流等待 1\d{3}ms（队列 \d+ 个任务）/);
+  assert.equal(s.slowWaits, 1, 'slowWaits 语义不变：第二次调用等待 ~1100ms 计 1 次');
+  const agg = cap.lines.info.find((l) => l.includes('限流等待聚合')) || '';
+  assert.match(agg, /限流等待聚合（近 \d+s 无新等待）：1 次，累计 1\d{3}ms，单次最长 1\d{3}ms，队列峰值 \d+/);
   assert.equal(cap.lines.warn.length, 0);
+});
+
+test('串行批刷新突发：N 次慢等待 → 1 行聚合，计数/累计/峰值准确（issue #192 主场景）', async () => {
+  const rl = new RateLimiter({ minInterval: 1050, maxQueueSize: 10, taskTimeoutMs: 5000, slowWaitIdleMs: 60000 });
+  const cap = captureConsole();
+  await rl.execute(async () => 1);            // 首次不等待
+  for (let i = 0; i < 4; i++) await rl.execute(async () => i);  // 4 次慢等待（模拟逐好友串行批刷新）
+  const beforeFlush = cap.lines.info.filter((l) => l.includes('限流等待')).length;
+  rl.flushSlowWaitAgg();
+  cap.restore();
+
+  const aggLines = cap.lines.info.filter((l) => l.includes('限流等待聚合'));
+  assert.equal(beforeFlush, 0, '窗口内不应逐条输出');
+  assert.equal(aggLines.length, 1, '4 次慢等待应聚合为 1 行（原实现为 4 行）');
+  assert.match(aggLines[0], /：4 次，累计 \d+ms，单次最长 \d+ms，队列峰值 \d+/);
+  assert.equal(rl.getStats().slowWaits, 4, 'slowWaits 仍逐次计数（/health 语义不变）');
+});
+
+test('持续饱和兜底：等待不断出现时也会在最大跨度处输出（禁静默降级）', async () => {
+  const rl = new RateLimiter({ minInterval: 1040, maxQueueSize: 10, taskTimeoutMs: 5000, slowWaitIdleMs: 5000, slowWaitMaxSpanMs: 10 });
+  const cap = captureConsole();
+  await rl.execute(async () => 1);   // 首次不等待
+  await rl.execute(async () => 2);   // 第 1 次慢等待：建桶
+  await rl.execute(async () => 3);   // 第 2 次慢等待：距首次已 > maxSpan(10ms) → 立即 flush
+  cap.restore();
+  const agg = cap.lines.info.find((l) => l.includes('限流等待聚合')) || '';
+  assert.match(agg, /持续饱和 ≥\d+s/, `应输出「持续饱和」形态并定期上报: ${agg}`);
 });
 
 test('等待 ≤1000ms：不记日志仅计数（minInterval=40）', async () => {
