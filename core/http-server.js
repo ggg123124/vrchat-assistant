@@ -151,10 +151,18 @@ async function handleRequest(req, res) {
     return;
   }
 
-  // MCP endpoint probe
+  // MCP GET 流：本服务不推送 server→client 消息，按 MCP Streamable HTTP 规范必须
+  // 「返回 text/event-stream」或「返回 405」——**曾经返回 200+空 SSE 并立即 end**，
+  // 导致合规客户端（如 MCP Python SDK / Hermes）判定流断开并**每 1000ms 无限重连**，
+  // 刷屏日志「GET stream disconnected, reconnecting in 1000ms...」（用户实测反馈）。
+  // SDK 行为：405 会计入重连尝试（上限 2 次后停止）；200+立即结束则 attempt 归零 → 死循环。
   if (req.method === 'GET' && pathname === '/mcp') {
-    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Content-Length': 0 });
-    res.end();
+    res.writeHead(405, { 'Allow': 'POST, DELETE', 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      jsonrpc: '2.0',
+      error: { code: -32000, message: 'This MCP server does not offer a server-initiated SSE stream; use POST for requests (DELETE to end the session).' },
+      id: null,
+    }));
     return;
   }
 
