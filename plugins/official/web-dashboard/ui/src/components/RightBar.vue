@@ -190,15 +190,15 @@ async function submitStatus() {
             </div>
           </template>
         </div>
-        <div v-for="g in groups" :key="g.label" class="wg">
-          <div class="wg-head" role="button" tabindex="0" title="点击折叠/展开" @click="toggleGroup('w:' + (g.worldId || g.label))" @keydown.enter="toggleGroup('w:' + (g.worldId || g.label))">
+        <div v-for="(g, gi) in groups" :key="(g.worldId || g.label) + '#' + gi" class="wg">
+          <div class="wg-head" role="button" tabindex="0" title="点击折叠/展开" @click="toggleGroup('w:' + (g.worldId || g.label) + '#' + gi)" @keydown.enter="toggleGroup('w:' + (g.worldId || g.label) + '#' + gi)">
             <img v-if="groupIcon(g)" :src="groupIcon(g)" class="wg-thumb" alt="" loading="lazy" />
             <span :title="g.label">{{ g.label }}</span>
             <span v-if="g.loc" class="wg-loc" @click.stop="openInstance(g.list[0].location)" :title="'查看房间信息'">{{ g.loc }}</span>
             <span class="wg-num">{{ g.list.length }}</span>
-            <i class="pi wg-arrow" :class="isCollapsed('w:' + (g.worldId || g.label)) ? 'pi-chevron-down' : 'pi-chevron-up'"></i>
+            <i class="pi wg-arrow" :class="isCollapsed('w:' + (g.worldId || g.label) + '#' + gi) ? 'pi-chevron-down' : 'pi-chevron-up'"></i>
           </div>
-          <template v-if="!isCollapsed('w:' + (g.worldId || g.label))">
+          <template v-if="!isCollapsed('w:' + (g.worldId || g.label) + '#' + gi)">
             <div v-for="f in g.list" :key="f.userId" class="rb-friend" @click="openUser(f.userId)">
               <Avatar :image="avatarOf(f)" shape="circle" size="small" :label="avatarLabel(avatarOf(f), f.displayName)" />
               <div class="rf-text">

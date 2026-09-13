@@ -96,6 +96,8 @@ export class EventPipeline {
     const location = event.location || '';
     const worldId = event.worldId || '';
     const worldName = await this._resolveWorldName(worldId);
+    // 状态以事件携带的 user.status 为准（不再硬编码 active——2026-09-13 用户实测 bug）
+    this._syncProfileFromEvent(userId, event.content && event.content.user);
 
     // 更新好友状态
     this.storage.upsertFriend({
@@ -106,7 +108,6 @@ export class EventPipeline {
       worldId,
       worldName,
       platform: event.platform,
-      status: 'active',
       lastSeen: event.receivedAt,
       lastOnline: event.receivedAt,
     });
@@ -137,6 +138,8 @@ export class EventPipeline {
     const location = event.location || '';
     const worldId = event.worldId || '';
     const worldName = await this._resolveWorldName(worldId);
+
+    this._syncProfileFromEvent(userId, event.content && event.content.user);
 
     const prev = this.storage.getFriend(userId);
     const prevWorldId = prev?.world_id || '';
@@ -309,12 +312,49 @@ export class EventPipeline {
         lastSeen: event.receivedAt,
       });
     }
+    // diff 之后回写权威资料（只补非空字段，幂等；顺序关键——先 diff 再写，否则基线被覆盖丢变更）。
+    // 注：上方 L297 已写过同批字段，此处为防御性补漏——若将来主写入路径收窄/字段缺项，
+    // 非空字段仍会被补齐（无 user 对象时跳过，不影响既有值）。
+    this._syncProfileFromEvent(userId, userObj);
 
     this._storeEvent(event);
   }
 
+  /**
+   * 事件携带的 user 对象 → friends 表资料回写（只写非空字段，避免部分 upsert 清空既有值）。
+   * 2026-09-13 用户实测 bug：_handleOnline 曾硬编码 status:'active'，好友上线事件把状态
+   * 无条件重置为「在线」(绿灯)——实际状态 ask me(橙) 被覆盖；而 friend-update 只记录变更
+   * 事件、不落库（当 user 对象缺失时）。事件里的 user 对象是权威当前快照，必须落库。
+   */
+  _syncProfileFromEvent(userId, userObj) {
+    if (!userObj || typeof userObj !== 'object') {
+      log.debug(`[资料回写] 跳过（事件无 user 对象）: ${userId}`);
+      return;
+    }
+    const patch = { userId };
+    const put = (key, val) => { if (val !== undefined && val !== null && val !== '') patch[key] = val; };
+    put('displayName', userObj.displayName);
+    put('status', userObj.status);
+    put('statusDescription', userObj.statusDescription);
+    put('bio', userObj.bio);
+    put('avatarImageUrl', userObj.currentAvatarImageUrl || userObj.currentAvatarThumbnailImageUrl);
+    put('userIcon', userObj.userIcon);
+    put('pronouns', userObj.pronouns);
+    if (Object.keys(patch).length > 1) {
+      try {
+        this.storage.upsertFriend(patch);
+        const fields = Object.keys(patch).filter((k) => k !== 'userId').join('/');
+        log.debug(`[资料回写] ${String(patch.displayName || userId)}: ${fields}`);
+      } catch (e) {
+        // 降级路径留痕：回写属增强，失败不阻断主流程但必须可见
+        log(`[资料回写] 失败（不影响主流程）: ${userId} ${String((e && e.message) || e)}`);
+      }
+    }
+  }
+
   async _handleActive(event) {
     const userId = event.userId;
+    this._syncProfileFromEvent(userId, event.content && event.content.user);
 
     // 网页端在线（2026-09-10 用户实测：好友转网页在线时 VRChat 不发 friend-offline，
     // 只发 platform=web 的 friend-active；REST 快照同口径 location='offline'+platform='web'）。
