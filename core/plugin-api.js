@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { logExtFailure, logExtFallback, logExtSuccess } from './ext-log.js';
 
 /**
  * Plugin API v1 — 为插件提供与核心交互的 6 个 API 表面。
@@ -58,6 +59,16 @@ export function buildPluginApi(pluginName, { registry, ctx, services, serviceOwn
     vrchat: buildVrchatApi({ ctx, log: apiLog }),
 
     log: apiLog,
+
+    // 外部服务调用留痕（单一来源 core/ext-log.js）：插件禁止 import core/，故经此暴露。
+    // 插件抓取外部站点（PlanetVRC / BOOTH / Google Calendar 等）时必须逐分支调用：
+    //   失败/超时 → extLog.failure（WARN + ops_log）；降级/兜底/缓存命中/跳过 → extLog.fallback（INFO + ops_log）；
+    //   成功 → extLog.success（默认 debug，>2000ms 自动升 INFO）。一次触发恰好一行，禁静默降级。
+    extLog: {
+      failure(service, op, err, opts) { return logExtFailure(service, op, err, opts); },
+      fallback(service, op, reason) { return logExtFallback(service, op, reason); },
+      success(service, op, opts) { return logExtSuccess(service, op, opts); },
+    },
 
     // HTTP 路由注册：插件可挂载自定义路由（/mcp、/health 之外的路径）。
     // 核心 http-server 统一分发，路由随插件卸载自动清理。

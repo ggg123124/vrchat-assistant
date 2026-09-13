@@ -107,13 +107,18 @@ export default function register(api) {
   async function enrichItems(cards, limit) {
     const out = [];
     for (const c of cards.slice(0, limit)) {
+      const startedAt = Date.now();
       try {
         const d = await fetchJson(`${BASE}/ja/items/${c.id}.json`);
         const item = normalizeItem(d);
         out.push(item);
         persistItem(item);
+        // 成功 → debug（>2000ms 自动升 INFO）
+        api.extLog?.success?.('BOOTH', `抓取商品详情 ${c.id}`, { durationMs: Date.now() - startedAt });
       } catch (e) {
-        api.log(`[booth] item ${c.id} fetch failed: ${e.message}`);
+        // 失败留痕（WARN + ops_log）：单条详情失败不阻断整轮搜索（部分降级）
+        if (api.extLog?.failure) api.extLog.failure('BOOTH', `抓取商品详情 ${c.id}`, e, { durationMs: Date.now() - startedAt });
+        else api.log(`[booth] item ${c.id} fetch failed: ${e.message}`);
       }
       await new Promise(r => setTimeout(r, ITEM_FETCH_INTERVAL_MS));
     }
@@ -124,7 +129,15 @@ export default function register(api) {
     if (!query || !String(query).trim()) throw new Error('query is required');
     const n = Math.max(1, Math.min(10, Number(limit) || 5));
 
-    const html = await fetchText(`${BASE}/ja/search/${encodeURIComponent(query)}`);
+    const searchStartedAt = Date.now();
+    let html;
+    try {
+      html = await fetchText(`${BASE}/ja/search/${encodeURIComponent(query)}`);
+    } catch (e) {
+      if (api.extLog?.failure) api.extLog.failure('BOOTH', '抓取搜索结果页', e, { durationMs: Date.now() - searchStartedAt });
+      throw e;
+    }
+    api.extLog?.success?.('BOOTH', '抓取搜索结果页', { durationMs: Date.now() - searchStartedAt });
     const cards = parseSearchCards(html);
     if (cards.length === 0) return { query, results: [], total: 0 };
 
@@ -146,10 +159,22 @@ export default function register(api) {
 
     if (!forceRefresh) {
       const cached = api.consume('storage.getBoothItemCache', id);
-      if (cached) return { ...cached, cached: true };
+      if (cached) {
+        // 缓存命中：免外部请求，属于兜底/省流路径 → INFO 一行（一次触发恰好一行）
+        api.extLog?.fallback?.('BOOTH', `读取商品 ${id}`, '本地缓存命中，跳过远端抓取');
+        return { ...cached, cached: true };
+      }
     }
 
-    const d = await fetchJson(`${BASE}/ja/items/${id}.json`);
+    const itemStartedAt = Date.now();
+    let d;
+    try {
+      d = await fetchJson(`${BASE}/ja/items/${id}.json`);
+    } catch (e) {
+      if (api.extLog?.failure) api.extLog.failure('BOOTH', `抓取商品 ${id}`, e, { durationMs: Date.now() - itemStartedAt });
+      throw e;
+    }
+    api.extLog?.success?.('BOOTH', `抓取商品 ${id}`, { durationMs: Date.now() - itemStartedAt });
     const item = normalizeItem(d);
     persistItem(item);
     return { ...item, cached: false };

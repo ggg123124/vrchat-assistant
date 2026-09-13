@@ -30,7 +30,7 @@ const tmpLogDir = mkdtempSync(path.join(os.tmpdir(), 'vrc-api-obs-'));
 initLogger({ dir: tmpLogDir, level: 'debug' });
 setLevel('debug');
 
-const { VrchatApiClient, normalizeApiPath } = await import(pathToFileURL(path.join(REPO, 'vrchat-api.js')).href);
+const { VrchatApiClient, normalizeApiPath, resolveApiBase } = await import(pathToFileURL(path.join(REPO, 'vrchat-api.js')).href);
 const { setOpsLogSink } = await import(pathToFileURL(path.join(REPO, 'core', 'ops-log.js')).href);
 
 const USR_ID = 'usr_01234567-0123-4123-8123-0123456789ab';
@@ -156,7 +156,9 @@ test('非 2xx（500/429）：WARN + ops_log(api,warn) + byStatus + topFailures �
 
 test('DNS 失败：WARN 请求失败 + ops_log + failed 计数（error 分类，不误计 timeouts）', async () => {
   const prevBase = process.env.VRC_MONITOR_API_BASE;
-  process.env.VRC_MONITOR_API_BASE = 'http://no-such-host.invalid';
+  // 注意：R1b 起 VRC_MONITOR_API_BASE 只接受 https 或回环 http（非回环 http 会被忽略并 WARN），
+  // 故这里用 https + 不存在的 TLD（.invalid 永不解析）触发 DNS 失败，而不是 http。
+  process.env.VRC_MONITOR_API_BASE = 'https://no-such-host.invalid';
   try {
     const client = new VrchatApiClient(null, null);
     const cap = captureConsole();
@@ -232,4 +234,32 @@ test('normalizeApiPath：ID 段归一化 + 查询串剥离', () => {
   assert.equal(normalizeApiPath('/worlds/wrld_abc123'), '/worlds/:id');
   assert.equal(normalizeApiPath('/users/usr_abc?n=10'), '/users/:id');
   assert.equal(normalizeApiPath('/auth/user'), '/auth/user');
+});
+
+// ── R1b 安全加固：VRC_MONITOR_API_BASE 只接受 https 或回环 http ──
+test('resolveApiBase：https 与回环 http 生效，非回环 http / 非法值忽略并 WARN 留痕', () => {
+  const PROD = 'https://api.vrchat.cloud/api/1';
+  const warns = [];
+  const onWarn = (m) => warns.push(String(m));
+
+  // 生效：https 任意主机 / 回环 http（三种写法）
+  assert.equal(resolveApiBase('https://staging.example/api/1', onWarn), 'https://staging.example/api/1');
+  assert.equal(resolveApiBase('http://127.0.0.1:8798', onWarn), 'http://127.0.0.1:8798');
+  assert.equal(resolveApiBase('http://localhost:1234/', onWarn), 'http://localhost:1234');
+  assert.equal(resolveApiBase('http://[::1]:1234', onWarn), 'http://[::1]:1234');
+  assert.equal(warns.length, 0, `合法值不应留痕: ${JSON.stringify(warns)}`);
+
+  // 忽略：非回环 http（明文网关泄露凭据风险）→ 回落生产地址 + 恰好一行 WARN
+  assert.equal(resolveApiBase('http://evil.example', onWarn), PROD);
+  assert.equal(warns.length, 1, '非回环 http 必须留一行 WARN（禁静默）');
+  assert.match(warns[0], /覆盖被忽略（仅允许 https 或回环 http）/);
+
+  // 忽略：非法 URL → 回落生产地址 + 一行 WARN
+  assert.equal(resolveApiBase('not-a-url', onWarn), PROD);
+  assert.equal(warns.length, 2);
+  assert.match(warns[1], /不是合法 URL/);
+
+  // 未设置 → 生产默认，且不留痕
+  assert.equal(resolveApiBase(undefined, onWarn), PROD);
+  assert.equal(warns.length, 2);
 });

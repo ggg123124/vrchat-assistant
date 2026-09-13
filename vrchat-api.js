@@ -30,10 +30,43 @@ const MAX_DURATION_SAMPLES = 512;
 // 命名日志：API 组件标签
 const log = getLogger('api');
 
-// API_BASE 运行时读取（而非模块顶层 const）：start-monitor.js 在 import 之后才加载 .env，
-// 顶层读会漏掉 .env 配置；测试/e2e 可用 VRC_MONITOR_API_BASE=http://127.0.0.1:<port> 指向本地 stub。
+// 允许的覆盖：https 任意主机（自建 staging 等）、回环 http（本地测试 stub）。
+// ⚠️ 非回环 http 一律忽略并 WARN 留痕——明文网关会泄露 auth cookie / 凭据，禁止静默接受。
+// 按「原始字符串」记忆化解析结果：env 中途变更（测试）也能即时生效。
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
+let apiBaseCache = { raw: null, base: API_BASE };
+
+/**
+ * 解析 API 基址覆盖（纯函数，便于测试）：仅接受 https 或回环 http，其它一律拒绝。
+ * @param {string|undefined} raw VRC_MONITOR_API_BASE 原始值
+ * @param {(msg:string)=>void} [onWarn] 拒绝时的留痕回调（禁静默）
+ * @returns {string} 生效基址（拒绝时返回生产默认 API_BASE）
+ */
+export function resolveApiBase(raw, onWarn) {
+  if (!raw) return API_BASE;
+  const warn = typeof onWarn === 'function' ? onWarn : (m) => log.warn(m);
+  try {
+    const u = new URL(raw);
+    const isLoopback = LOOPBACK_HOSTS.has(u.hostname.toLowerCase());
+    if (u.protocol === 'https:' || (u.protocol === 'http:' && isLoopback)) {
+      return raw.replace(/\/+$/, '');
+    }
+    warn(
+      `VRC_MONITOR_API_BASE 覆盖被忽略（仅允许 https 或回环 http）: ${u.protocol}//${u.host}` +
+      ` —— 继续使用 ${API_BASE}`
+    );
+  } catch {
+    warn(`VRC_MONITOR_API_BASE 不是合法 URL，已忽略: ${String(raw).slice(0, 80)}`);
+  }
+  return API_BASE;
+}
+
 function apiBase() {
-  return process.env.VRC_MONITOR_API_BASE || API_BASE;
+  const raw = process.env.VRC_MONITOR_API_BASE;
+  if (apiBaseCache.raw === raw) return apiBaseCache.base;
+  const base = resolveApiBase(raw);
+  apiBaseCache = { raw, base };
+  return base;
 }
 
 // 请求超时运行时读取：VRC_MONITOR_API_TIMEOUT_MS 为测试开关（生产默认 15000ms）
