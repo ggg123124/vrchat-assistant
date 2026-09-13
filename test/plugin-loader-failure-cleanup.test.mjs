@@ -74,3 +74,74 @@ test('健康上报与路由在正常加载时保留（对照：清理不误伤�
     assert.equal(ctx.httpRoutes.has('GET /healthy-probe'), true);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+test('热重载失败回滚：清掉失败新版残留，并恢复旧版路由与 /health 上报（R4 💡②）', async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'plg-reload-'));
+  try {
+    const ctx = { httpRoutes: new Map(), healthExtras: {} };
+    const registry = {
+      removePluginTools() {}, registerPluginTool() {},
+      getPluginTools: () => [], getPluginToolMap: () => new Map(),
+    };
+    const loader = new PluginLoader({ registry, ctx, log: () => {} });
+    // v1：正常上报 + 注册路由
+    const plugin = makePlugin(root, 'flappy', `
+      export default function register(api) {
+        api.health({ v: 1 });
+        api.http.registerRoute({ method: 'GET', path: '/flappy-v1', handler: (req, res) => res.end('v1') });
+      }
+    `);
+    await loader._loadPlugin(plugin);
+    plugin.status = 'loaded';
+    loader.plugins.set('flappy', plugin);
+    assert.deepStrictEqual(ctx.healthExtras.flappy, { v: 1 });
+    assert.equal(ctx.httpRoutes.has('GET /flappy-v1'), true);
+
+    // v2：先上报 + 注册自己的路由，再抛错
+    writeFileSync(path.join(plugin.dir, 'index.js'), `
+      export default function register(api) {
+        api.health({ v: 2, broken: true });
+        api.http.registerRoute({ method: 'GET', path: '/flappy-v2-broken', handler: (req, res) => res.end('v2') });
+        throw new Error('v2 boom');
+      }
+    `, 'utf-8');
+
+    await loader._reloadPlugin('flappy');
+
+    // 失败新版不得残留
+    assert.equal(ctx.httpRoutes.has('GET /flappy-v2-broken'), false, '失败新版路由必须清理');
+    assert.notDeepStrictEqual(ctx.healthExtras.flappy, { v: 2, broken: true }, '/health 不得显示失败新版本数据');
+    // 旧版运行态必须恢复（旧版仍在跑）
+    assert.deepStrictEqual(ctx.healthExtras.flappy, { v: 1 }, '旧版 /health 上报需恢复');
+    assert.equal(ctx.httpRoutes.has('GET /flappy-v1'), true, '旧版路由需恢复');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('失败插件的服务被释放（后续插件可复用同名服务，R4 💡①）', async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'plg-svc-'));
+  try {
+    const ctx = { httpRoutes: new Map(), healthExtras: {} };
+    const registry = {
+      removePluginTools() {}, registerPluginTool() {},
+      getPluginTools: () => [], getPluginToolMap: () => new Map(),
+    };
+    const loader = new PluginLoader({ registry, ctx, log: () => {} });
+    const broken = makePlugin(root, 'svc-broken', `
+      export default function register(api) {
+        api.provide('demo.service', () => 1);
+        throw new Error('boom after provide');
+      }
+    `);
+    let threw = false;
+    try { await loader._loadPlugin(broken); } catch { threw = true; }
+    if (threw) loader._setError(broken, 'boom after provide');
+    assert.equal(loader.serviceOwners.has('demo.service'), false, '失败插件的服务占用必须释放');
+
+    // 后续插件可注册同名服务
+    const good = makePlugin(root, 'svc-good', `
+      export default function register(api) { api.provide('demo.service', () => 2); }
+    `);
+    await loader._loadPlugin(good);
+    assert.equal(loader.serviceOwners.get('demo.service'), 'svc-good');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

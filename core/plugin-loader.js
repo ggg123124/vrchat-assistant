@@ -439,6 +439,13 @@ export class PluginLoader {
     for (const [key, route] of this.ctx.httpRoutes?.entries() || []) {
       if (route.pluginName === plugin.name) this.ctx.httpRoutes.delete(key);
     }
+    // R4 💡①：同族最后一面——失败插件提供的服务也须释放，否则后续插件同名服务被「服务名冲突」拒绝
+    for (const [svc, owner] of this.serviceOwners.entries()) {
+      if (owner === plugin.name) {
+        this.services.delete(svc);
+        this.serviceOwners.delete(svc);
+      }
+    }
     this.log(`[失败] 插件加载失败 [${plugin.name}]: ${error}`);
   }
 
@@ -548,6 +555,9 @@ export class PluginLoader {
     if (plugin.dispose) {
       try { plugin.dispose(); } catch (err) { this.log(`插件 ${name} dispose 出错: ${err.message}`); }
     }
+    // R4 💡②：重载前快照旧版运行态（路由/上报），失败回滚时恢复——否则回滚后旧版虽在跑却丢了路由与 /health 上报
+    const oldRoutes = [...(this.ctx.httpRoutes?.entries() || [])].filter(([, r]) => r.pluginName === name);
+    const oldExtras = this.ctx.healthExtras ? this.ctx.healthExtras[name] : undefined;
     this.registry.removePluginTools(name);
     for (const [key, route] of this.ctx.httpRoutes?.entries() || []) {
       if (route.pluginName === name) this.ctx.httpRoutes.delete(key);
@@ -574,6 +584,12 @@ export class PluginLoader {
       if (this.ctx.healthExtras) delete this.ctx.healthExtras[name];
       for (const [key, route] of this.ctx.httpRoutes?.entries() || []) {
         if (route.pluginName === name) this.ctx.httpRoutes.delete(key);
+      }
+      // R4 💡②：恢复旧版的路由与 /health 上报（旧版 register 不会重跑，只能靠快照还原）
+      for (const [key, route] of oldRoutes) this.ctx.httpRoutes.set(key, route);
+      if (oldExtras !== undefined) {
+        if (!this.ctx.healthExtras) this.ctx.healthExtras = {};
+        this.ctx.healthExtras[name] = oldExtras;
       }
       for (const t of oldTools) {
         this.registry.getPluginTools().push(t);
