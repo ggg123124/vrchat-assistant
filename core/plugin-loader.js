@@ -434,6 +434,11 @@ export class PluginLoader {
     plugin.error = error;
     plugin.loaded = false;
     this.registry.removePluginTools(plugin.name);
+    // review #187 💡C：register 先上报/先注册后抛错时，不得让已禁用插件残留 /health 键与路由
+    if (this.ctx.healthExtras) delete this.ctx.healthExtras[plugin.name];
+    for (const [key, route] of this.ctx.httpRoutes?.entries() || []) {
+      if (route.pluginName === plugin.name) this.ctx.httpRoutes.delete(key);
+    }
     this.log(`[失败] 插件加载失败 [${plugin.name}]: ${error}`);
   }
 
@@ -565,6 +570,11 @@ export class PluginLoader {
       plugin.error = null;
     } catch (err) {
       this.log(` 插件热重载失败 [${name}]: ${err.message}，回滚旧版`);
+      // review #187 💡C：回滚旧版时清掉失败新版本上报的 extras 与它可能注册的路由
+      if (this.ctx.healthExtras) delete this.ctx.healthExtras[name];
+      for (const [key, route] of this.ctx.httpRoutes?.entries() || []) {
+        if (route.pluginName === name) this.ctx.httpRoutes.delete(key);
+      }
       for (const t of oldTools) {
         this.registry.getPluginTools().push(t);
         this.registry.getPluginToolMap().set(t.name, t);

@@ -174,17 +174,17 @@ const digest = await api.consume("query_digest", wrld_xxx);
 
 ### 4.7 api.health(obj) — 运行态上报（并入 `/health`）
 
-\`\`\`js
+```js
 export default function register(api) {
   api.health({ dashboardUi: { state: 'built' } });
   // → GET /health 的 extras.<pluginName>.dashboardUi
 }
-\`\`\`
+```
 
 - **用途**：把插件自身的运行态（就绪/降级/缺失等）暴露给运维与 Agent 诊断，无需自建端点。
-- **键空间隔离**：上报内容按 **插件名** 收纳在 `/health` 的 \`extras\` 段（\`extras: { <pluginName>: {...} }\`），**不参与核心字段命名空间**——插件无法覆盖 \`auth\`/\`plugins\`/\`ws\` 等核心字段（避免误报认证状态等语义破坏）。
-- **清理**：插件卸载/热重载时 loader 自动清除该插件的 \`extras\` 键（与路由/服务/工具同路径），无需在 \`dispose()\` 中手工清理。
-- **兼容**：旧核心（无此 API 面）下应做能力探测（\`typeof api.health === 'function'\`）后再调用，否则插件加载会因 \`api.health is not a function\` 失败。
+- **键空间隔离**：上报内容按 **插件名** 收纳在 `/health` 的 `extras` 段（`extras: { <pluginName>: {...} }`），**不参与核心字段命名空间**——插件无法覆盖 `auth`/`plugins`/`ws` 等核心字段（避免误报认证状态等语义破坏）。
+- **清理**：**卸载、热重载，以及加载/重载失败**（register 抛错、失败回滚）时，loader 均自动清除该插件的 `extras` 键（与路由/服务/工具同路径），无需在 `dispose()` 中手工清理。失败路径同样清理——避免 `/health` 为未加载的插件签名、或为已回滚的插件报错版本状态。
+- **兼容**：旧核心（无此 API 面）下应做能力探测（`typeof api.health === 'function'`）后再调用，否则插件加载会因 `api.health is not a function` 失败。
 
 ## 5. 生命周期与热加载
 
