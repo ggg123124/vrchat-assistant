@@ -465,6 +465,11 @@ onUnmounted(() => {
             </template>
           </template>
 
+          <!-- 网页端/App 在线切换（friend-active）：显示转网页端在线/转App在线（#181 连带，summary 由后端语义化） -->
+          <template v-else-if="typeOf(x) === 'status' && x.type === 'friend-active'">
+            <span class="sdesc"><i class="pi pi-globe" style="font-size:11px;margin-right:4px"></i>{{ x.summary }}</span>
+          </template>
+
           <!-- 状态变动：旧状态灯 → 新状态灯 / [灯] 当前签名 -->
           <template v-else-if="typeOf(x) === 'status'">
             <span v-if="x.previousStatus && x.previousStatus !== x.status" class="slamp" :style="{ background: statusColor(x.previousStatus) }" :title="statusText(x.previousStatus)"></span>
