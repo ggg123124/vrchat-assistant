@@ -148,7 +148,10 @@ console.log('\n── 3. 端到端测试: HTTP 鉴权中间件 ──');
   let res = await request('/health');
   assert.equal(res.status, 200, '未配置 Token 时 /health 正常访问');
   res = await request('/mcp');
-  assert.equal(res.status, 200, '未配置 Token 时 /mcp 正常访问');
+  // GET /mcp 的方法契约是 405（不提供 server→client SSE 流，见 mcp-method-contract 测试）：
+  // 这里断言「未被 401 拦截」即证明鉴权未启用时服务完全放行——405 表示已通过鉴权并抵达方法契约层。
+  assert.equal(res.status, 405, '未配置 Token 时 /mcp 抵达方法契约层（405 而非 401）');
+  assert.match(String(res.headers.allow || ''), /POST/);
   ok('未配置 Token 时服务默认完全放行（向后兼容）');
 
   // 3.2 启用 Token
@@ -178,16 +181,17 @@ console.log('\n── 3. 端到端测试: HTTP 鉴权中间件 ──');
 
   // 3.2.4 正确 Token - X-API-Key Header
   res = await request('/mcp', { headers: { 'x-api-key': TEST_TOKEN } });
-  assert.equal(res.status, 200);
-  ok('携带正确 X-API-Key 成功访问 /mcp');
+  // 鉴权通过 → 抵达 GET /mcp 的方法契约（405，不提供 server→client SSE 流）
+  assert.equal(res.status, 405, '携带正确 X-API-Key 应通过鉴权（405 = 已抵达方法契约层）');
+  ok('携带正确 X-API-Key 成功通过鉴权访问 /mcp');
 
   // 3.2.5 正确 Token - Query Parameter
   res = await request('/health?token=' + TEST_TOKEN);
   assert.equal(res.status, 200);
   assert.equal(JSON.parse(res.data).ok, true);
   res = await request('/mcp?token=' + TEST_TOKEN);
-  assert.equal(res.status, 200);
-  ok('携带正确 URL Query ?token=... 成功访问 /mcp 与 /health');
+  assert.equal(res.status, 405, '携带正确 ?token= 应通过鉴权（405 = 已抵达方法契约层）');
+  ok('携带正确 URL Query ?token=... 成功通过鉴权访问 /mcp 与 /health');
 
   // 3.2.7 根路径豁免（PR #150）：GET/HEAD / → 302 /dashboard（无 token 也不返回 401）
   res = await request('/');
