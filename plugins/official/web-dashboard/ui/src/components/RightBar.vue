@@ -198,7 +198,7 @@ async function submitStatus() {
             <span class="wg-num">{{ g.list.length }}</span>
             <i class="pi wg-arrow" :class="isCollapsed('w:' + (g.worldId || g.label) + '#' + gi) ? 'pi-chevron-down' : 'pi-chevron-up'"></i>
           </div>
-          <template v-if="!isCollapsed('w:' + (g.worldId || g.label))">
+          <template v-if="!isCollapsed('w:' + (g.worldId || g.label) + '#' + gi)">
             <div v-for="f in g.list" :key="f.userId" class="rb-friend" @click="openUser(f.userId)">
               <Avatar :image="avatarOf(f)" shape="circle" size="small" :label="avatarLabel(avatarOf(f), f.displayName)" />
               <div class="rf-text">
