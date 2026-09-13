@@ -8,15 +8,86 @@
  * 4. User provides OTP via submitOtp() → complete login, save new cookie
  * 5. Proactive cookie refresh via heartbeat endpoint
  */
+import http from 'node:http';
 import https from 'node:https';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { recordOpsLog } from './core/ops-log.js';
+import { getLogger } from './core/logger.js';
 
 const API_BASE = 'https://api.vrchat.cloud/api/1';
 
 // 单个 VRChat API 请求的 socket 超时（毫秒）。正常请求 1-3s 返回，
 // 网络抖动/代理失效时若不加超时，挂起的请求会锁死 rateLimiter 队列。
 const REQUEST_TIMEOUT_MS = 15000;
+
+// 慢调用阈值（毫秒，代码常量不走 env）：成功但耗时超过该值 → 升格 INFO 可见
+const API_SLOW_MS = 2000;
+
+// 统计有界：失败路径聚合表条数上限 / 耗时采样环形缓冲容量（长跑不涨内存）
+const MAX_FAIL_MAP = 300;
+const MAX_DURATION_SAMPLES = 512;
+
+// 命名日志：API 组件标签
+const log = getLogger('api');
+
+// 允许的覆盖：https 任意主机（自建 staging 等）、回环 http（本地测试 stub）。
+// ⚠️ 非回环 http 一律忽略并 WARN 留痕——明文网关会泄露 auth cookie / 凭据，禁止静默接受。
+// 按「原始字符串」记忆化解析结果：env 中途变更（测试）也能即时生效。
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
+let apiBaseCache = { raw: null, base: API_BASE };
+
+/**
+ * 解析 API 基址覆盖（纯函数，便于测试）：仅接受 https 或回环 http，其它一律拒绝。
+ * @param {string|undefined} raw VRC_MONITOR_API_BASE 原始值
+ * @param {(msg:string)=>void} [onWarn] 拒绝时的留痕回调（禁静默）
+ * @returns {string} 生效基址（拒绝时返回生产默认 API_BASE）
+ */
+export function resolveApiBase(raw, onWarn) {
+  if (!raw) return API_BASE;
+  const warn = typeof onWarn === 'function' ? onWarn : (m) => log.warn(m);
+  try {
+    const u = new URL(raw);
+    const isLoopback = LOOPBACK_HOSTS.has(u.hostname.toLowerCase());
+    if (u.protocol === 'https:' || (u.protocol === 'http:' && isLoopback)) {
+      return raw.replace(/\/+$/, '');
+    }
+    warn(
+      `VRC_MONITOR_API_BASE 覆盖被忽略（仅允许 https 或回环 http）: ${u.protocol}//${u.host}` +
+      ` —— 继续使用 ${API_BASE}`
+    );
+  } catch {
+    warn(`VRC_MONITOR_API_BASE 不是合法 URL，已忽略: ${String(raw).slice(0, 80)}`);
+  }
+  return API_BASE;
+}
+
+function apiBase() {
+  const raw = process.env.VRC_MONITOR_API_BASE;
+  if (apiBaseCache.raw === raw) return apiBaseCache.base;
+  const base = resolveApiBase(raw);
+  apiBaseCache = { raw, base };
+  return base;
+}
+
+// 请求超时运行时读取：VRC_MONITOR_API_TIMEOUT_MS 为测试开关（生产默认 15000ms）
+function requestTimeoutMs() {
+  const v = parseInt(process.env.VRC_MONITOR_API_TIMEOUT_MS, 10);
+  return Number.isFinite(v) && v > 0 ? v : REQUEST_TIMEOUT_MS;
+}
+
+// 按 URL 协议选择请求模块：生产 https；测试 stub 可用 http://
+function pickRequestLib(url) {
+  return url.protocol === 'http:' ? http : https;
+}
+
+// 路径归一化：ID 段（usr_/grp_/wrld_/avtr_/file_/pmod_/not_ 前缀）→ :id；查询串剥离（日志不落 query）
+const ID_SEGMENT_RE = /^(usr_|grp_|wrld_|avtr_|file_|pmod_|not_)/;
+export function normalizeApiPath(path) {
+  return String(path).split('?')[0].split('/').map((seg) => {
+    if (seg && ID_SEGMENT_RE.test(seg)) return ':id';
+    return seg;
+  }).join('/');
+}
 
 export class VrchatApiClient {
   /** @type {Promise|null} single-flight lock for ensureAuth / ensureAuthWithAutoOtp */
@@ -36,6 +107,13 @@ export class VrchatApiClient {
     this.totpFetcher = null;       // 注入 TOTP 验证码自动生成函数（credentials.json 配置 totp_secret 后启用）
     this._reauthInFlight = false;  // 防止并发 401 重认证
     this._reauthCooldownUntil = 0; // 非 TOTP 重认证失败后的冷却（防循环）
+    // 外部调用可观测性统计（有界累积，快照见 getApiStats）
+    this._apiStats = {
+      total: 0, ok: 0, failed: 0, timeouts: 0, slow: 0,
+      byStatus: {}, failMap: new Map(), lastFailure: null,
+      durationMsSum: 0, durations: [],
+    };
+    this._reauthAttempt = 0;       // 当前 401 自动重认证连续尝试计数（成功归零）
   }
 
   /** 注入邮箱 OTP 获取函数（start-monitor.js 启动时调用） */
@@ -75,12 +153,30 @@ export class VrchatApiClient {
    * 避免 ensureAuth / checkAuth 内部形成递归。
    */
   async _request(method, path, body = null, customCookies = null) {
-    const res = await this._requestRaw(method, path, body, customCookies);
+    const startedAt = Date.now();
+    let res;
+    try {
+      res = await this._requestRaw(method, path, body, customCookies);
+    } catch (err) {
+      this._recordApiResult(method, path, { error: err, durationMs: Date.now() - startedAt });
+      throw err;
+    }
     if (res.status === 401 && !customCookies && !this._isAuthEndpoint(path)) {
+      // 首次 401 是真实失败请求：先留痕，再尝试自动重认证并重放
+      this._recordApiResult(method, path, { status: 401, durationMs: Date.now() - startedAt });
       try {
         const reauthed = await this._tryAutoReauth();
         if (reauthed) {
-          return await this._requestRaw(method, path, body, customCookies);
+          const replayAt = Date.now();
+          let replayed;
+          try {
+            replayed = await this._requestRaw(method, path, body, customCookies);
+          } catch (err) {
+            this._recordApiResult(method, path, { error: err, durationMs: Date.now() - replayAt });
+            throw err;
+          }
+          this._recordApiResult(method, path, { status: replayed.status, durationMs: Date.now() - replayAt });
+          return replayed;
         }
       } catch (err) {
         if (err.needsTotp) {
@@ -92,12 +188,113 @@ export class VrchatApiClient {
         throw err;
       }
     }
+    this._recordApiResult(method, path, { status: res.status, durationMs: Date.now() - startedAt });
     return res;
   }
 
   /** 认证端点判断——避免 ensureAuth/checkAuth 内部递归触发重认证 */
   _isAuthEndpoint(path) {
     return path === '/auth' || path === '/auth/user' || path.startsWith('/auth/twofactorauth');
+  }
+
+  /**
+   * R1：唯一留痕漏斗——每次 _request 的计时与结果分级（日志 + 统计）。
+   * 绝不抛错 / 不改返回结构 / 不额外耗时（纯内存操作 + 无 sink 时 ops_log 为 no-op）。
+   */
+  _recordApiResult(method, path, { status = null, error = null, durationMs = 0 }) {
+    const s = this._apiStats;
+    s.total++;
+    if (s.durations.length >= MAX_DURATION_SAMPLES) {
+      s.durationMsSum -= s.durations.shift();
+    }
+    s.durations.push(durationMs);
+    s.durationMsSum += durationMs;
+
+    const p = normalizeApiPath(path);
+
+    if (error) {
+      const reason = String(error.message || error).replace(/[\r\n]+/g, ' ').slice(0, 200);
+      s.failed++;
+      if (/超时|timeout/i.test(reason)) {
+        s.timeouts++;
+        s.lastFailure = `[timeout] ${method} ${p}`;
+        this._bumpFail(p, 'timeout');
+        const line = `${method} ${p} 超时（${durationMs}ms）`;
+        log.warn(line);
+        recordOpsLog('api', 'warn', `[api] ${line}`);
+      } else {
+        s.lastFailure = `${method} ${p}（${reason}）`;
+        this._bumpFail(p, 'error');
+        const line = `${method} ${p} 请求失败: ${reason}（耗时 ${durationMs}ms）`;
+        log.warn(line);
+        recordOpsLog('api', 'warn', `[api] ${line}`);
+      }
+      return;
+    }
+
+    s.byStatus[status] = (s.byStatus[status] || 0) + 1;
+    if (status >= 200 && status < 300) {
+      s.ok++;
+      if (durationMs > API_SLOW_MS) {
+        s.slow++;
+        log.info(`${method} ${p} → ${status}（${durationMs}ms 慢调用）`);
+      } else if (process.env.VRC_MONITOR_LOG_API_SUCCESS === '1') {
+        log.info(`${method} ${p} → ${status}（${durationMs}ms）`);
+      } else {
+        log.debug(`${method} ${p} → ${status}（${durationMs}ms）`);
+      }
+    } else {
+      s.failed++;
+      s.lastFailure = `${method} ${p} → HTTP ${status}`;
+      this._bumpFail(p, `HTTP ${status}`);
+      const line = `${method} ${p} → ${status}（${durationMs}ms）`;
+      log.warn(line);
+      recordOpsLog('api', 'warn', `[api] ${line}`);
+    }
+  }
+
+  /** 失败路径聚合（有界：超过 MAX_FAIL_MAP 时逐出计数最小项） */
+  _bumpFail(normPath, tag) {
+    const map = this._apiStats.failMap;
+    const entry = map.get(normPath) || { count: 0, last: '' };
+    entry.count += 1;
+    entry.last = tag;
+    map.set(normPath, entry);
+    if (map.size > MAX_FAIL_MAP) {
+      let minKey = null;
+      let minCount = Infinity;
+      for (const [k, v] of map) {
+        if (v.count < minCount) { minCount = v.count; minKey = k; }
+      }
+      map.delete(minKey);
+    }
+  }
+
+  /** R1：API 调用统计快照（/health 暴露用；有界累积，长跑不涨内存） */
+  getApiStats() {
+    const s = this._apiStats;
+    const durs = s.durations;
+    let p95Ms = null;
+    if (durs.length > 0) {
+      const sorted = [...durs].sort((a, b) => a - b);
+      p95Ms = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))];
+    }
+    const topFailures = [...s.failMap.entries()]
+      .map(([p, v]) => ({ path: p, count: v.count, last: v.last }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+    return {
+      total: s.total,
+      ok: s.ok,
+      failed: s.failed,
+      timeouts: s.timeouts,
+      slow: s.slow,
+      byStatus: { ...s.byStatus },
+      topFailures,
+      lastFailure: s.lastFailure,
+      avgMs: durs.length > 0 ? Math.round(s.durationMsSum / durs.length) : null,
+      p95Ms,
+    };
   }
 
   /**
@@ -109,8 +306,10 @@ export class VrchatApiClient {
     if (Date.now() < this._reauthCooldownUntil) return false;
 
     this._reauthInFlight = true;
+    this._reauthAttempt++;
+    log.info(`触发自动重认证（第 ${this._reauthAttempt} 次）`);
     try {
-      console.log('[VRChat API] [警告] 请求返回 401，尝试自动重新登录...');
+      log.info('[警告] 请求返回 401，尝试自动重新登录...');
       if (this.otpFetcher || this.totpFetcher) {
         await this.ensureAuthWithAutoOtp(this.otpFetcher);
       } else {
@@ -132,13 +331,14 @@ export class VrchatApiClient {
           throw err;
         }
       }
-      console.log('[VRChat API] [成功] 自动重新登录成功');
+      log.info('[成功] 自动重新登录成功');
+      this._reauthAttempt = 0;
       return true;
     } catch (err) {
       if (err.needsTotp) throw err;
       // 非 TOTP 失败（网络/凭据错误等）：冷却 60s，避免高频重试
       this._reauthCooldownUntil = Date.now() + 60_000;
-      console.error(`[VRChat API] [失败] 自动重新登录失败: ${err.message}`);
+      log.warn(`[失败] 自动重新登录失败: ${err.message}`);
       return false;
     } finally {
       this._reauthInFlight = false;
@@ -148,11 +348,13 @@ export class VrchatApiClient {
   /** 底层原始请求（无 401 自动重认证逻辑） */
   _requestRaw(method, path, body = null, customCookies = null) {
     return new Promise((resolve, reject) => {
-      const url = new URL(API_BASE + path);
+      const url = new URL(apiBase() + path);
+      const lib = pickRequestLib(url);
       const cookieStr = customCookies || (this.authCookie ? `auth=${this.authCookie}` : '');
 
       const options = {
         hostname: url.hostname,
+        port: url.port || undefined,
         path: url.pathname + url.search,
         method,
         headers: {
@@ -166,7 +368,7 @@ export class VrchatApiClient {
         options.headers['Content-Type'] = 'application/json';
       }
 
-      const req = https.request(options, (res) => {
+      const req = lib.request(options, (res) => {
         let chunks = [];
         res.on('data', (chunk) => chunks.push(chunk));
         res.on('end', () => {
@@ -185,8 +387,8 @@ export class VrchatApiClient {
       // [警告] 注：Node req.setTimeout 是「socket 空闲超时」(idle timeout)——仅在 socket 无任何
       //    活动时触发；「持续小流量但永不 end」的响应不会被它覆盖（由 rateLimiter 的
       //    任务级超时兜底，见 core/rate-limiter.js）。
-      req.setTimeout(REQUEST_TIMEOUT_MS, () => {
-        req.destroy(new Error(`VRChat API 请求超时 (${REQUEST_TIMEOUT_MS}ms): ${method} ${path}`));
+      req.setTimeout(requestTimeoutMs(), () => {
+        req.destroy(new Error(`VRChat API 请求超时 (${requestTimeoutMs()}ms): ${method} ${path}`));
       });
 
       req.on('error', reject);
@@ -306,9 +508,11 @@ export class VrchatApiClient {
    */
   async _basicAuthRequest(method, path, basicToken) {
     return new Promise((resolve, reject) => {
-      const url = new URL(API_BASE + path);
+      const url = new URL(apiBase() + path);
+      const lib = pickRequestLib(url);
       const options = {
         hostname: url.hostname,
+        port: url.port || undefined,
         path: url.pathname + url.search,
         method,
         headers: {
@@ -317,7 +521,7 @@ export class VrchatApiClient {
           'Authorization': `Basic ${basicToken}`,
         },
       };
-      const req = https.request(options, (res) => {
+      const req = lib.request(options, (res) => {
         let chunks = [];
         res.on('data', (chunk) => chunks.push(chunk));
         res.on('end', () => {
@@ -335,8 +539,8 @@ export class VrchatApiClient {
       // [警告] 注：Node req.setTimeout 是「socket 空闲超时」(idle timeout)——仅在 socket 无任何
       //    活动时触发；「持续小流量但永不 end」的响应不会被它覆盖（由 rateLimiter 的
       //    任务级超时兜底，见 core/rate-limiter.js）。
-      req.setTimeout(REQUEST_TIMEOUT_MS, () => {
-        req.destroy(new Error(`VRChat API 请求超时 (${REQUEST_TIMEOUT_MS}ms): ${method} ${path}`));
+      req.setTimeout(requestTimeoutMs(), () => {
+        req.destroy(new Error(`VRChat API 请求超时 (${requestTimeoutMs()}ms): ${method} ${path}`));
       });
 
       req.on('error', reject);
@@ -358,9 +562,10 @@ export class VrchatApiClient {
 
   async _rawRequest(method, path, body, cookieStr) {
     return new Promise((resolve, reject) => {
-      const url = new URL(API_BASE + path);
+      const url = new URL(apiBase() + path);
+      const lib = pickRequestLib(url);
       const options = {
-        hostname: url.hostname, path: url.pathname, method,
+        hostname: url.hostname, port: url.port || undefined, path: url.pathname, method,
         headers: {
           'User-Agent': 'VRCX-0-Actions-MCP/1.0',
           'Content-Type': 'application/json',
@@ -368,7 +573,7 @@ export class VrchatApiClient {
           ...(cookieStr ? { 'Cookie': cookieStr } : {}),
         },
       };
-      const req = https.request(options, (res) => {
+      const req = lib.request(options, (res) => {
         const chunks = [];
         res.on('data', (chunk) => chunks.push(chunk));
         res.on('end', () => resolve({ status: res.statusCode, data: Buffer.concat(chunks).toString('utf8'), headers: res.headers }));
@@ -378,8 +583,8 @@ export class VrchatApiClient {
       // [警告] 注：Node req.setTimeout 是「socket 空闲超时」(idle timeout)——仅在 socket 无任何
       //    活动时触发；「持续小流量但永不 end」的响应不会被它覆盖（由 rateLimiter 的
       //    任务级超时兜底，见 core/rate-limiter.js）。
-      req.setTimeout(REQUEST_TIMEOUT_MS, () => {
-        req.destroy(new Error(`VRChat API 请求超时 (${REQUEST_TIMEOUT_MS}ms): ${method} ${path}`));
+      req.setTimeout(requestTimeoutMs(), () => {
+        req.destroy(new Error(`VRChat API 请求超时 (${requestTimeoutMs()}ms): ${method} ${path}`));
       });
 
       req.on('error', reject);
@@ -694,7 +899,8 @@ export class VrchatApiClient {
 
   _multipartRequest(method, path, fileBuffer, filename, params, { fileFieldName = 'file', fileDisplayName = 'blob', contentType } = {}) {
     return new Promise((resolve, reject) => {
-      const url = new URL(API_BASE + path);
+      const url = new URL(apiBase() + path);
+      const lib = pickRequestLib(url);
       const boundary = `----VrcMonitorBoundary${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
       const cookieStr = this.authCookie ? `auth=${this.authCookie}` : '';
       const fieldName = fileFieldName || 'file';
@@ -723,6 +929,7 @@ export class VrchatApiClient {
 
       const options = {
         hostname: url.hostname,
+        port: url.port || undefined,
         path: url.pathname + url.search,
         method,
         headers: {
@@ -734,7 +941,7 @@ export class VrchatApiClient {
         },
       };
 
-      const req = https.request(options, (res) => {
+      const req = lib.request(options, (res) => {
         let chunks = [];
         res.on('data', (chunk) => chunks.push(chunk));
         res.on('end', () => {
@@ -753,8 +960,8 @@ export class VrchatApiClient {
       // [警告] 注：Node req.setTimeout 是「socket 空闲超时」(idle timeout)——仅在 socket 无任何
       //    活动时触发；「持续小流量但永不 end」的响应不会被它覆盖（由 rateLimiter 的
       //    任务级超时兜底，见 core/rate-limiter.js）。
-      req.setTimeout(REQUEST_TIMEOUT_MS, () => {
-        req.destroy(new Error(`VRChat API 请求超时 (${REQUEST_TIMEOUT_MS}ms): ${method} ${path}`));
+      req.setTimeout(requestTimeoutMs(), () => {
+        req.destroy(new Error(`VRChat API 请求超时 (${requestTimeoutMs()}ms): ${method} ${path}`));
       });
 
       req.on('error', reject);
@@ -790,8 +997,10 @@ export class VrchatApiClient {
   _downloadWithRedirects(url, redirectCount) {
     return new Promise((resolve, reject) => {
       const target = new URL(url);
+      const lib = pickRequestLib(target);
       const options = {
         hostname: target.hostname,
+        port: target.port || undefined,
         path: target.pathname + target.search,
         method: 'GET',
         headers: {
@@ -800,7 +1009,7 @@ export class VrchatApiClient {
         },
       };
 
-      const req = https.request(options, (res) => {
+      const req = lib.request(options, (res) => {
         // 302/301 重定向（VRChat 文件 URL → files.vrchat.cloud CDN 签名 URL）
         if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location) {
           if (redirectCount >= 5) {
@@ -832,8 +1041,8 @@ export class VrchatApiClient {
       // [警告] 注：Node req.setTimeout 是「socket 空闲超时」(idle timeout)——仅在 socket 无任何
       //    活动时触发；「持续小流量但永不 end」的响应不会被它覆盖（由 rateLimiter 的
       //    任务级超时兜底，见 core/rate-limiter.js）。
-      req.setTimeout(REQUEST_TIMEOUT_MS, () => {
-        req.destroy(new Error(`VRChat API 下载超时 (${REQUEST_TIMEOUT_MS}ms): ${url}`));
+      req.setTimeout(requestTimeoutMs(), () => {
+        req.destroy(new Error(`VRChat API 下载超时 (${requestTimeoutMs()}ms): ${url}`));
       });
 
       req.on('error', reject);

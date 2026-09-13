@@ -13,6 +13,7 @@
 
 import { ctx, log } from './server-context.js';
 import { HttpsProxyAgent } from 'https-proxy-agent';
+import { logExtFailure, logExtFallback } from './ext-log.js';
 import https from 'node:https';
 import http from 'node:http';
 import zlib from 'node:zlib';
@@ -960,6 +961,8 @@ export async function fetchCreatorTweets(screenName, { minTweets = 0 } = {}) {
       return { tweets: await enrichWorldsWithTco(tweets, screenName), source: 'browser' };
     } catch (e) {
       log(`[警告] x-world @${screenName} 浏览器抓取失败，回退 HTTP 通道：${e.message}`);
+      // 降级留痕：浏览器通道不可用 → 回退 Nitter/SearchTimeline（一次触发恰好一行）
+      logExtFallback('X', `@${screenName} 浏览器抓取`, `失败回退 HTTP 通道：${e.message}`);
       // 落到下方原 Nitter RSS → SearchTimeline 链
     }
   }
@@ -990,12 +993,14 @@ export async function fetchCreatorTweets(screenName, { minTweets = 0 } = {}) {
     } catch (e2) {
       const err = new Error(`@${screenName} Nitter / X SearchTimeline / 浏览器抓取均不可用（2026 上游反向爬 + 网络受限），该通道当前无法获取新推荐。`);
       err.code = 'X_FETCH_ALL_FAILED';
+      logExtFailure('X', `@${screenName} 三通道抓取`, err);
       throw err;
     }
   }
   if (tweets.length === 0) {
     const err = new Error(`@${screenName} Nitter / X SearchTimeline / 浏览器抓取均未返回推文（2026 上游反向爬 + 网络受限），该通道当前无法获取新推荐。`);
     err.code = 'X_FETCH_ALL_FAILED';
+    logExtFailure('X', `@${screenName} 三通道抓取`, '三通道均返回空（无推文）');
     throw err;
   }
   return { tweets: await enrichWorldsWithTco(tweets, screenName), source };
@@ -1089,6 +1094,7 @@ export async function scanCreatorWorlds({ force = false } = {}) {
       results.push({ screen_name: screen, name: creator.name || screen, tweets: tweets.length, worlds: saved });
     } catch (e) {
       log(`[失败] x-world scan @${screen}: ${e.message}`);
+      logExtFailure('X', `@${screen} 推荐抓取`, e, { durationMs: 0 });
       // 结构化错误：三通道均失败 → 用户可读的降级提示
       const errorInfo = e.code === 'X_FETCH_ALL_FAILED'
         ? `Nitter / X SearchTimeline / 浏览器抓取均不可用（2026 上游反向爬 + 网络受限），该通道当前无法获取新推荐。`
