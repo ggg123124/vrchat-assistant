@@ -8,6 +8,7 @@ import http from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { ctx, log } from './server-context.js';
 import { getLogger } from './logger.js';
+import { getExtStats } from './ext-log.js';
 import * as registry from './registry.js';
 
 // 命名日志：MCP 协议层（JSON-RPC 往返），请求日志默认降为 debug 级避免 ping/keepalive 刷屏
@@ -139,6 +140,13 @@ async function handleRequest(req, res) {
       totpAutoEnabled: !!(ctx.api?.totpFetcher),
       db: storage.getStats(),
       rateLimiter: rateLimiter.getStats(),
+      // 外部调用可观测性（只增字段）：VRChat API 客户端统计 + 外部服务失败/兜底统计。
+      // 设计：失败/超时/重试明细在 ops_log（get_ops_log kind=api|ext），此处只给聚合快照，
+      // payload 保持轻量（topFailures 限 5 条、不带堆栈）。
+      api: {
+        client: ctx.api?.getApiStats ? ctx.api.getApiStats() : null,
+        ext: getExtStats(),
+      },
       ws: wsManager?.getState(),
       friendState: friendState?.getStats(),
       eventPipeline: eventPipeline?.getStats(),
