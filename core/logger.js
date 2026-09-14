@@ -62,7 +62,6 @@ const state = {
   console: true,
   color: 'auto',
   suppress: [],
-  file: true,
   syslogPrefix: false,
   filePath: '',
   fileEnabled: false,
@@ -183,7 +182,6 @@ export function initLogger(options = {}) {
   state.console = cfg.console;
   state.color = cfg.color;
   state.suppress = cfg.suppress;
-  state.file = cfg.file;
   state.syslogPrefix = cfg.syslogPrefix;
   state.filePath = path.join(state.dir, 'monitor.log');
   state.fileEnabled = cfg.file;
@@ -500,7 +498,9 @@ export function getLoggerInfo() {
     format: state.format,
     dir: state.dir,
     filePath: state.filePath,
-    file: state.file,
+    // 报**生效值**而非配置值：目录不可写时会降级（fileEnabled=false + filePath=''），
+    // 若仍报配置的 true 会与空 filePath 自相矛盾、误导「日志在哪」的自诊断。
+    file: state.fileEnabled,
     console: state.console,
     syslogPrefix: state.syslogPrefix,
   };

@@ -87,9 +87,11 @@ Environment=VRC_MONITOR_DB_PATH=/data/vrc-monitor.sqlite3
 模板已默认设 `Environment=VRC_MONITOR_LOGGER_SYSLOG_PREFIX=1`：stdout 行会带 `<N>` 前缀（3=err 4=warn 6=info 7=debug），systemd 的 `SyslogLevelPrefix=` 默认开启，会把它解析成 journald 的 `PRIORITY` 字段，于是：
 
 ```bash
-journalctl --user -u vrc-monitor -p warning      # 只看 warn / err
+journalctl --user -u vrc-monitor -p warning      # 只看带级别的 warn / err（覆盖边界见下）
 journalctl --user -u vrc-monitor -p err -n 50
 ```
+
+> ⚠️ **覆盖边界（重要）**：`<N>` 前缀只由 `core/logger.js` 产出。`start-monitor.js` 的 `console.error` **直写**（`[崩溃] Uncaught Exception` / `Unhandled Rejection`、端口 8799 被占用、`credentials.json` 缺失 / 解析失败 / 缺字段等启动与致命路径，共 24 处）**不经 logger、不带前缀**；而 systemd **不会**按 stderr 推断级别——未带前缀的行 stdout / stderr 一律取默认 `PRIORITY=6`(info)。因此 `journalctl -p warning` **看不到这些行**，其中恰有最不该漏的崩溃与致命启动错误。排查这类问题请去掉 `-p`（或用 `-p info`），再按 `_COMM` / `SYSLOG_IDENTIFIER` 与正文关键字过滤。
 
 若 `-p` 过滤不到，先看 `/health.logging.syslogPrefix` 是否为 `true`（未开启则所有行都是默认 `info` 优先级）。
 
@@ -101,6 +103,8 @@ journalctl --user -u vrc-monitor -p err -n 50
 [Service]
 Environment=VRC_MONITOR_LOGGER_FILE=0        # 只留 journald（stdout 永远保留）
 ```
+
+> 副作用：关闭文件输出后，桌面 dashboard 日志页的**「文件」来源会一直显示未启用**（该来源按 `<LOG_DIR>/monitor.log` 是否存在判定），且它与 journald 来源不再有可交叉核对的同一批行；此时请改用 journald 来源 / `journalctl` 查看。`/health.logging` 的 `file` 会同步为 `false`、`filePath` 为空串。
 
 反向（文件为准、journald 仅兜底）可设 `Environment=VRC_MONITOR_LOGGER_CONSOLE=0`——**不推荐**：容器 / 无文件场景会丢日志（DEVELOPMENT.md §3.8「stdout 永远保留」）。
 
@@ -128,9 +132,9 @@ Environment=VRC_MONITOR_LOGGER_DIR=%L/vrc-monitor
 - **journald 原生 JSON**（无需改应用配置）：`journalctl` 的 `-o json` 每条输出带 `PRIORITY` / `_PID` / `__REALTIME_TIMESTAMP` / `SYSLOG_IDENTIFIER` 等字段，可直接按字段过滤：
   ```bash
   journalctl --user -u vrc-monitor -o json -n 500 \
-    | jq -r 'select(.PRIORITY <= "4") | .MESSAGE'      # 只看 warn(4)/err(3)
+    | jq -r 'select(.PRIORITY <= "4") | .MESSAGE'      # 只看带级别的 warn(4)/err(3)
   ```
-  （`PRIORITY` 依赖 `VRC_MONITOR_LOGGER_SYSLOG_PREFIX=1`，见上；未开时所有行默认 `6`。）
+  （`PRIORITY` 依赖 `VRC_MONITOR_LOGGER_SYSLOG_PREFIX=1`，见上；未开时所有行默认 `6`。**开启前缀后，不经 `core/logger.js` 的直写行（`console.error`）仍为 `6`**——覆盖边界见「按级别过滤」。）
 - **应用 JSONL**：设 `VRC_MONITOR_LOGGER_FORMAT=json` 后，**文件**日志变为每行一个 JSON（`ts`/`level`/`name`/`msg`/`pid`），便于离线解析与留档；stdout 侧（journald）的 `MESSAGE` 也会是同一 JSON 文本。
 
 ## 与 Windows 方案的差异
@@ -189,7 +193,7 @@ A: 无 systemd 用户实例（容器 / WSL / SSH 无会话）。在桌面会话�
 A: 默认两处——journald（`journalctl --user -u vrc-monitor -f`）与文件 `<仓库>/logs/monitor.log`（应用 `core/logger.js` 自带轮转）。当前生效配置见 `curl -s http://127.0.0.1:8799/health | jq .logging`（level/format/dir/filePath/file/console/syslogPrefix）。不需要文件留存时设 `VRC_MONITOR_LOGGER_FILE=0` 只留 journald。注意 `VRC_MONITOR_LOG_DIR` 是 Windows 方案的目录，与本服务的 `VRC_MONITOR_LOGGER_DIR` **不同名不同义**，勿混用。
 
 **Q: `journalctl -p warning` 过滤不到日志？**
-A: 级别过滤依赖 stdout 行的 `<N>` 前缀。确认 `/health.logging.syslogPrefix` 为 `true`；模板已默认设 `VRC_MONITOR_LOGGER_SYSLOG_PREFIX=1`，手动安装的旧单元需补上并 `daemon-reload`。
+A: 两种成因。①**尚未启用前缀**：确认 `/health.logging.syslogPrefix` 为 `true`；模板已默认设 `VRC_MONITOR_LOGGER_SYSLOG_PREFIX=1`，手动安装的旧单元需补上并 `daemon-reload`。②**该行本就无级别**：`start-monitor.js` 的 `console.error` 直写（崩溃、端口占用、`credentials.json` 缺失/解析失败等启动与致命路径）不经 `core/logger.js`，systemd 不按 fd 推断级别、一律记为 `PRIORITY=6`(info)，`-p warning` 天然过滤掉——排查这类问题请去掉 `-p`（见「按级别过滤」的覆盖边界）。
 
 **Q: 服务反复崩溃后 systemd 停止重启了？**
 A: 模板已设启动护栏 `StartLimitIntervalSec=60` + `StartLimitBurst=5`（60s 内最多启 5 次），防止崩溃循环刷屏。确认配置无误后用 `systemctl --user reset-failed vrc-monitor` 清除计数再启动；确需放宽可 drop-in 设 `StartLimitIntervalSec=0`（关闭护栏）。

@@ -13,7 +13,7 @@
  */
 import { test, before, after, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, rmSync, readFileSync, mkdirSync } from 'node:fs';
+import { existsSync, rmSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -47,9 +47,9 @@ before(() => {
 });
 after(() => {
   restoreConsole();
+  // 只清理本测试自建的临时目录。绝不动 <仓库>/logs —— 那是默认配置下**正在写**的生产
+  // 日志目录（VRC_MONITOR_LOGGER_DIR 默认 <仓库>/logs），删它会误删线上日志。
   rmSync(rundir, { recursive: true, force: true });
-  // 兜底：默认目录用例不应发生（全部显式 dir），仍防御性清理
-  rmSync(path.join(REPO, 'logs'), { recursive: true, force: true });
 });
 
 beforeEach(() => captureConsole());
@@ -120,4 +120,21 @@ test('getLoggerInfo：file=false 时 filePath 为空字符串', () => {
   const info = getLoggerInfo();
   assert.equal(info.file, false);
   assert.equal(info.filePath, '');
+});
+
+test('getLoggerInfo：目录不可写降级时 file 报生效值 false（与空 filePath 不矛盾）', () => {
+  // 用占位文件把父路径变成非目录 → mkdirSync 必然失败，走「降级为仅 console」分支
+  const blocker = path.join(rundir, 'blocker-file');
+  writeFileSync(blocker, '');
+  initLogger({
+    dir: path.join(blocker, 'logs'),
+    level: 'info',
+    format: 'text',
+    console: false,
+    file: true,
+    syslogPrefix: false,
+  });
+  const info = getLoggerInfo();
+  assert.equal(info.filePath, '');
+  assert.equal(info.file, false, '降级后须报生效值 false，不能仍报配置的 true');
 });

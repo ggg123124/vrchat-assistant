@@ -34,6 +34,7 @@ StandardError=journal
 SyslogIdentifier=vrc-monitor
 # journald 单单元限流（默认 30s/10000 条，超出丢弃并记录 dropped 计数）。
 # 服务日志量已做噪音治理，一般无需调整；批量刷新/排障期可抬高上限，避免关键行被丢。
+# 注意：本项 systemd ≥ 240 才支持（更旧的发行版会忽略并留 unknown-key 告警，护栏不生效）。
 LogRateLimitIntervalSec=30s
 LogRateLimitBurst=20000
 # 级别前缀：给 stdout 行加 `<N>`（3=err 4=warn 6=info 7=debug），systemd 的
