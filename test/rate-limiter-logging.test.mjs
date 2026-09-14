@@ -66,8 +66,21 @@ test('等待 >1000ms：聚合 INFO 一行 + slowWaits 计数（minInterval=1100�
   const s = rl.getStats();
   assert.equal(s.slowWaits, 1, 'slowWaits 语义不变：第二次调用等待 ~1100ms 计 1 次');
   const agg = cap.lines.info.find((l) => l.includes('限流等待聚合')) || '';
-  assert.match(agg, /限流等待聚合（近 \d+s 无新等待）：1 次，累计 1\d{3}ms，单次最长 1\d{3}ms，队列峰值 \d+/);
+  // manual 触发（flushSlowWaitAgg）用与事实相符的措辞，不复用「近 Ns 无新等待」（审查 #193 💡B）
+  assert.match(agg, /限流等待聚合（flush 触发，跨度 \d+s）：1 次，累计 1\d{3}ms，单次最长 1\d{3}ms，队列峰值 \d+/);
   assert.equal(cap.lines.warn.length, 0);
+});
+
+test('真实空闲窗口到期 → 自然输出（不依赖 manual flush），措辞为「近 Ns 无新等待」', async () => {
+  const rl = new RateLimiter({ minInterval: 1050, maxQueueSize: 10, taskTimeoutMs: 5000, slowWaitIdleMs: 250 });
+  const cap = captureConsole();
+  await rl.execute(async () => 1);   // 首次不等待
+  await rl.execute(async () => 2);   // 1 次慢等待 → 启动 250ms 去抖窗口
+  await new Promise((r) => setTimeout(r, 500));   // 等窗口自然到期（不调用 flushSlowWaitAgg）
+  cap.restore();
+  const aggs = cap.lines.info.filter((l) => l.includes('限流等待聚合'));
+  assert.equal(aggs.length, 1, `空闲窗口应自然输出 1 行: ${JSON.stringify(aggs)}`);
+  assert.match(aggs[0], /限流等待聚合（近 \d+s 无新等待）：1 次/);
 });
 
 test('串行批刷新突发：N 次慢等待 → 1 行聚合，计数/累计/峰值准确（issue #192 主场景）', async () => {

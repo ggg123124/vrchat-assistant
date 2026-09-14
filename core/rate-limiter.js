@@ -110,7 +110,11 @@ export class RateLimiter {
     this._slowAgg = null;
     if (!a || a.count === 0) return;
     const secs = Math.max(1, Math.round(spanMs / 1000));
-    const scope = reason === 'cap' ? `持续饱和 ≥${secs}s` : `近 ${secs}s 无新等待`;
+    // 三种触发各用与事实相符的措辞（审查 #193 💡B）：manual 由 flushSlowWaitAgg() 触发
+    // （生产路径=进程退出/beforeExit），不应复用「近 Ns 无新等待」——那描述的是空闲窗口自然到期。
+    const scope = reason === 'cap'
+      ? `持续饱和 ≥${secs}s`
+      : (reason === 'manual' ? `flush 触发，跨度 ${secs}s` : `近 ${secs}s 无新等待`);
     log.info(
       `限流等待聚合（${scope}）：${a.count} 次，累计 ${a.sumMs}ms，单次最长 ${a.maxMs}ms，队列峰值 ${a.maxQueue}`
     );
