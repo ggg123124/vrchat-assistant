@@ -7,7 +7,7 @@
 import http from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { ctx, log } from './server-context.js';
-import { getLogger } from './logger.js';
+import { getLogger, getLoggerInfo } from './logger.js';
 import { getExtStats } from './ext-log.js';
 import * as registry from './registry.js';
 
@@ -28,6 +28,9 @@ export function buildHealthStatus({ ctx: c, storage, rateLimiter, wsManager, fri
     totpAutoEnabled: !!(c.api?.totpFetcher),
     db: storage.getStats(),
     rateLimiter: rateLimiter.getStats(),
+    // 日志配置快照（只读、只增字段）：暴露当前级别/格式/落盘路径/文件与 console 开关/
+    // syslog 前缀，便于排查「日志写到哪、为什么 journalctl 里没有/重复」。
+    logging: getLoggerInfo(),
     // 外部调用可观测性（只增字段）：VRChat API 客户端统计 + 外部服务失败/兜底统计。
     // 设计：失败/超时/重试明细在 ops_log（get_ops_log kind=api|ext），此处只给聚合快照，
     // payload 保持轻量（topFailures 限 5 条、不带堆栈）。

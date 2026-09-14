@@ -16,6 +16,10 @@
 [Unit]
 Description=VRChat 好友监控服务 (vrc-monitor)
 Documentation=https://github.com/ggg123124/vrchat-assistant
+# 崩溃循环护栏：60s 内最多启动 5 次，超过则停手（防崩溃循环把 journald 刷屏）。
+# 命中后 `systemctl --user reset-failed vrc-monitor` 可清除计数后重试。
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -28,6 +32,18 @@ RestartSec=5
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=vrc-monitor
+# journald 单单元限流（默认 30s/10000 条，超出丢弃并记录 dropped 计数）。
+# 服务日志量已做噪音治理，一般无需调整；批量刷新/排障期可抬高上限，避免关键行被丢。
+LogRateLimitIntervalSec=30s
+LogRateLimitBurst=20000
+# 级别前缀：给 stdout 行加 `<N>`（3=err 4=warn 6=info 7=debug），systemd 的
+# SyslogLevelPrefix= 默认开启，会把它解析成 journald 的 PRIORITY 字段——
+# 于是 `journalctl --user -u vrc-monitor -p warning` 按级别过滤才真正生效。
+# 只影响 stdout；文件日志（若启用）保持原格式。
+Environment=VRC_MONITOR_LOGGER_SYSLOG_PREFIX=1
+# 独立日志命名空间（systemd ≥ 245）。启用后本单元日志只存于该命名空间，
+# 需用 `journalctl --namespace=vrc-monitor` 查看（默认命令看不到，按需开启）。
+# LogNamespace=vrc-monitor
 # ---- 可选环境变量（按需取消注释；或用 systemctl --user edit vrc-monitor 写 drop-in）----
 # OTP 自动登录需要 python 解释器。systemd 用户服务的 PATH 较精简，
 # 若 PATH 中找不到 python（只有 python3 等），必须指定解释器，
@@ -39,6 +55,12 @@ SyslogIdentifier=vrc-monitor
 # 数据目录可迁移到独立数据盘（默认在仓库内）：
 # Environment=VRC_MONITOR_DB_PATH=/data/vrc-monitor.sqlite3
 # Environment=VRC_MONITOR_BACKUP_DIR=/data/vrc-monitor-backups
+# 日志目录（默认 <仓库>/logs）。交给 systemd 管理的目录（systemd ≥ 235，用户服务下
+# 落在 $XDG_STATE_HOME/log/，%L 为其根）：
+#   LogsDirectory=vrc-monitor
+#   Environment=VRC_MONITOR_LOGGER_DIR=%L/vrc-monitor
+# 若日志已由 journald 采集、不需要本地文件留存，可关闭文件输出避免「文件 + journald」双份：
+# Environment=VRC_MONITOR_LOGGER_FILE=0
 
 [Install]
 WantedBy=default.target

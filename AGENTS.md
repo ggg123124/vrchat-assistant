@@ -99,8 +99,10 @@
 - `VRC_MONITOR_LOGGER_MAX_SIZE`：单文件轮转阈值字节（默认 `10485760`=10MB）。
 - `VRC_MONITOR_LOGGER_MAX_FILES`：保留的已轮转 .gz 份数（默认 `5`）。
 - `VRC_MONITOR_LOGGER_SUPPRESS`：逗号分隔子串列表，命中即整条丢弃（如 `ping,keepalive` 压 MCP 保活噪音）。
-- `VRC_MONITOR_LOGGER_CONSOLE`：是否同时写 stdout（默认 `1`；`0` 仅写文件，一般不建议）。
+- `VRC_MONITOR_LOGGER_CONSOLE`：是否同时写 stdout（默认 `1`；`0` 仅写文件，一般不建议——容器/systemd 采集靠 stdout，DEVELOPMENT.md §3.8）。
 - `VRC_MONITOR_LOGGER_COLOR`：text 格式是否加 ANSI 色（默认 `auto`，写文件永无色）。
+- `VRC_MONITOR_LOGGER_FILE`：是否写文件日志（默认 `1`）。设 `0` 时**不建日志目录、不写 `monitor.log`**，仅保留 stdout（供 systemd/journald 场景避免「文件 + journald」双份落盘）；`/health.logging.file` 反映当前值。
+- `VRC_MONITOR_LOGGER_SYSLOG_PREFIX`：设为 `1` 时给 **stdout** 行加 syslog 优先级前缀 `<N>`（3=err 4=warn 6=info 7=debug），systemd 的 `SyslogLevelPrefix=`（默认开）会解析成 journald 的 `PRIORITY`，使 `journalctl -p warning` 等按级别过滤生效。**只影响 stdout，文件日志永不加前缀**；开启时 stdout 不着色。`service-linux/` 单元模板已默认设 `1`。默认关闭。
 - `VRC_MONITOR_LOG_API_SUCCESS`：设为 `1` 时**成功的 API 调用也记 INFO**（默认关闭——成功且快的调用只落 debug，避免逐条刷屏）。慢调用（>2000ms）无论该开关如何都会升格 INFO。**开启后会明显放大日志量，仅供临时排障**，建议配合 `VRC_MONITOR_LOGGER_SUPPRESS` 或改完即关。
 - `VRC_MONITOR_API_BASE`：**测试/调试开关**，覆盖 VRChat REST 基址（生产默认 `https://api.vrchat.cloud/api/1`）。只接受 `https` 或**回环 http**（`127.0.0.1` / `localhost` / `[::1]`，用于本地 stub）；非回环 `http://` 一律忽略并留一行 WARN（明文网关会泄露 auth cookie）。
 - `VRC_MONITOR_API_TIMEOUT_MS`：**测试/调试开关**，覆盖单请求 socket 空闲超时（生产默认 `15000`ms）。
