@@ -93,6 +93,8 @@ jq -r 'select(.level=="error") | "\(.ts) [\(.name)] \(.msg)"' "$VRC_MONITOR_LOGG
 
 > 为什么需要 cookie：Nitter 公共实例 2026 年起被反爬墙大面积拦截、X 的匿名搜索接口返回 404，只有登录态能稳定取到博主的时间线；未配置时该通道降级失败但**不影响其他功能**。
 > cookie 数月会过期，届时按同样步骤重新导出即可（报错会明确提示「cookie 失效」）。也可以在仓库根 `.env` 里用 `VRC_MONITOR_X_COOKIE_FILE` 指定别的路径。
+>
+> **可调项**（一般无需改）：博主间请求间隔 `VRC_MONITOR_X_CREATOR_DELAY_MS`（默认 1200ms）、命中限流后的退避窗口 `VRC_MONITOR_X_RATE_LIMIT_BACKOFF_MS`（默认 5 分钟）、两个 GraphQL queryId（`VRC_MONITOR_X_USERTWEETS_QUERY_ID` / `VRC_MONITOR_X_USERBYSCREENNAME_QUERY_ID`，X 轮换前端时按报错提示更新）。完整清单见 `AGENTS.md`「设置环境变量」章节。
 
 ## 🛠 故障排查
 
