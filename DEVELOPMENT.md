@@ -109,7 +109,7 @@ PR 由 AI Agent 编写提交（人类只提出需求、不直接编码）。以�
   - `VRC_MONITOR_X_MIN_TWEETS`：Nitter RSS 返回推文数低于该值时，尝试用 X SearchTimeline 补充并合并去重（默认 0 = 仅当 Nitter 完全失败才降级；设 >0 让高频博主「Nitter 只回 ~20 条覆盖不全」时也触发补充，缓解漏抓）。
   - `VRC_MONITOR_X_PLAYWRIGHT`：Playwright 浏览器抓取开关。默认开启（`1`/`true`/空），设为 `0` 时禁用浏览器通道，直接走 Nitter RSS → SearchTimeline 链。
   - `VRC_MONITOR_X_PLAYWRIGHT_INSTANCES`：浏览器抓取入口实例列表，逗号分隔（默认 `https://nitter.tiekoetter.com`）。可配置多个 Nitter 实例作为回退。
-  - `VRC_MONITOR_X_PLAYWRIGHT_CHANNEL`：Playwright 浏览器通道（默认 `msedge`）。可选 `msedge`、`chrome`、`chromium`，需已安装对应浏览器且 Playwright 已 `npx playwright install`。
+  - `VRC_MONITOR_X_PLAYWRIGHT_CHANNEL`：Playwright 浏览器通道（默认 `auto`——依次尝试 `msedge` → `chrome` → `chromium`，全部不可用则浏览器通道失败并降级）。可选值 `auto`、`msedge`、`chrome`、`chromium`；需已安装对应浏览器且 Playwright 已 `npx playwright install`。
   - `VRC_MONITOR_X_PLAYWRIGHT_TIMEOUT_MS`：浏览器 goto / waitForSelector 超时（默认 45000 ms）。
   - `VRC_MONITOR_X_RESOLVE_TCO`：t.co 短链解包开关。默认开启（`1`/`true`/空），设 `0` 时关闭。推文里的世界链接常被 X 压缩成 `https://t.co/XXXX` 短链（探跡家もっけい、fox_yata9 等博主的世界推荐全在短链里），t.co 现在返回 **200 HTML + `<meta refresh>`**（非 HTTP 302），抓 body 解析 `URL=` 才能拿到真实 `wrld_` 链接。解包在 `fetchCreatorTweets` 统一入口对三个通道（浏览器/Nitter/SearchTimeline）批量执行（并发 3、单链接超时 8s、整体 30s），失败静默、不影响主流程。
   - **浏览器抓取现在作为 `x_scan_creators` / `x_world_digest` 的默认主通道**（Nitter RSS / SearchTimeline 2026 已失效，保留作降级）。
