@@ -283,13 +283,21 @@ export class SocialAnalytics {
     const ph = ids.map((_, i) => `$w${i}`).join(',');
     const params = {};
     ids.forEach((w, i) => { params[`$w${i}`] = w; });
+    // 名字来源优先级（2026-09-15 修正）：**world_cache（可刷新）优先**，事件快照兜底。
+    // 原实现只读 events.world_name——那是位置事件发生时的快照，世界作者改名后永远显示旧名
+    // （实测：Idle Merchant 掛機商人 V0.1.4 → V0.3.1，缓存/事件双双停在旧名 11 天）。
     const rows = this.storage.query(
-      `SELECT world_id, world_name FROM events WHERE world_id IN (${ph}) AND world_name != ''
-       GROUP BY world_id, world_name ORDER BY MAX(created_at) DESC`,
+      `SELECT e.world_id AS world_id,
+              COALESCE(NULLIF(wc.name, ''), e.world_name) AS world_name,
+              MAX(e.created_at) AS last_at
+         FROM events e LEFT JOIN world_cache wc ON wc.world_id = e.world_id
+        WHERE e.world_id IN (${ph})
+        GROUP BY e.world_id
+        ORDER BY last_at DESC`,
       params
     );
     for (const r of rows) {
-      if (!out.has(r.world_id)) out.set(r.world_id, r.world_name);
+      if (r.world_name && !out.has(r.world_id)) out.set(r.world_id, r.world_name);
     }
     return out;
   }

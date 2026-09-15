@@ -16,7 +16,7 @@ const statusOrder = [
   { v: 'busy', l: '请勿打扰' },
 ];
 // 分组/折叠/签名/状态点统一走公共 composable（C5，与好友位置页一致，避免两边漂移）
-const { collapsed, toggleGroup, isCollapsed, sameInstanceOf, sameWorldOf, groupByWorld, statusText, locText, avatarOf, groupIcon, nameFor } = useFriendGroups();
+const { collapsed, toggleGroup, isCollapsed, sameInstanceOf, sameWorldOf, groupByWorld, statusText, locText, avatarOf, groupIcon, nameFor, roomLabelOf } = useFriendGroups();
 
 const friends = computed(() => store.friends || []);
 const qf = computed(() => {
@@ -194,7 +194,8 @@ async function submitStatus() {
           <div class="wg-head" role="button" tabindex="0" title="点击折叠/展开" @click="toggleGroup('w:' + (g.worldId || g.label) + '#' + gi)" @keydown.enter="toggleGroup('w:' + (g.worldId || g.label) + '#' + gi)">
             <img v-if="groupIcon(g)" :src="groupIcon(g)" class="wg-thumb" alt="" loading="lazy" />
             <span :title="g.label">{{ g.label }}</span>
-            <span v-if="g.loc" class="wg-loc" @click.stop="openInstance(g.list[0].location)" :title="'查看房间信息'">{{ g.loc }}</span>
+            <span v-if="g.loc && !g.mixedRooms" class="wg-loc" @click.stop="openInstance(g.list[0].location)" :title="'查看房间信息'">{{ g.loc }}</span>
+            <span v-if="g.mixedRooms" class="wg-mixed" :title="'该世界下有多个房间，成员分别在不同房间'">（{{ g.roomCount }} 房间）</span>
             <span class="wg-num">{{ g.list.length }}</span>
             <i class="pi wg-arrow" :class="isCollapsed('w:' + (g.worldId || g.label) + '#' + gi) ? 'pi-chevron-down' : 'pi-chevron-up'"></i>
           </div>
@@ -203,6 +204,7 @@ async function submitStatus() {
               <Avatar :image="avatarOf(f)" shape="circle" size="small" :label="avatarLabel(avatarOf(f), f.displayName)" />
               <div class="rf-text">
                 <b :style="{ color: trustColor(f.trustLevel) }">{{ nameFor(f) }}</b><i v-if="store.watchlistIds.has(f.userId)" class="pi pi-eye rb-watch" title="关注名单"></i>
+                <small v-if="g.mixedRooms && roomLabelOf(f)" class="rf-room" @click.stop="openInstance(f.location)" :title="'查看房间信息'"><i class="pi pi-map-marker"></i> {{ roomLabelOf(f) }}</small>
                 <small><span class="rf-dot" :style="friendDotStyle(f)"></span>{{ statusText(f) }}<i v-if="platformIcon(f.platform)" class="pi rf-plat" :class="platformIcon(f.platform)" :title="platformLabel(f.platform)"></i></small>
               </div>
             </div>
@@ -387,6 +389,11 @@ async function submitStatus() {
 }
 .wg.accent .wg-head { background: color-mix(in srgb, var(--accent) 14%, var(--surface-2)); color: var(--text); }
 .wg-head span:nth-child(2) { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wg-mixed {
+  font-size: 10px;
+  color: var(--text-dim, #8a93a3);
+  white-space: nowrap;
+}
 .wg-loc {
   font-size: 9.5px;
   color: var(--text-dim);

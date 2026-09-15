@@ -49,6 +49,18 @@ export function useFriendGroups() {
     return (list || []).filter((f) => f.worldId === wid && f.location !== myLoc && !si.has(f.userId) && !isWebOnline(f));
   }
 
+  // 实例键（location 里 `worldId:` 之后整段，含 ~region/~hidden 等修饰）——判断「是否同一房间」
+  function instanceKeyOf(f) {
+    const loc = (f && f.location) || '';
+    const i = loc.indexOf(':');
+    return i > 0 ? loc.slice(i + 1) : '';
+  }
+  // 房间标签（如「好友+ · JP · 41317」）——世界分组内每张卡片用它标明自己所在的房间
+  function roomLabelOf(f) {
+    const loc = (f && f.location) || '';
+    return loc && loc !== 'offline' && loc !== 'traveling' ? locLabelFull(loc) : '';
+  }
+
   // 世界分组：按 worldId 分组 + 网页端在线独立组（签名优先规则在 statusText）
   // 同实例 / 同世界好友不进世界分组（各自有专属分组区，避免同一人出现两处）
   function groupByWorld(list) {
@@ -66,11 +78,17 @@ export function useFriendGroups() {
       const named = l[0].worldName && l[0].worldName !== wid;
       // 无名世界：用地点语义区分（private=私密实例 / local / none=未公开位置），避免多个同名分组
       const fallback = wid === 'private' ? '私密实例' : '未公开位置';
+      // 房间维度（2026-09-15）：同一世界的不同实例此前会被当成一个组、组标题只有世界名，
+      // 用户看到两人像在一起、实际不在同一房间（实测实例号 41317 vs 03806）。这里补出房间数，
+      // 由视图在组头标注「N 个房间」、并在成员卡片上显示各自房间标签。
+      const roomKeys = new Set(l.map((f) => instanceKeyOf(f)).filter(Boolean));
       return {
         label: named ? l[0].worldName : fallback,
         list: l,
         worldId: wid,
         loc: named ? locLabelFull(l[0].location) : '',
+        roomCount: roomKeys.size,
+        mixedRooms: roomKeys.size > 1,
       };
     });
     if (web.length) gs.push({ label: '网页端在线', list: web });
@@ -95,5 +113,5 @@ export function useFriendGroups() {
   }
   function nameFor(f) { return store.nicknameMap[f.userId] || f.displayName || '?'; }
 
-  return { collapsed, toggleGroup, isCollapsed, sameInstanceOf, sameWorldOf, myWorldId, groupByWorld, statusText, locText, avatarOf, groupIcon, nameFor };
+  return { collapsed, toggleGroup, isCollapsed, sameInstanceOf, sameWorldOf, myWorldId, groupByWorld, statusText, locText, avatarOf, groupIcon, nameFor, instanceKeyOf, roomLabelOf };
 }
