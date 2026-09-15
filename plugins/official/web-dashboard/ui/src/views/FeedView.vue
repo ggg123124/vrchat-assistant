@@ -550,7 +550,7 @@ onUnmounted(() => {
             <span class="dim">更新了头像图标</span>
             <img v-if="x.previousUserIcon" class="uicon" :src="x.previousUserIcon" alt="" loading="lazy" />
             <span v-if="x.previousUserIcon && x.userIcon" class="av-arrow" aria-hidden="true">→</span>
-            <img v-if="x.userIcon" class="uicon" :src="x.userIcon" alt="" loading="lazy" @click="openPreview(x.userIcon)" />
+            <img v-if="x.userIcon" class="uicon" :src="x.userIcon" alt="" loading="lazy"  />
             <span v-if="!x.previousUserIcon && !x.userIcon" class="dim">（图片未取到）</span>
           </template>
 
@@ -658,7 +658,7 @@ onUnmounted(() => {
             <b class="ed-ellip">{{ x.previousPronouns || '(空)' }} → {{ x.pronouns || '(空)' }}</b></div>
           <div v-if="x.updateType === 'user_icon'" class="ed-cell"><span>头像图标</span>
             <b class="ed-ellip">{{ x.previousUserIcon ? '已更换' : '已设置' }}</b>
-            <img v-if="x.userIcon" class="uicon" :src="x.userIcon" alt="" loading="lazy" @click="openPreview(x.userIcon)" /></div>
+            <img v-if="x.userIcon" class="uicon" :src="x.userIcon" alt="" loading="lazy"  /></div>
           <div v-if="x.previousStatus && x.previousStatus !== x.status" class="ed-cell"><span>状态</span>
             <span class="slamp" :style="{ background: statusColor(x.previousStatus) }" :title="statusText(x.previousStatus)"></span>
             <span class="arr">→</span>
