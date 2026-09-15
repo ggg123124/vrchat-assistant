@@ -123,7 +123,7 @@ function offlineSince(f) {
             <div class="fc-text">
               <b :style="{ color: trustColor(f.trustLevel) }">{{ nameFor(f) }}</b>
               <small v-if="f.memo" class="fc-memo" :title="'备注：' + f.memo">{{ f.memo }}</small>
-              <small v-if="roomLabelOf(f)" class="fc-loc" @click.stop="openInstance(f.location)" :title="'查看房间信息（同一世界下的不同房间会分别标注）'"><i class="pi pi-map-marker"></i> {{ roomLabelOf(f) }}</small>
+              <small v-if="g.mixedRooms && roomLabelOf(f)" class="fc-loc" @click.stop="openInstance(f.location)" :title="'查看房间信息（同一世界下的不同房间会分别标注）'"><i class="pi pi-map-marker"></i> {{ roomLabelOf(f) }}</small>
               <small><span class="fc-dot" :style="friendDotStyle(f)"></span>{{ statusText(f) }}<span v-if="locText(f)"> · {{ locText(f) }}</span><i v-if="platformIcon(f.platform)" class="pi fc-plat" :class="platformIcon(f.platform)" :title="platformLabel(f.platform)"></i><template v-if="onlineSince(f)"> · {{ onlineSince(f) }}</template></small>
             </div>
           </div>
@@ -146,7 +146,7 @@ function offlineSince(f) {
             <div class="fc-text">
               <b :style="{ color: trustColor(f.trustLevel) }">{{ nameFor(f) }}</b>
               <small v-if="f.memo" class="fc-memo" :title="'备注：' + f.memo">{{ f.memo }}</small>
-              <small v-if="roomLabelOf(f)" class="fc-loc" @click.stop="openInstance(f.location)" :title="'查看房间信息（同一世界下的不同房间会分别标注）'"><i class="pi pi-map-marker"></i> {{ roomLabelOf(f) }}</small>
+              <small v-if="g.mixedRooms && roomLabelOf(f)" class="fc-loc" @click.stop="openInstance(f.location)" :title="'查看房间信息（同一世界下的不同房间会分别标注）'"><i class="pi pi-map-marker"></i> {{ roomLabelOf(f) }}</small>
               <small><span class="fc-dot" :style="friendDotStyle(f)"></span>{{ statusText(f) }}<i v-if="platformIcon(f.platform)" class="pi fc-plat" :class="platformIcon(f.platform)" :title="platformLabel(f.platform)"></i><template v-if="onlineSince(f)"> · {{ onlineSince(f) }}</template></small>
             </div>
           </div>

@@ -204,7 +204,7 @@ async function submitStatus() {
               <Avatar :image="avatarOf(f)" shape="circle" size="small" :label="avatarLabel(avatarOf(f), f.displayName)" />
               <div class="rf-text">
                 <b :style="{ color: trustColor(f.trustLevel) }">{{ nameFor(f) }}</b><i v-if="store.watchlistIds.has(f.userId)" class="pi pi-eye rb-watch" title="关注名单"></i>
-                <small v-if="g.mixedRooms && roomLabelOf(f)" class="rf-room" @click.stop="openInstance(f.location)" :title="'查看房间信息'"><i class="pi pi-map-marker"></i> {{ roomLabelOf(f) }}</small>
+                <small v-if="g.mixedRooms && roomLabelOf(f)" @click.stop="openInstance(f.location)" :title="'查看房间信息'"><i class="pi pi-map-marker"></i> {{ roomLabelOf(f) }}</small>
                 <small><span class="rf-dot" :style="friendDotStyle(f)"></span>{{ statusText(f) }}<i v-if="platformIcon(f.platform)" class="pi rf-plat" :class="platformIcon(f.platform)" :title="platformLabel(f.platform)"></i></small>
               </div>
             </div>

@@ -21,6 +21,7 @@ const REPO = path.join(__dirname, '..');
 const { ctx } = await import(pathToFileURL(path.join(REPO, 'core', 'server-context.js')).href);
 const { Storage } = await import(pathToFileURL(path.join(REPO, 'core', 'storage.js')).href);
 const { registerDashboardServices } = await import(pathToFileURL(path.join(REPO, 'core', 'dashboard-services.js')).href);
+const { SocialAnalytics } = await import(pathToFileURL(path.join(REPO, 'core', 'analytics', 'social.js')).href);
 
 const tmpDb = path.join(__dirname, 'test-world-freshness.sqlite3');
 for (const f of [tmpDb, tmpDb + '-wal', tmpDb + '-shm']) { try { rmSync(f, { force: true }); } catch {} }
@@ -101,4 +102,33 @@ test('TTL 预热：缓存新鲜（刚刚更新）时不触发回源（不做多�
   } finally {
     loader.services.set('dashboard.world', real);
   }
+});
+
+function seedEvent({ worldId, worldName, createdAt }) {
+  ctx.storage.db.prepare(
+    `INSERT INTO events (user_id, display_name, type, world_id, world_name, content_json, created_at)
+     VALUES ('usr_a', 'A', 'friend-location', ?, ?, '{}', ?)`
+  ).run(worldId, worldName || '', createdAt);
+}
+
+test('_resolveWorldNames：最新事件空名 + 更早非空名 + 无缓存 → 恢复「最近的非空名」（审查 ⚠️1）', async () => {
+  ctx.storage.db.prepare('DELETE FROM events').run();
+  ctx.storage.db.prepare('DELETE FROM world_cache').run();
+  seedEvent({ worldId: WID, worldName: '早期抓到（V1）', createdAt: '2026-09-01T00:00:00Z' });
+  seedEvent({ worldId: WID, worldName: '', createdAt: '2026-09-10T00:00:00Z' });   // 最新事件空名
+  const sa = new SocialAnalytics(ctx.storage);
+  const out = sa._resolveWorldNames([WID]);
+  assert.equal(out.get(WID), '早期抓到（V1）', '应回落到最近的**非空**事件名，而不是空串');
+});
+
+test('_resolveWorldNames：缓存有新名时优先缓存（即使事件最新名为空）', async () => {
+  ctx.storage.db.prepare('DELETE FROM events').run();
+  ctx.storage.db.prepare('DELETE FROM world_cache').run();
+  seedEvent({ worldId: WID, worldName: '旧名（V1）', createdAt: '2026-09-01T00:00:00Z' });
+  seedEvent({ worldId: WID, worldName: '', createdAt: '2026-09-10T00:00:00Z' });
+  ctx.storage.db.prepare(
+    `INSERT INTO world_cache (world_id, name, author_name, updated_at) VALUES (?, ?, '作者', datetime('now'))`
+  ).run(WID, '新名（V0.3.1）');
+  const sa = new SocialAnalytics(ctx.storage);
+  assert.equal(sa._resolveWorldNames([WID]).get(WID), '新名（V0.3.1）');
 });

@@ -288,7 +288,10 @@ export class SocialAnalytics {
     // （实测：Idle Merchant 掛機商人 V0.1.4 → V0.3.1，缓存/事件双双停在旧名 11 天）。
     const rows = this.storage.query(
       `SELECT e.world_id AS world_id,
-              COALESCE(NULLIF(wc.name, ''), e.world_name) AS world_name,
+              COALESCE(NULLIF(wc.name, ''),
+                       (SELECT e2.world_name FROM events e2
+                         WHERE e2.world_id = e.world_id AND e2.world_name <> ''
+                         ORDER BY e2.created_at DESC LIMIT 1)) AS world_name,
               MAX(e.created_at) AS last_at
          FROM events e LEFT JOIN world_cache wc ON wc.world_id = e.world_id
         WHERE e.world_id IN (${ph})
