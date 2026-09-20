@@ -74,6 +74,13 @@ jobs:
       - name: Registry integrity (tools, no credentials)
         run: node test/test-registry.mjs
 
+      # issue #208：安全模式那一路此前从未进 CI，导致 test-registry 的魔法数漂移长期静默。
+      # 两种判定形式（true / 1）都跑，同时覆盖 isSafeModeEnabled 的口径一致性。
+      - name: Registry integrity (safe mode, issue #208)
+        run: |
+          VRC_MONITOR_SAFE_MODE=true node test/test-registry.mjs
+          VRC_MONITOR_SAFE_MODE=1 node test/test-registry.mjs
+
       - name: Dump tools and assert count = tool-order.json
         shell: bash
         run: |

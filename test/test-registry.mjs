@@ -24,6 +24,7 @@ const { ctx } = await import(pathToFileURL(path.join(REPO, 'core', 'server-conte
 const { Storage } = await import(pathToFileURL(path.join(REPO, 'core', 'storage.js')).href);
 const { PluginLoader } = await import(pathToFileURL(path.join(REPO, 'core', 'plugin-loader.js')).href);
 const registry = await import(pathToFileURL(path.join(REPO, 'core', 'registry.js')).href);
+const { DESTRUCTIVE_TOOLS, isSafeModeEnabled } = await import(pathToFileURL(path.join(REPO, 'core', 'safe-mode.js')).href);
 const order = JSON.parse(readFileSync(path.join(REPO, 'core', 'tool-order.json'), 'utf-8')).tool_order;
 
 let pass = true;
@@ -47,12 +48,18 @@ loader.services.set('core.authConfig', () => ({ token: null, host: '127.0.0.1', 
 loader.serviceOwners.set('core.authConfig', 'core');
 await loader.loadAll();
 
-const safeMode = process.env.VRC_MONITOR_SAFE_MODE === 'true';
+// 模式判定与生产同口径（isSafeModeEnabled 认 true/1/yes/on，含 .env 值），不自行解析 env
+const safeMode = isSafeModeEnabled();
 const tools = registry.listTools();
 const names = tools.map(t => t.name);
 
-// 1. 数量（tool-order.json 全量 = 95；safe-mode 下过滤 DESTRUCTIVE_TOOLS 10 个）
-const expectedCount = safeMode ? order.length - 10 : order.length;
+// 1. 数量：期望值从事实源推导（core/safe-mode.js 的 DESTRUCTIVE_TOOLS + 定义上的 destructive 标志），
+//    不再硬编码数字——否则清单每次增长都会让本套件在安全模式下误报（issue #208）。
+const registryMap = registry.getRegistryMap ? registry.getRegistryMap() : null;
+const destructiveRegistered = new Set(
+  order.filter(n => DESTRUCTIVE_TOOLS.includes(n) || (registryMap && registryMap.get(n) && registryMap.get(n).destructive))
+);
+const expectedCount = safeMode ? order.length - destructiveRegistered.size : order.length;
 assert(tools.length === expectedCount, `listTools() returned ${tools.length}, expected ${expectedCount}`);
 
 // 2. 唯一
@@ -89,14 +96,29 @@ try {
 
 // 6. safe-mode 破坏性过滤与拦截（清单与 core/safe-mode.js 的 DESTRUCTIVE_TOOLS 同步，含插件工具）
 if (safeMode) {
-  const destructive = ['remove_friend','remove_print','remove_gallery_image','unfavorite_friend','leave_group','decline_friend_request','hide_notification','remove_from_backlog','remove_from_watchlist','x_remove_creator'];
-  assert(JSON.stringify(names) === JSON.stringify(order.filter(n => !destructive.includes(n))), 'safe mode should filter exactly the 10 destructive tools');
-  let blocked = false;
-  try {
-    await registry.dispatch('remove_print', { printId: 'test' });
-  } catch (err) {
-    blocked = err.message.includes('安全模式已启用');
-  }
+  assert(JSON.stringify(names) === JSON.stringify(order.filter(n => !destructiveRegistered.has(n))),
+    "safe mode 应恰好剔除已注册的破坏性工具（" + destructiveRegistered.size + " 项）");
+  assert(names.every(n => !destructiveRegistered.has(n)), 'safe mode 仍对外暴露了破坏性工具');
+
+  // 6.1 独立命名守卫：防「新增破坏性工具却漏进 DESTRUCTIVE_TOOLS」的二次漂移（issue #208 建议）。
+  // 注意：上面的期望数量与生产同源推导，天生测不出"清单漏项"，故这里用独立启发式兜底——
+  // 名字符合破坏性命名约定、却既不在清单也无 destructive 标志的，一律要求显式确认。
+  const DESTRUCTIVE_NAME_RE = /(^|_)(remove|unfavorite|leave|decline|clear|hide|move)(_|$)/;
+  const NAME_RE_EXCEPTIONS = []; // 名字像破坏性但按口径不算的，加这里必须写清理由
+  const suspects = order.filter(n => DESTRUCTIVE_NAME_RE.test(n) && !destructiveRegistered.has(n) && !NAME_RE_EXCEPTIONS.includes(n));
+  assert(suspects.length === 0,
+    "以下工具名字像破坏性但既不在 DESTRUCTIVE_TOOLS 也无 destructive 标志，请确认口径并同步清单：" + suspects.join(', '));
+
+  // 6.2 纵深防御（tools/call）：破坏性必被拦 + 非破坏性必须放行（双向断言，防再次空转）
+  let blockedMsg = '';
+  try { await registry.dispatch('remove_print', { printId: 'test' }); }
+  catch (err) { blockedMsg = err && err.message ? err.message : ''; }
+  assert(blockedMsg.includes('安全模式已启用'), 'safe mode 应拦截破坏性工具 remove_print（tools/call 纵深防御）');
+
+  let nonBlocked = true;
+  try { await registry.dispatch('get_server_status', {}); }
+  catch (err) { nonBlocked = !(err && err.message ? err.message : '').includes('安全模式已启用'); }
+  assert(nonBlocked, 'safe mode 不得拦截非破坏性工具 get_server_status');
 }
 
 if (pass) {
