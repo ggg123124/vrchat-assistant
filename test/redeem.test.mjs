@@ -349,3 +349,71 @@ test('extractInventoryList：兼容 {data:[...]} 与裸数组，totalCount 不�
   assert.deepEqual(extractInventoryList([1, 2]), [1, 2]);
   assert.deepEqual(extractInventoryList({}), []);
 });
+
+// ── get_redeemable_bundles offset 分页 ─────────────────────────────────────
+test('get_redeemable_bundles：带 offset 时请求路径同时含 n= 与 offset=', async () => {
+  const { api, tools, calls } = makeApi({
+    routes: { '/inventory': { data: [{ id: 'inv_1', name: 'B', itemType: 'bundle' }], totalCount: 5 } },
+  });
+  register(api);
+  const res = await tools.get('get_redeemable_bundles').handler({ limit: 10, offset: 20 });
+  assert.equal(res.ok, true);
+  assert.match(calls[0].path, /types=bundle/);
+  assert.match(calls[0].path, /n=10/);
+  assert.match(calls[0].path, /offset=20/);
+  assert.equal(res.offset, 20);
+  assert.equal(res.limit, 10);
+});
+
+test('get_redeemable_bundles：offset 缺省为 0', async () => {
+  const { api, tools, calls } = makeApi({
+    routes: { '/inventory': { data: [], totalCount: 0 } },
+  });
+  register(api);
+  const res = await tools.get('get_redeemable_bundles').handler({});
+  assert.match(calls[0].path, /offset=0/);
+  assert.equal(res.offset, 0);
+});
+
+test('get_redeemable_bundles：非法 offset（负数 / NaN）按 0 处理', async () => {
+  const { api, tools, calls } = makeApi({
+    routes: { '/inventory': { data: [], totalCount: 0 } },
+  });
+  register(api);
+  const r1 = await tools.get('get_redeemable_bundles').handler({ offset: -5 });
+  assert.match(calls[0].path, /offset=0/);
+  assert.equal(r1.offset, 0);
+  const r2 = await tools.get('get_redeemable_bundles').handler({ offset: NaN });
+  assert.match(calls[1].path, /offset=0/);
+  assert.equal(r2.offset, 0);
+});
+
+test('get_redeemable_bundles：total 已知时 hasMore 正确（首页 true、末页 false）', async () => {
+  const { api, tools } = makeApi({
+    routes: { '/inventory': (path) => {
+      const m = path.match(/offset=(\d+)/);
+      const off = m ? Number(m[1]) : 0;
+      const items = off < 3 ? [{ id: `inv_${off}`, name: 'B', itemType: 'bundle' }] : [];
+      return { data: items, totalCount: 3 };
+    } },
+  });
+  register(api);
+  const r1 = await tools.get('get_redeemable_bundles').handler({ limit: 1, offset: 0 });
+  assert.equal(r1.hasMore, true);   // 0 + 1 < 3
+  const r2 = await tools.get('get_redeemable_bundles').handler({ limit: 1, offset: 2 });
+  assert.equal(r2.hasMore, false);  // 2 + 1 = 3
+});
+
+test('get_redeemable_bundles：total 未知时按 items.length >= limit 推断；limit 钳到 100', async () => {
+  const { api: api2, tools: tools2, calls: calls2 } = makeApi({
+    routes: { '/inventory': { data: [{ id: 'inv_x', name: 'Y', itemType: 'bundle' }] } },
+  });
+  register(api2);
+  const r1 = await tools2.get('get_redeemable_bundles').handler({ limit: 10 });
+  assert.equal(r1.total, null);
+  assert.equal(r1.hasMore, false);  // 1 < 10
+  // limit 超过 100 被钳到 100
+  const r2 = await tools2.get('get_redeemable_bundles').handler({ limit: 999 });
+  assert.match(calls2[1].path, /n=100/);
+  assert.equal(r2.limit, 100);
+});

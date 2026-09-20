@@ -192,24 +192,34 @@ export default function register(api) {
     name: 'get_redeemable_bundles',
     description:
       '[query·兑换] 列出账号里**待领取的礼包（Bundles & Packs）**：兑换/活动/VRC+ 掉落都先以礼包形式存在，'
-      + '必须再调 claim_bundle 领取才会得到实际物品。返回 inventoryId / 名称 / 获得时间 / 过期时间（expiryDate，'
+      + '必须再调 claim_bundle 领取才会得到实际物品。'
+      + `支持 \`offset\` 翻页（\`limit\` 默认 ${MAX_ITEMS}、单次上限 ${MAX_ITEMS}）；`
+      + '返回 `total`（该过滤范围的总数）与 `hasMore`（total 已知时 = offset + items.length < total，'
+      + 'total 未知时 = items.length >= limit）。'
+      + '返回 inventoryId / 名称 / 获得时间 / 过期时间（expiryDate，'
       + 'null=不过期）/ seen（是否在客户端看过）。列表为空表示没有待领礼包。',
     inputSchema: {
       type: 'object',
       properties: {
         limit: { type: 'number', description: `返回条数（默认 ${MAX_ITEMS}，单次上限 ${MAX_ITEMS}）` },
+        offset: { type: 'number', description: '可选：从第几条开始（默认 0），配合 hasMore 翻页取全量' },
       },
     },
     handler: async (args = {}) => {
       let limit = Number(args.limit);
       if (!Number.isFinite(limit) || limit <= 0) limit = MAX_ITEMS;
       limit = Math.min(MAX_ITEMS, Math.round(limit));
+      let offset = Number(args.offset);
+      if (!Number.isFinite(offset) || offset < 0) offset = 0;
+      offset = Math.round(offset);
       try {
-        const res = await api.vrchat.fetch(`/inventory?types=bundle&n=${limit}`);
+        const res = await api.vrchat.fetch(`/inventory?types=bundle&n=${limit}&offset=${offset}`);
         const data = extractInventoryList(res);
         const items = data.map(normalizeItem);
         const total = extractTotalCount(res);
-        return { ok: true, count: items.length, total: Number.isFinite(total) ? total : null, items };
+        const totalKnown = Number.isFinite(total);
+        const hasMore = totalKnown ? offset + items.length < total : items.length >= limit;
+        return { ok: true, count: items.length, total: totalKnown ? total : null, offset, limit, hasMore, items };
       } catch (err) {
         const e = describeError(err);
         api.log(`redeem: 待领礼包查询失败 status=${e.status} ${e.message}`);

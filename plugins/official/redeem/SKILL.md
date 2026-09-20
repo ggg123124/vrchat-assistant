@@ -24,7 +24,7 @@ VRChat 的免费物品（活动/联名/周年/直播掉落，中文社区戏称�
 | 工具 | 作用 | 对应 VRChat 端点 |
 |---|---|---|
 | `redeem_code` | 提交兑换码（一次性，不可回滚） | `POST /reward/redeem` |
-| `get_redeemable_bundles` | 列出**待领取**的礼包（含过期时间） | `GET /inventory?types=bundle` |
+| `get_redeemable_bundles` | 列出**待领取**的礼包（含过期时间）；可按 `limit`/`offset` 翻页，返回 `total`/`hasMore` | `GET /inventory?types=bundle` |
 | `claim_bundle` | 领取（打开）礼包，内容物进库存 | `POST /inventory/{id}/consume` |
 | `get_inventory_items` | 列库存物品主列表（可按 itemType 过滤、`offset` 翻页） | `GET /inventory` |
 | `get_redeem_history` | 本机兑换/领取历史（插件私有表） | 本地表 `plg_redeem_history` |
@@ -51,9 +51,11 @@ VRChat 的免费物品（活动/联名/周年/直播掉落，中文社区戏称�
 **库存大时要翻页（核对到账别只看第一页）：**
 
 ```
-get_inventory_items { "type": "nameplateEffect", "limit": 100, "offset": 0 }
-→ { ok:true, count:100, total:119, offset:0, limit:100, hasMore:true, items:[...] }
-# hasMore=true 就继续 offset=100…… 直到 hasMore=false 或找到目标。
+get_inventory_items { "limit": 100, "offset": 0 }
+→ { ok:true, count:100, total:120, offset:0, limit:100, hasMore:true, items:[...] }
+# hasMore=true → 继续 offset=100
+get_inventory_items { "limit": 100, "offset": 100 }
+→ { ok:true, count:20, total:120, offset:100, limit:100, hasMore:false, items:[...] }
 # 返回顺序**不保证按时间排序**，所以「第一页没看到」≠「没到账」：
 # 要么先用 type 过滤缩小范围，要么翻页取全，别据此下「未到账」结论。
 ```

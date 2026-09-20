@@ -97,7 +97,7 @@ metadata:
 | `get_inventory_global` | **全局物品栏**：账号级物品列表（名称/描述/装备槽/获取方式），self-only |
 | `get_inventory_drops` | **待领取掉落**：账号当前可领的物品掉落（空=无），self-only |
 | `redeem_code` | **[redeem 插件] 提交兑换码**：`POST /reward/redeem`。码是**一次性消耗品**（成功不可回滚）。返回换到的物品/礼包（含 `itemType`/`contains`/`inventoryId`）；**含礼包时需再 `claim_bundle`** 才会真到手。失败如实返回 `{ok:false,status,error}`（码失效/已用/拼错）；HTTP 200 + 非空 `errors[]` 同样判 `ok:false` |
-| `get_redeemable_bundles` | **[redeem 插件] 待领取礼包**：`GET /inventory?types=bundle` → `inventoryId`/名称/获得时间/`expiryDate`（null=不过期）/`seen`。空 = 没有待领礼包（VRC+ 掉落、活动礼包都走这里） |
+| `get_redeemable_bundles` | **[redeem 插件] 待领取礼包**：`GET /inventory?types=bundle`（`limit` ≤100、`offset` 翻页，返回 `total`/`hasMore`）→ `inventoryId`/名称/获得时间/`expiryDate`（null=不过期）/`seen`。空 = 没有待领礼包（VRC+ 掉落、活动礼包都走这里） |
 | `claim_bundle` | **[redeem 插件] 领取（打开）礼包**：`POST /inventory/{inventoryId}/consume` → 到手物品清单（`name`/`itemType`/`description`/`acquisition`）。⚠️ `inventoryId` 必须取自 `get_redeemable_bundles` 的 `inv_*`（`redeem_code` 给的 `invt_*` 是模板 id、不可用，实测 404）。领取后从待领列表消失，**不可重复领取**；`ok` 由响应 `errors` 判定 |
 | `get_inventory_items` | **[redeem 插件] 库存物品主列表**：`GET /inventory`（`type` 过滤如 nameplateEffect；`limit` ≤100、`offset` 翻页，返回 `total`/`hasMore`）。⚠️ 返回顺序**不保证按时间排序**——「核对到账」须按 type 过滤或翻页取全，只看第一页可能误判「未到账」。核心 `get_inventory_global` 只给账号级全局物品（`/inventory/global`） |
 | `get_redeem_history` | **[redeem 插件] 兑换/领取历史**（插件私有表 `plg_redeem_history`，跨重启保留）：`kind`(redeem\|claim)/`code`/`inv_id`/`name`/`ok`/`detail`/时间（UTC），可按 `limit`/`kind` 过滤 |
