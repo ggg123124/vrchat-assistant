@@ -103,6 +103,9 @@ export function resolveSelfPresence(storage, {
   if (loc === '' || loc === 'offline' || loc === 'offline:offline') {
     // 未满确认窗口 → unknown：消费方（presence-status / events 离线刷新调度器 / dashboard）
     // 一律跳过，既不写挂机文案也不翻转判定态；满窗口才认为真的离开（issue #218）。
+    // 注：ageMs 为 null（无 created_at）或 NaN（时间戳不可解析）时，`NaN < x` 为 false →
+    // 直接判 not_in_game（视为已超出确认窗口）。这是**保守取旧行为**：坏时间戳不得把出游戏判定
+    // 永久卡在 unknown、导致真下线写不进挂机文案。
     if (ageMs !== null && ageMs < offlineGraceMs) {
       return { ...base, state: 'unknown', location: loc, at, ageMs };
     }
