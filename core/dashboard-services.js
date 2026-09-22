@@ -44,6 +44,8 @@ function worldCacheStale(updatedAt) {
 }
 import { imgProxy, avatarThumb, avatarOf, avatarFileId } from './img-util.js';
 import { handleGetFriendWorldStats } from './tools/events.js';
+import { getLogger } from './logger.js';   // 2026-09-22：本文件此前没有 logger（新增留痕前必须补，否则 log 未定义会被 try 吞掉）
+const log = getLogger('dashboard');
 
 // 通知类型→中文标签（与前端 ui/src/utils.js 的 notificationTypeLabels 对齐，供 see/hide-notification 摘要拼类型）。
 // 通知相关事件 content 可能携带 notificationType / updateType / type 之一；历史遗留也可能是裸字符串 ID，
@@ -1251,7 +1253,12 @@ export function registerDashboardServices(loader, ctx) {
       const selfId = (ctx.api && ctx.api.currentUser && ctx.api.currentUser.id) || '';
       const [u, fl, g, w, av] = await Promise.all([
         fetchApi(`/users/${uid}`),
-        fetchApi(`/users/${uid}/friends`),
+        // 2026-09-22 评审 💡：非好友时 /users/{uid}/friends **必然 404**（VRChat 只对好友开放"对方全部好友"）
+        // ⇒ 属**已知降级**：单独捕获并记 INFO（免每次打开非好友弹窗都打一条 WARN 噪音）；返回形状不变（null 下游容忍）
+        fetchApi(`/users/${uid}/friends`).catch((e) => {
+          try { log.info('[profile] /users/{id}/friends 未开放（非好友属正常降级）：' + ((e && e.message) || e)); } catch { /* 忽略 */ }
+          return null;
+        }),
         fetchApi(`/users/${uid}/groups`),
         fetchApi(`/worlds?userId=${uid}&n=50`),
         // 他人模型列表 VRChat 403（只能查自己）——跳过避免白等，弹窗仍可看群组/世界/共同好友
