@@ -882,8 +882,17 @@ setOpsLogSink((kind, level, message) => {
   // 启动 60 秒后跑首轮（部署即自愈存量陈旧等级），之后每 VRC_MONITOR_FRIEND_REFRESH_HOURS（默认 6）小时一次；
   // 刷新时回写非空资料字段 + 记录 trust_level 变化事件；每周期上限 VRC_MONITOR_FRIEND_REFRESH_MAX（默认 50）。
   const FRIEND_REFRESH_HOURS = Math.max(1, Number(process.env.VRC_MONITOR_FRIEND_REFRESH_HOURS) || 6);
-  setTimeout(() => { refreshFriendList(ctx, log).catch(() => {}); }, 60_000);
-  setInterval(() => { refreshFriendList(ctx, log).catch(() => {}); }, FRIEND_REFRESH_HOURS * 3600 * 1000);
+  const runFriendRefresh = () => {
+    // #222 审核 💡2：未认证时跳过（否则每周期 50 次 401 + 逐个触发自动重认证 ✗）；
+    // 且异常必须记一行（原来的 .catch(() => {}) 会静默吞掉模块级异常 ✗）。
+    if (!ctx.serverState || !ctx.serverState.authUser) {
+      log('[追踪] 好友资料刷新跳过：尚未认证（避免未登录时打 401）');
+      return;
+    }
+    refreshFriendList(ctx, log).catch((e) => log('[警告] 好友资料刷新异常: ' + e.message));
+  };
+  setTimeout(runFriendRefresh, 60_000);
+  setInterval(runFriendRefresh, FRIEND_REFRESH_HOURS * 3600 * 1000);
 
   // 7a2. 追踪非好友（VRCX-Luo 对齐）：启动 20s 后自动导入历史非好友并首次拉取，之后每小时刷新
   setTimeout(async () => {
