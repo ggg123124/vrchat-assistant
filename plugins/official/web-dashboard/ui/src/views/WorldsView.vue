@@ -18,8 +18,9 @@ async function loadFws() {
   try {
     const r = await get(`/api/dashboard/friend-world-stats?days=${fwsDays.value}&limit=12`);
     fws.value = (r && r.stats) || [];
-  } catch {
-    fws.value = [];
+  } catch (err) {
+    // 2026-09-22 彻查：失败不写正常态（[]=「确实没有」✗）⇒ 保持旧值 + 如实报错 ✓
+    toast('好友地图统计加载失败：' + ((err && err.message) || err), 'error');
   }
 }
 onMounted(() => { loadFws(); });

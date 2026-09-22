@@ -385,8 +385,9 @@ export async function loadMoreFeed({ target = 50, countMatch = null } = {}) {
       if (countMatch() >= target) break;
       if (!store.feedHasMore) break;
     }
-  } catch {
-    store.feedHasMore = false;
+  } catch (err) {
+    // 2026-09-22：失败不得伪装成「没有更多了」✗ —— 保持 feedHasMore 原值，把失败交给全局横幅 + 重试 ✓
+    store.loadError = (err && err.message) ? err.message : '加载更多失败（网络或服务不可达）';
   } finally {
     store.feedLoadingMore = false;
   }

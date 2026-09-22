@@ -201,6 +201,8 @@ PR 由 AI Agent 编写提交（人类只提出需求、不直接编码）。以�
 - [ ] 无本机路径、个人代理、个人账号信息残留
 - [ ] `node start-monitor.js` 可正常启动，`/health` 返回 `authenticated: true`、`ws.status: connected`
 - [ ] 至少跑一遍相关测试脚本（`test/test-apis.mjs` 等），或说明为什么不适用
+- [ ] 前端改动：跑过 `npm test --prefix plugins/official/web-dashboard/ui`（UI vitest）
+- [ ] 前端改动：`catch` 块里**不得**把失败写成业务结论（`= false` / `= []` / `= null` / `return []` 等 ✗）——失败时**保持旧值**，或**置错误态 + 原因 + 重试**（如 `store.loadError` 全局横幅 / `store.feedMoreError` 底部失败态 / 各页面 toast 报错）。`npm test` 里的 `test/frontend-catch-guard.test.mjs` 是**基线冻结闸门**：新增命中必须按规则修，确为合法例外（如「换了新查询清空旧结果 + 同时报错」）则登记进该测试 BASELINE 并写明理由
 - [ ] 新增 / 修改的功能已在 README 或 skills 文档中登记
 - [ ] 数据库变更已考虑存量库迁移
 - [ ] 提交信息符合 Conventional Commits 格式
