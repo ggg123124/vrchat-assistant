@@ -240,9 +240,11 @@ const rawJson = computed(() => {
     <Tabs v-else-if="profile" v-model:value="activeTab" :scrollable="true">
       <TabList>
         <Tab value="info">信息</Tab>
-        <Tab v-if="isFriend" value="mutual">共同好友<span v-if="profile.mutualFriendCount"> ({{ profile.mutualFriendCount }})</span></Tab>
+        <!-- 2026-09-22 实测：/users/{id}/mutuals/friends 对非好友可用 ✓（服务器直接算，无需对方开启共享 ✓）-->
+        <Tab value="mutual">共同好友<span v-if="profile.mutualFriendCount"> ({{ profile.mutualFriendCount }})</span></Tab>
         <Tab value="mutualgrp">共同群组<span v-if="profile.mutualGroupCount"> ({{ profile.mutualGroupCount }})</span></Tab>
-        <Tab v-if="isFriend" value="groups">群组<span v-if="profile.groups.length"> ({{ profile.groups.length }})</span></Tab>
+        <!-- 2026-09-22 实测：/users/{id}/groups 对非好友**可用**（拿到 18 个群组 ✓）⇒ 不再隐藏 ✓ -->
+        <Tab value="groups">群组<span v-if="profile.groups.length"> ({{ profile.groups.length }})</span></Tab>
         <Tab v-if="isFriend" value="worlds">创建的世界<span v-if="profile.worlds.length"> ({{ profile.worlds.length }})</span></Tab>
         <Tab value="favworlds">收藏的世界<span v-if="favTotal"> ({{ favTotal }})</span></Tab>
         <Tab v-if="isFriend" value="avatars">创建的模型<span v-if="profile.avatars.length"> ({{ profile.avatars.length }})</span></Tab>
@@ -252,7 +254,7 @@ const rawJson = computed(() => {
       <TabPanels>
         <!-- 信息 -->
         <TabPanel value="info">
-          <div v-if="!isFriend" class="ud-note"><i class="pi pi-info-circle"></i> 非好友 · 共同好友 / 群组 / 世界 / 模型信息不可见</div>
+          <div v-if="!isFriend" class="ud-note"><i class="pi pi-info-circle"></i> 非好友 · 创建的世界 / 模型列表可能不完整（群组、共同好友已可查看）</div>
           <div v-if="isOnline && instanceName" class="ud-loc">
             <i class="pi pi-map-marker"></i>
             <span class="link" @click="openWorld(user.worldId || '')">{{ instanceName }}</span>
