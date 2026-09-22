@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { access } from 'node:fs/promises';   // 2026-09-22 评审 💡：清单存在性断言
 
 // 2026-09-22 #225：**结构性回归护栏**
 // 背景：fileId 提取曾在仓库里散落 5 份内联正则，其中 4 份只认 /file/ ✗ ——
@@ -10,8 +11,15 @@ import { readFileSync } from 'node:fs';
 // 2026-09-22 评审纠正：原写法用正则判定，转义易失 ⇒ 实测会恒绿 ✗（注入真·旧正则仍 pass）。
 // 改用【纯子串】比对：只要源码里出现下面这段字面量就命中 —— 不依赖任何转义。
 const LEGACY_TEXT = '\\/file\\/(file_';   // = 字面量 \/file\/(file_（旧正则的源码文本；avatarFileId 内部那份在 core/img-util.js，不在扫描清单）   // 旧写法的字面量特征（avatarFileId 内部那一份在 core/img-util.js，不在扫描清单里）
-const FILES = ['start-monitor.js', 'core/dashboard-services.js', 'core/friend-refresh.js', 'core/event-pipeline.js'];
+const FILES = ['start-monitor.js', 'core/dashboard-services.js', 'core/event-pipeline.js'];
 
+test('门禁清单不得包含不存在的文件（否则该条目永久静默）', async () => {
+  const missing = [];
+  for (const f of FILES) {
+    try { await access(f); } catch { missing.push(f); }
+  }
+  assert.equal(missing.length, 0, '清单里这些文件不存在，条目永远扫不到任何东西：' + missing.join(', '));
+});
 test('不得再出现"只认 /file/ 的"内联 fileId 正则（#225）', () => {
   const hits = [];
   for (const f of FILES) {
