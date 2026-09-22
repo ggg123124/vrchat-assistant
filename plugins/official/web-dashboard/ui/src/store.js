@@ -656,7 +656,10 @@ export function startDashboard() {
   loadNotifCount();
   loadAnnNewFlag();
   try { store.notifyEnabled = localStorage.getItem('vrc_notify') === '1'; } catch { /* 隐私模式 */ }
-  startSse();
+  // 2026-09-22 用户截图实证：登录页仍有 stream(401) 与 overview(401) ✗
+  // ——因为 SSE 没进守卫，而 SSE 一连上就会触发 load() ⇒ 连带 overview 401 ✓。
+  // 故把 startSse() 与数据加载同处守卫内 ✓。
+  if (authed) startSse();
   trackViewport();
   initKeyboard();
   bindHashChange();
