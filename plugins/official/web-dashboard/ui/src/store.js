@@ -303,9 +303,11 @@ export async function load(quiet = false) {
       if (o.vrcStatus) store.vrcStatus = o.vrcStatus;
       else if (o.status && o.status.indicator) store.vrcStatus = o.status.indicator;
     }
+    store.loadError = '';   // 2026-09-22 评审 ⚠️1：成功即清空（否则一次瞬时失败的红横幅会常驻整个会话）
     store.friends = (f && f.friends) || (Array.isArray(f) ? f : store.friends);
     if (!Array.isArray(store.feedEvents) || store.feedEvents.length <= 50) {
-      store.feedEvents = parsed.events;
+      store.loadError = '';   // 同上：本次已成功拿到数据 ✓
+    store.feedEvents = parsed.events;
       store.feedTotal = parsed.total || store.feedTotal;
     }
     store.feedHasMore = parsed.events.length >= 50;
@@ -379,6 +381,7 @@ export async function loadMoreFeed({ target = 50, countMatch = null } = {}) {
         break;
       }
       store.feedEvents = [...store.feedEvents, ...more];
+      store.loadError = '';   // 同上：分页成功也清空 ✓
       store.feedHasMore = more.length >= 50;
       // 匹配数达标（或没有匹配判定=普通分页一次一批）→ 停；否则继续向前加载
       if (!countMatch) break;
