@@ -209,6 +209,5 @@ test('readOfflineGraceMs：env 解析与钳制（默认 360s / 上限 3600s / �
   assert.equal(readOfflineGraceMs(), 3_600_000);
   process.env.VRC_MONITOR_SELF_PRESENCE_OFFLINE_GRACE_SECONDS = 'abc';
   assert.equal(readOfflineGraceMs(), 360_000);
-  assert.equal(readOfflineGraceMs(), 360_000);
   delete process.env.VRC_MONITOR_SELF_PRESENCE_OFFLINE_GRACE_SECONDS;
 });
