@@ -44,8 +44,6 @@ function worldCacheStale(updatedAt) {
 }
 import { imgProxy, avatarThumb, avatarOf, avatarFileId } from './img-util.js';
 import { handleGetFriendWorldStats } from './tools/events.js';
-import { getLogger } from './logger.js';   // 2026-09-22：本文件此前没有 logger（新增留痕前必须补，否则 log 未定义会被 try 吞掉）
-const log = getLogger('dashboard');
 
 // 通知类型→中文标签（与前端 ui/src/utils.js 的 notificationTypeLabels 对齐，供 see/hide-notification 摘要拼类型）。
 // 通知相关事件 content 可能携带 notificationType / updateType / type 之一；历史遗留也可能是裸字符串 ID，
@@ -1245,26 +1243,20 @@ export function registerDashboardServices(loader, ctx) {
       } catch { return null; }
     };
     const uid = encodeURIComponent(userId);
-    let user, friendsList, groups, worlds, avatars, favoriteWorlds;
+    let user, groups, worlds, avatars, favoriteWorlds;
     const cached = userProfileCache.get(userId);
     if (cached && Date.now() - cached.time < UP_TTL) {
-      ({ user, friendsList, groups, worlds, avatars, favoriteWorlds } = cached);
+      ({ user, groups, worlds, avatars, favoriteWorlds } = cached);
     } else {
       const selfId = (ctx.api && ctx.api.currentUser && ctx.api.currentUser.id) || '';
-      const [u, fl, g, w, av] = await Promise.all([
+      const [u, g, w, av] = await Promise.all([
         fetchApi(`/users/${uid}`),
-        // 2026-09-22 评审 💡：非好友时 /users/{uid}/friends **必然 404**（VRChat 只对好友开放"对方全部好友"）
-        // ⇒ 属**已知降级**：单独捕获并记 INFO（免每次打开非好友弹窗都打一条 WARN 噪音）；返回形状不变（null 下游容忍）
-        fetchApi(`/users/${uid}/friends`).catch((e) => {
-          try { log.info('[profile] /users/{id}/friends 未开放（非好友属正常降级）：' + ((e && e.message) || e)); } catch { /* 忽略 */ }
-          return null;
-        }),
         fetchApi(`/users/${uid}/groups`),
         fetchApi(`/worlds?userId=${uid}&n=50`),
         // 他人模型列表 VRChat 403（只能查自己）——跳过避免白等，弹窗仍可看群组/世界/共同好友
         userId === selfId ? fetchApi(`/avatars?userId=${uid}&n=50`) : Promise.resolve(null),
       ]);
-      user = u; friendsList = fl; groups = g; worlds = w; avatars = av;
+      user = u; groups = g; worlds = w; avatars = av;
       // 该用户的收藏世界（VRChat 公开收藏：/favorite/groups?ownerId + /worlds/favorites?ownerId&tag，VRCX 同款）
       favoriteWorlds = [];
       try {
@@ -1289,7 +1281,7 @@ export function registerDashboardServices(loader, ctx) {
           favoriteWorlds = (await Promise.all(groupTasks)).filter(Boolean);
         }
       } catch { favoriteWorlds = []; }
-      userProfileCache.set(userId, { time: Date.now(), user, friendsList, groups, worlds, avatars, favoriteWorlds });
+      userProfileCache.set(userId, { time: Date.now(), user, groups, worlds, avatars, favoriteWorlds });
     }
     // 共同好友：VRChat 专用端点 /users/{id}/mutuals/friends（服务器直接算共同好友，无需对方开启"共享好友列表"）
     // 旧实现用 /users/{id}/friends（对方全部好友）+ 本地交集，对方关闭共享时为空 → 共同好友不显示
