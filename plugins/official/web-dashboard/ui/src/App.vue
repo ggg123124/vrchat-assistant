@@ -117,7 +117,12 @@ const authChecking = ref(loginView.value);
 onMounted(async () => {
   if (!loginView.value) return;
   try {
-    if (!(await probeAuthRequired())) loginView.value = false;
+    if (!(await probeAuthRequired())) {
+      store.authRequired = false;   // 服务端不需要鉴权 => 放行数据加载（否则未启用令牌的部署会零请求）
+      loginView.value = false;
+    } else {
+      store.authRequired = true;
+    }
     if (!loginView.value) startDashboard();   // 2026-09-22：登录成功后才拉数据（登录页此前会打全部接口 ✗）
   } catch { /* 保留登录门 */ } finally {
     authChecking.value = false;

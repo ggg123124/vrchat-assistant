@@ -653,7 +653,10 @@ export function startDashboard() {
   // 2026-09-22 用户截图实证：登录页（无令牌）也在打 bootstrap/watchlist/tracked/count/公告 等全部接口 ✗
   // ⇒ 无令牌时只做纯本地初始化（hash/SSE/键盘/视口），不发任何 dashboard 请求、不起轮询 ✓。
   // 登录成功后由 App 在挂载完成时调用本函数（见 App.vue 的挂载逻辑），行为与之前一致 ✓。
-  const authed = (() => { try { return !!getToken(); } catch { return false; } })();
+  // 2026-09-22 评审纠正：原判据只有 !!getToken() —— 未启用访问令牌的部署（单机默认 / issue #213 模式）
+  // 会因此在 !loginView 进入面板后**零请求、不连 SSE**（实测：无 token 0 条 / 有 token 13 条）。
+  // 判据改为「有令牌 或 服务端不需要鉴权」（后者由 App 在 probeAuthRequired() 为 false 时置位）。
+  const authed = (() => { try { return !!getToken() || store.authRequired === false; } catch { return false; } })();
   if (authed) {
     load();
     loadWatchlist();
