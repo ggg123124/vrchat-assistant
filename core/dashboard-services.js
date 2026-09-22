@@ -590,7 +590,7 @@ export function registerDashboardServices(loader, ctx) {
           try {
             const a = await ctx.rateLimiter.execute(() => ctx.api._request('GET', `/file/${fileId}`));
             const nm = parseAvName(a && a.data && a.data.name);
-            if (nm) { ev[key] = nm; saveAvName(fileId, nm); }
+            if (nm) { ev[key] = nm; saveAvName(fileId, nm); try { console.log(`[模型名] 已解析 ${fileId.slice(0,20)}… → ${nm}`); } catch { /* 日志失败忽略 */ } }
           } catch { /* 查询失败保留空名，下次再试 */ }
         }
       })();
