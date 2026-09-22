@@ -1334,7 +1334,8 @@ export function registerDashboardServices(loader, ctx) {
     // 模型名（currentAvatarImageUrl → file id → planet_cache avatar_name）
     let avatarName = '';
     try {
-      const fm = String(user && (user.currentAvatarImageUrl || user.currentAvatarThumbnailImageUrl) || '').match(/\/file\/(file_[a-f0-9-]+)/);
+      // 2026-09-22：非好友这两个字段都不存在 ✗，而 iconUrl 有值 ✓ ⇒ 补进链尾（与追踪刷新写的是同一张缓存 ✓）
+      const fm = String(user && (user.currentAvatarImageUrl || user.currentAvatarThumbnailImageUrl || user.iconUrl) || '').match(/\/file\/(file_[a-f0-9-]+)/);
       if (fm) {
         const anCache = loader._avatarNameCache || (loader._avatarNameCache = new Map());
         if (anCache.has(fm[1])) avatarName = anCache.get(fm[1]);

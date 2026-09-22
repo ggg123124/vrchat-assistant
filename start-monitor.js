@@ -13,6 +13,7 @@ import net from 'node:net';
 
 import { ctx, log, refreshWatchlistCache } from './core/server-context.js';
 import { isWebPresence } from './core/event-pipeline.js';
+import { avatarFileId, parseAvatarName } from './core/img-util.js';   // 2026-09-22：模型名解析（iconUrl → fileId → /file/{id} → name）
 import { initLogger, getLevelName, getLogger } from './core/logger.js';
 import { recordOpsLog, setOpsLogSink } from './core/ops-log.js';
 import * as registry from './core/registry.js';
@@ -322,6 +323,34 @@ async function _refreshTrackedNonFriends() {
       const userObj = r.data;
       const av = userObj.currentAvatarImageUrl || userObj.currentAvatarThumbnailImageUrl || userObj.userIcon || '';
       const dn = userObj.displayName || u.display_name || '';
+      // 2026-09-22：非好友的**当前模型名**也能拿 ✓（实测：iconUrl 的 fileId → GET /file/{id} → name = 「Avatar - 模型名 - Image - …」✓）
+      // 与事件补名共用同一张缓存 planet_cache 的 avatar_name:<fid> ✓；解析不到就留空、不覆盖旧值 ✓
+      // ⚠️ 失败时也写一条 miss（6 小时 TTL）—— 否则每次刷新都会重试同一批不可解析的 fileId ✗
+      const parseAvName = parseAvatarName;
+      let avatarName = '';
+      try {
+        const fid = avatarFileId(userObj.iconUrl || '');
+        if (fid) {
+          const cached = ctx.storage.query('SELECT payload FROM planet_cache WHERE key = $k', { $k: 'avatar_name:' + fid })[0];
+          let hit = null;
+          if (cached) { try { hit = JSON.parse(cached.payload); } catch { /* 忽略 */ } }
+          if (hit && typeof hit.until === 'number' && hit.until <= Date.now()) hit = null;
+          if (hit) avatarName = hit.name || '';
+          else {
+            const fr = await rateLimiter.execute(() => api._request('GET', '/file/' + encodeURIComponent(fid)));
+            // 实测 iconUrl 有时是「用户头像/相机图」而非模型图 ✗ ⇒ 文件名形如 file_xxx_camera_user_icon
+            // 这类**不是模型名**，必须过滤 ✓（真模型名解析后是纯名字，如「测试」✓）
+            const raw = String(parseAvName(fr && fr.data && fr.data.name) || '');
+            avatarName = /^file_[0-9a-f-]{20,}/i.test(raw) ? '' : raw;
+            try {
+              ctx.storage.setPlanetCache('avatar_name:' + fid, avatarName
+                ? { name: avatarName, at: Date.now() }
+                : { name: '', miss: true, until: Date.now() + 6 * 3600 * 1000 });
+            } catch { /* 落盘失败不影响刷新 */ }
+            if (avatarName) { try { log('[模型名] 追踪解析 ' + fid.slice(0, 16) + '… → ' + avatarName); } catch { /* 忽略 */ } }
+          }
+        }
+      } catch { /* 解析失败留空，下次再试 */ }
       // 头像变化检测：按 file id 归一化比较（防 currentAvatarImageUrl vs Thumbnail 兜底链或 URL 版本号 /1/ vs /3/ 波动误报）
       const prevAv = u.avatar_image_url || '';
       const fileIdOf = (url) => { const m = String(url || '').match(/\/file\/(file_[a-f0-9-]+)/); return m ? m[1] : ''; };
