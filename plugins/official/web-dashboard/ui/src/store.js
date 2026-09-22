@@ -297,10 +297,13 @@ export async function load(quiet = false) {
       get('/api/dashboard/events-range'),
     ]);
     const val = (i) => (settled[i].status === 'fulfilled' ? settled[i].value : null);
-    const o = val(0);
-    const f = val(1);
-    const parsed = parseEvents(val(2));
-    const rng = val(3);
+    // 2026-09-22 评审 🔴：这里原为 const o/f/parsed/rng —— 块级 const 遮蔽了外层 let
+    // ⇒ 出块后 parsed 仍是 undefined ⇒ parsed.events 抛 TypeError 被外层 catch 吞掉
+    // ⇒ 回退模式下首屏全空（与正文声称的「行为与之前一致」不符）⇒ 改为只赋值、不声明
+    o = val(0);
+    f = val(1);
+    parsed = parseEvents(val(2));
+    rng = val(3);
     }
     if (rng && rng.min) store.eventsRange = { min: rng.min, max: rng.max || null };
     if (o) {
