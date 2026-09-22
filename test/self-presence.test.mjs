@@ -13,6 +13,7 @@ import {
   resolveSelfPresence,
   worldIdFromSelfLocation,
   SELF_PRESENCE_STALE_MS,
+  readOfflineGraceMs,
 } from '../core/self-presence.js';
 import { registerDashboardServices } from '../core/dashboard-services.js';
 
@@ -73,17 +74,25 @@ test('location 非字符串（如 {"location":123}）→ unknown，不抛异常'
   }
   // JSON null 走语言层 `|| ''` → 归为空位置（not_in_game），与重构前实现一致（非本次修复范围）
   const nullRows = [{ content_json: JSON.stringify({ userId: SELF, location: null }), created_at: '2026-09-17T11:59:00.000Z' }];
-  assert.equal(resolveSelfPresence(makeStorage(nullRows), { selfId: SELF, now: NOW }).state, 'not_in_game');
+  // 出游戏确认窗口（issue #218）会把这 60s 的离线判为 unknown；本用例只关注位置归一化，
+  // 故显式 offlineGraceMs:0 复用旧语义。窗口本身的行为见文件末尾的专门用例。
+  assert.equal(resolveSelfPresence(makeStorage(nullRows), { selfId: SELF, now: NOW, offlineGraceMs: 0 }).state, 'not_in_game');
   // 与旧实现（dashboard.isSelfOnline 被外层 try/catch 兜成 null）三值映射一致
   const rows = [{ content_json: JSON.stringify({ userId: SELF, location: 123 }), created_at: new Date().toISOString() }];
   assert.equal(servicesWith(rows).get('dashboard.isSelfOnline')(), null);
 });
 
-test('offline / offline:offline / 空位置 → not_in_game（服务常驻登录即此态）', () => {
+test('offline / offline:offline / 空位置：窗口内 → unknown；超过窗口 → not_in_game（服务常驻登录即此态）', () => {
   for (const loc of ['offline', 'offline:offline', '']) {
-    const p = resolveSelfPresence(makeStorage(rowFor(loc)), { selfId: SELF, now: NOW });
-    assert.equal(p.state, 'not_in_game', `location=${loc}`);
-    assert.equal(p.location, loc);
+    // 60s 前（rowFor 默认）仍在确认窗口内 → unknown：消费方不写挂机文案、不翻转判定态
+    const fresh = resolveSelfPresence(makeStorage(rowFor(loc)), { selfId: SELF, now: NOW });
+    assert.equal(fresh.state, 'unknown', `location=${loc} 窗口内应为 unknown`);
+    assert.equal(fresh.location, loc);
+    // 超过默认窗口（360s）→ 认定真的离开
+    const old = [{ content_json: JSON.stringify({ userId: SELF, location: loc }), created_at: new Date(NOW - 400_000).toISOString() }];
+    const stale = resolveSelfPresence(makeStorage(old), { selfId: SELF, now: NOW });
+    assert.equal(stale.state, 'not_in_game', `location=${loc} 超窗口应为 not_in_game`);
+    assert.equal(stale.location, loc);
   }
 });
 
@@ -158,4 +167,38 @@ test('dashboard.selfPresence 暴露三态与位置，供插件消费', () => {
   assert.equal(p.state, 'in_game');
   assert.equal(p.worldId, 'wrld_abc');
   assert.equal(typeof p.at, 'string');
+});
+
+// ── 出游戏确认窗口（issue #218）────────────────────────────────────
+test('确认窗口内：单次离线判 unknown（消费方据此不写挂机文案、不翻转判定态）', () => {
+  const AT = new Date(NOW - 30_000).toISOString();   // 离线仅 30s
+  const rows = [{ content_json: JSON.stringify({ userId: SELF, location: 'offline:offline' }), created_at: AT }];
+  const r = resolveSelfPresence(makeStorage(rows), { selfId: SELF, now: NOW, offlineGraceMs: 360_000 });
+  assert.equal(r.state, 'unknown');
+});
+
+test('超过确认窗口：判 not_in_game（真出游戏，文案延后但不丢）', () => {
+  const AT = new Date(NOW - 400_000).toISOString();   // 离线已 400s > 360s
+  const rows = [{ content_json: JSON.stringify({ userId: SELF, location: 'offline:offline' }), created_at: AT }];
+  const r = resolveSelfPresence(makeStorage(rows), { selfId: SELF, now: NOW, offlineGraceMs: 360_000 });
+  assert.equal(r.state, 'not_in_game');
+});
+
+test('窗口设 0：恢复旧行为（单次离线即判出游戏）', () => {
+  const AT = new Date(NOW - 1_000).toISOString();
+  const rows = [{ content_json: JSON.stringify({ userId: SELF, location: 'offline:offline' }), created_at: AT }];
+  const r = resolveSelfPresence(makeStorage(rows), { selfId: SELF, now: NOW, offlineGraceMs: 0 });
+  assert.equal(r.state, 'not_in_game');
+});
+
+test('readOfflineGraceMs：env 解析与钳制（默认 360s / 上限 3600s / 非法回落）', () => {
+  delete process.env.VRC_MONITOR_SELF_PRESENCE_OFFLINE_GRACE_SECONDS;
+  assert.equal(readOfflineGraceMs(), 360_000);
+  process.env.VRC_MONITOR_SELF_PRESENCE_OFFLINE_GRACE_SECONDS = '60';
+  assert.equal(readOfflineGraceMs(), 60_000);
+  process.env.VRC_MONITOR_SELF_PRESENCE_OFFLINE_GRACE_SECONDS = '99999';
+  assert.equal(readOfflineGraceMs(), 3_600_000);
+  process.env.VRC_MONITOR_SELF_PRESENCE_OFFLINE_GRACE_SECONDS = 'abc';
+  assert.equal(readOfflineGraceMs(), 360_000);
+  delete process.env.VRC_MONITOR_SELF_PRESENCE_OFFLINE_GRACE_SECONDS;
 });
