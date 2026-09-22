@@ -22,6 +22,31 @@ service-windows\setup-windows.cmd
 2. 创建 `VrcMonLauncher` 登录自启动（onlogon 计划任务；权限不足时回退写入当前用户 Startup 文件夹的 VBS）
 3. 立即启动服务（若未运行）
 
+脚本的控制台提示为**英文**——这是刻意的，原因见下节「编码约定」。
+
+## 编码约定：`setup-windows.cmd` 必须是纯 ASCII
+
+`cmd.exe` **按当前控制台代码页解析批处理文件本身**（中文 Windows 默认 CP936、英文 CP1252、日文 CP932），而解析发生在脚本内 `chcp` 生效**之前**。文件里只要出现非 ASCII 字节（中文注释 / 中文提示），多字节序列就可能吞掉同一行后面的 ASCII 字节，把该行拆成「半截命令」执行，报错形如：
+
+```text
+'etup-windows.cmd' is not recognized as an internal or external command,
+operable program or batch file.
+```
+
+实测（Windows 11 中文版，`chcp` = 936，同一份脚本内容）：
+
+| 文件形态 | 结果 |
+|----------|------|
+| UTF-8（含中文）+ CRLF，即 Windows 默认检出 | 3 行被拆坏；`rem` 注释行与 `echo` 行都可能被当成命令执行 |
+| UTF-8（含中文）+ LF，即 `core.autocrlf=false` 检出 | 更严重：`@echo off` 被吞、脚本开始回显、`echo` 行的前缀丢失 |
+| **纯 ASCII**（本文件现状） | 所有行解析正常，无任何杂散报错 |
+
+因此：
+
+- `setup-windows.cmd` 的注释与提示一律用 **ASCII（英文）** 写。不要为了「中文友好」把中文加回这个文件——中文说明就放在本 `README.md`。
+- 在脚本里加 `chcp 65001` **修不好**这个问题（解析早于 `chcp` 生效；实测「先切码页再 `call`」仍有杂散报错），不要走这个方案。
+- 其它 `.cmd` / `.bat` 同理：要么纯 ASCII，要么存成目标平台默认代码页（GBK/CP936）并接受跨语言环境失效的风险。
+
 ## 每日修复报告（可选）
 
 每天 09:00 统计昨天的自动修复次数，**昨天没有修复就完全不输出**（零通知、零消耗）：
