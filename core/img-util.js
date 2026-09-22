@@ -42,4 +42,11 @@ export const avatarFileId = (u) => {
 // 用户头像展示统一入口：优先用户资料里设置的图标头像(user_icon)，兜底当前模型外观缩略图(currentAvatar)。
 // 背景：currentAvatarImageUrl 语义是"穿戴的3D模型外观"，常为默认机器人图而非用户真实头像，
 //       user_icon 是用户主动设置的头像（XM1023 显示机器人而非金发女仆头像 bug 的根因，2026-09-01）。
+/** VRChat 文件式模型名 → 展示名（"Avatar - Name - Image" → "Name"）；与 dashboard-services 内的实现同源。 */
+export const parseAvatarName = (n) => {
+  if (!n) return '';
+  const m = String(n).match(/^Avatar\s*-\s*(.+?)(\s*-\s*(Image|File|Texture|Thumbnail|VRChat)?.*)?$/i);
+  return m ? m[1].trim() : String(n);
+};
+
 export const avatarOf = (iconUrl, modelUrl) => avatarThumb(iconUrl) || avatarThumb(modelUrl);
