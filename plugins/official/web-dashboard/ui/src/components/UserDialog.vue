@@ -176,7 +176,10 @@ async function loadEvents() {
   try {
     const d = await get(`/api/dashboard/friend-events?userId=${encodeURIComponent(user.value.userId)}&limit=20`);
     events.value = d.events || [];
-  } catch { events.value = []; }
+  } catch (err) {
+    // 2026-09-22 彻查：失败不写正常态（[]=「没有事件」✗）⇒ 保持旧值 + 如实报错 ✓
+    toast('好友事件加载失败：' + ((err && err.message) || err), 'error');
+  }
 }
 async function openJoin() {
   try {

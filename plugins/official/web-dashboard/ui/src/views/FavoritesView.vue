@@ -45,7 +45,10 @@ async function load() {
     try {
       const g = await get('/api/dashboard/favorites?type=groups');
       groupsList = (g && Array.isArray(g.groups)) ? g.groups : [];
-    } catch { groupsList = []; }
+    } catch (err) {
+      // 2026-09-22 彻查：失败不写正常态（[]=「确实没有」✗）⇒ 保持旧值 + 如实报错 ✓
+      toast('收藏分组加载失败：' + ((err && err.message) || err), 'error');
+    }
     if (!worlds.value) {
       const w = await get('/api/dashboard/favorites?type=worlds&limit=200');
       worlds.value = (w && w.worlds) || [];
