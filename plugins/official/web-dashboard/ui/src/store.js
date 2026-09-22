@@ -288,6 +288,9 @@ export async function load(quiet = false) {
       get('/api/dashboard/events-range'),
     ]);
     const val = (i) => (settled[i].status === 'fulfilled' ? settled[i].value : null);
+    // 2026-09-22 评审残留：allSettled **永不 reject** ⇒ 不能把"本轮全部结束"当成"本轮成功"
+    // 判据改为"至少一个 fulfilled"；全部失败时反而写 loadError（此前 load() 自身无失败上报路径）
+    const okAny = settled.some((x) => x.status === 'fulfilled');
     const o = val(0);
     const f = val(1);
     const parsed = parseEvents(val(2));
@@ -303,11 +306,10 @@ export async function load(quiet = false) {
       if (o.vrcStatus) store.vrcStatus = o.vrcStatus;
       else if (o.status && o.status.indicator) store.vrcStatus = o.status.indicator;
     }
-    store.loadError = '';   // 2026-09-22 评审 ⚠️1：成功即清空（否则一次瞬时失败的红横幅会常驻整个会话）
+    store.loadError = okAny ? '' : '加载失败：本轮请求全部失败（网络或服务不可达）';   // 成功才清 / 全失败显式上报
     store.friends = (f && f.friends) || (Array.isArray(f) ? f : store.friends);
     if (!Array.isArray(store.feedEvents) || store.feedEvents.length <= 50) {
-      store.loadError = '';   // 同上：本次已成功拿到数据 ✓
-    store.feedEvents = parsed.events;
+      store.feedEvents = parsed.events;
       store.feedTotal = parsed.total || store.feedTotal;
     }
     store.feedHasMore = parsed.events.length >= 50;
