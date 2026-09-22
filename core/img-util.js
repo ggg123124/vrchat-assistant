@@ -35,7 +35,9 @@ export const avatarFileId = (u) => {
   let s = String(u);
   const pm = s.match(/^\/api\/dashboard\/image-proxy\?url=(.+)$/);
   if (pm) { try { s = decodeURIComponent(pm[1]); } catch { /* 保持原样 */ } }
-  const fm = s.match(/\/file\/(file_[a-f0-9-]+)/);
+  // VRChat 模型图有两种 URL 形态：/file/file_XXX/1/file 与 /image/file_XXX/1/256 —— 段名分别是 file / image，
+  // 旧正则只认 /file/，image 形态一律提取失败（2026-09-22「未知模型」与 avimg 映射 0 条的共同根因）。
+  const fm = s.match(/\/(?:file|image)\/(file_[a-f0-9-]+)/);
   return fm ? fm[1] : null;
 };
 
