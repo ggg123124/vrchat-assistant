@@ -340,8 +340,12 @@ async function _refreshTrackedNonFriends() {
             const fr = await rateLimiter.execute(() => api._request('GET', '/file/' + encodeURIComponent(fid)));
             // 实测 iconUrl 有时是「用户头像/相机图」而非模型图 ✗ ⇒ 文件名形如 file_xxx_camera_user_icon
             // 这类**不是模型名**，必须过滤 ✓（真模型名解析后是纯名字，如「测试」✓）
-            const raw = String(parseAvName(fr && fr.data && fr.data.name) || '');
-            avatarName = /^file_[0-9a-f-]{20,}/i.test(raw) ? '' : raw;
+            // 2026-09-22 评审 ⚠️2：只挡 file_ 前缀是不够的 —— iconUrl 也可能指向资料头像/相机图，
+            // 文件名可为任意值（实测 selfie.png / My cute avatar / IMG_20240101_123456.jpg 都会被原过滤当模型名）
+            // ⇒ 改为只采信 VRChat 模型文件的命名形态「Avatar - <名> - Image …」
+            const rawName = String((fr && fr.data && fr.data.name) || '');
+            const parsed = String(parseAvName(rawName) || '');
+            avatarName = /^Avatar\s*-\s*/i.test(rawName) ? parsed : '';
             try {
               ctx.storage.setPlanetCache('avatar_name:' + fid, avatarName
                 ? { name: avatarName, at: Date.now() }
