@@ -34,9 +34,15 @@ export const SELF_PRESENCE_OFFLINE_GRACE_DEFAULT_MS = 6 * 60 * 1000;   // 默认
 
 /** 出游戏确认窗口（毫秒）：env VRC_MONITOR_SELF_PRESENCE_OFFLINE_GRACE_SECONDS（默认 360s，范围 0-3600），调用时读取。 */
 export function readOfflineGraceMs() {
-  const n = Number(process.env.VRC_MONITOR_SELF_PRESENCE_OFFLINE_GRACE_SECONDS);
-  if (!Number.isFinite(n)) return SELF_PRESENCE_OFFLINE_GRACE_DEFAULT_MS;
-  return Math.min(3600, Math.max(0, n)) * 1000;
+  const raw = process.env.VRC_MONITOR_SELF_PRESENCE_OFFLINE_GRACE_SECONDS;
+  // 未设 / 空串（.env 里写成 VAR=）/ 纯空白 / 非数字 / 负数 → 一律回落默认；
+  // **只有显式 0 才关闭确认窗口**。
+  // 理由（#221 审核 ⚠️）：旧写法走 Number('') === 0 → 一个空值会把刚修好的去抖静默关掉，
+  // 使用者不会收到任何告警；本仓库同类变量（如 WORLD_FETCH_COOLDOWN_MS）的既有约定是「非法值/负回落默认」。
+  if (raw === undefined || String(raw).trim() === '') return SELF_PRESENCE_OFFLINE_GRACE_DEFAULT_MS;
+  const n = Number(String(raw).trim());
+  if (!Number.isFinite(n) || n < 0) return SELF_PRESENCE_OFFLINE_GRACE_DEFAULT_MS;
+  return Math.min(3600, n) * 1000;
 }
 
 /** 非 wrld_ 的"在游戏内"位置前缀（实例可见性为 private/friends 等时 VRChat 不下发 worldId） */

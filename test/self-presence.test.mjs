@@ -192,6 +192,15 @@ test('窗口设 0：恢复旧行为（单次离线即判出游戏）', () => {
 });
 
 test('readOfflineGraceMs：env 解析与钳制（默认 360s / 上限 3600s / 非法回落）', () => {
+  // #221 审核 ⚠️：空串/纯空白/负数都不得静默关掉窗口（旧写法 Number('')===0 → 等于关闭）
+  process.env.VRC_MONITOR_SELF_PRESENCE_OFFLINE_GRACE_SECONDS = '';
+  assert.equal(readOfflineGraceMs(), 360_000, '空串应回落默认而非 0');
+  process.env.VRC_MONITOR_SELF_PRESENCE_OFFLINE_GRACE_SECONDS = '   ';
+  assert.equal(readOfflineGraceMs(), 360_000, '纯空白应回落默认');
+  process.env.VRC_MONITOR_SELF_PRESENCE_OFFLINE_GRACE_SECONDS = '-5';
+  assert.equal(readOfflineGraceMs(), 360_000, '负数应回落默认');
+  process.env.VRC_MONITOR_SELF_PRESENCE_OFFLINE_GRACE_SECONDS = '0';
+  assert.equal(readOfflineGraceMs(), 0, '只有显式 0 才关闭窗口');
   delete process.env.VRC_MONITOR_SELF_PRESENCE_OFFLINE_GRACE_SECONDS;
   assert.equal(readOfflineGraceMs(), 360_000);
   process.env.VRC_MONITOR_SELF_PRESENCE_OFFLINE_GRACE_SECONDS = '60';
@@ -199,6 +208,7 @@ test('readOfflineGraceMs：env 解析与钳制（默认 360s / 上限 3600s / �
   process.env.VRC_MONITOR_SELF_PRESENCE_OFFLINE_GRACE_SECONDS = '99999';
   assert.equal(readOfflineGraceMs(), 3_600_000);
   process.env.VRC_MONITOR_SELF_PRESENCE_OFFLINE_GRACE_SECONDS = 'abc';
+  assert.equal(readOfflineGraceMs(), 360_000);
   assert.equal(readOfflineGraceMs(), 360_000);
   delete process.env.VRC_MONITOR_SELF_PRESENCE_OFFLINE_GRACE_SECONDS;
 });
