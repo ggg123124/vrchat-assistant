@@ -269,9 +269,12 @@ export async function toggleWatch(userId, displayName = '') {
 }
 
 function syncRightGroups() {
-  store.onlineFriends = store.friends.filter((f) => f.isOnline);
-  store.offlineFriends = store.friends.filter((f) => !f.isOnline);
-  store.favFriends = store.friends.filter((f) => store.favFriendIds && store.favFriendIds.has(f.userId));
+  // 2026-09-22 用户报障「有时候请求正常但右边整块黑的」：这类症状通常是**渲染期抛错**导致整块子树不挂载 ✗。
+  // 这里把唯一会直接 .filter 的数据源做防空（本地缓存 hydrate / 接口返回异常形状时不再整块崩掉 ✓）。
+  const list = Array.isArray(store.friends) ? store.friends : [];
+  store.onlineFriends = list.filter((f) => f.isOnline);
+  store.offlineFriends = list.filter((f) => !f.isOnline);
+  store.favFriends = list.filter((f) => store.favFriendIds && store.favFriendIds.has(f.userId));
 }
 
 // 关键路径（本地 DB，秒回）+ 慢路径（VRChat API，后台填）
@@ -471,7 +474,7 @@ function refreshFriends() {
       const f = await get('/api/dashboard/friends?limit=1000');  // issue #127
       if (f && Array.isArray(f.friends)) {
         // 按 userId 合并，保留现有顺序，更新已存在的、追加新的
-        const m = new Map(store.friends.map((x) => [x.userId, x]));
+        const m = new Map((Array.isArray(store.friends) ? store.friends : []).map((x) => [x.userId, x]));
         for (const nf of f.friends) m.set(nf.userId, nf);
         const merged = f.friends.map((x) => m.get(x.userId));
         for (const x of store.friends) {
