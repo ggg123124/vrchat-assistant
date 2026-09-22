@@ -1,6 +1,7 @@
 // ⚠️ 未注入、勿用（2026-09-22 标注，issue #217 审核 💡）：本文件不会被下发到浏览器——
 // web-dashboard/index.js 只注入 client/js/util.js 与 client/js/vue/{core,views,dialogs,rightbar,app}.js。
-// 它保留了把令牌拼进 query string 的旧写法（本文件里的 api()）；需要旧行为时请基于 client/js/vue/core.js。
+// 它**调用**的 api()（query 令牌形态）定义在 client/js/app.js；本文件自身不定义 api()。
+// 现行注入层以 client/js/vue/core.js 为准（已改走 Authorization 头）。
 
 async function openWorld(worldId){if(!worldId)return;closeWorldModal();if(window.__store)window.__store.worldModal={worldId}}
 function closeWorldModal(){document.querySelector('#worldModal').classList.remove('show');document.querySelector('#worldModalBack').classList.remove('show')}
