@@ -375,6 +375,42 @@ export default function register(api) {
     handler: async (_req, res) => sendJson(res, await api.consume('dashboard.snapshot')),
   });
 
+  // 2026-09-22 首屏合并（使用者报障面板很慢；实测：局域网直连 94ms，公网反代域名 1.4-3.7s/请求）：
+  // 首屏原本打 7 个接口，这里把第一波 4 个并行取齐、一次返回；前端在不可用时自动回退逐个请求。
+  api.http.registerRoute({
+    method: 'GET',
+    path: '/api/dashboard/bootstrap',
+    handler: async (req, res) => {
+      const url = new URL(req.url, 'http://localhost');
+      const limit = parseLimit(url.searchParams.get('limit') || 50, 50, 200);
+      const dateFrom = url.searchParams.get('dateFrom') || '';
+      const dateTo = url.searchParams.get('dateTo') || '';
+      // ⚠️ api.consume 既有同步（如 eventsRange）也有异步实现 ⇒ 统一用 try/catch 包装（不能直接 .catch）
+      const safe = async (name, args) => {
+        try {
+          const r = api.consume(name, args);
+          return r && typeof r.then === 'function' ? await r : r;
+        } catch {
+          return null;
+        }
+      };
+      const [overview, friends, events, eventsRange] = await Promise.all([
+        safe('dashboard.snapshot'),
+        safe('dashboard.friends', { limit: 1000 }),
+        safe('dashboard.events', { limit, offset: 0, dateFrom, dateTo }),
+        safe('dashboard.eventsRange'),
+      ]);
+      const evs = events && Array.isArray(events.events) ? events.events : (Array.isArray(events) ? events : []);
+      sendJson(res, {
+        overview,
+        friends,
+        events: evs,
+        total: (events && events.total) || evs.length,
+        eventsRange: eventsRange || { min: null, max: null },
+      });
+    },
+  });
+
   api.http.registerRoute({
     method: 'GET',
     path: '/api/dashboard/friends',

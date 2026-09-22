@@ -280,6 +280,16 @@ export async function load(quiet = false) {
   const silent = quiet || store.feedEvents.length > 0;
   if (!silent) store.feedLoading = true;
   try {
+    // 2026-09-22 首屏合并：公网反代下每个请求要付 1.4-3s 往返，第一波 4 个接口并为 1 次。
+    // bootstrap 不可用（旧后端 / 404 / 报错）时回退到逐个请求，行为与之前完全一致。
+    let o; let f; let parsed; let rng;
+    const boot = await get('/api/dashboard/bootstrap?limit=50').catch(() => null);
+    if (boot && (boot.overview || boot.friends)) {
+      o = boot.overview;
+      f = boot.friends;
+      parsed = parseEvents({ events: boot.events || [], total: boot.total || 0 });
+      rng = boot.eventsRange;
+    } else {
     const settled = await Promise.allSettled([
       get('/api/dashboard/overview'),
       get('/api/dashboard/friends?limit=1000'),  // issue #127：好友全量进 store，避免截断误判非好友
@@ -291,6 +301,7 @@ export async function load(quiet = false) {
     const f = val(1);
     const parsed = parseEvents(val(2));
     const rng = val(3);
+    }
     if (rng && rng.min) store.eventsRange = { min: rng.min, max: rng.max || null };
     if (o) {
       store.overview = o;
