@@ -22,6 +22,31 @@ function handle401() {
   try { window.dispatchEvent(new CustomEvent('vrc-auth-401')); } catch {}
 }
 
+// ── 鉴权门探测（issue #213）──
+// 服务未配置 VRC_MONITOR_AUTH_TOKEN 时 auth-guard 对全部请求放行，但登录门此前只看本地
+// sessionStorage，于是本地单机用户必须凭空输入一个从未配置过的令牌才能进入面板。
+// 这里用「裸探测」直接问服务端：受保护路由 200 → 无需令牌；401 → 需要令牌。
+// 判定必须基于 HTTP 状态，不得复用 /health 的 auth.authenticated —— 那是 VRChat 账号的
+// 登录态（账号未登录 / 处于 needsTotp 时为 false），与面板令牌是否有效无关。
+const AUTH_PROBE_PATH = '/api/dashboard/overview';
+
+export async function probeAuthRequired(timeout = 15000) {
+  const r = await fetch(AUTH_PROBE_PATH, { signal: AbortSignal.timeout(timeout) });
+  if (r.status === 401) return true;
+  if (r.ok) return false;
+  throw new Error('HTTP ' + r.status);
+}
+
+export async function verifyToken(t, timeout = 20000) {
+  const r = await fetch(AUTH_PROBE_PATH, {
+    headers: { Authorization: 'Bearer ' + t },
+    signal: AbortSignal.timeout(timeout),
+  });
+  if (r.ok) return true;
+  if (r.status === 401) return false;
+  throw new Error('HTTP ' + r.status);
+}
+
 export const apiUrl = (p) => (getToken() ? `${p}${p.includes('?') ? '&' : '?'}token=${encodeURIComponent(getToken())}` : p);
 
 // 统一错误信息：401 = 会话过期/服务未就绪（容器重启后 TOTP 自动登录自愈，稍等刷新即可）

@@ -35,7 +35,7 @@ import GroupDialog from './components/GroupDialog.vue';
 import InstanceDialog from './components/InstanceDialog.vue';
 import AvatarDialog from './components/AvatarDialog.vue';
 import LoginView from './components/LoginView.vue';
-import { hasToken, clearToken } from './api.js';
+import { hasToken, clearToken, probeAuthRequired } from './api.js';
 import { useConfirm } from 'primevue/useconfirm';
 import { bindConfirm } from './confirm.js';
 
@@ -95,6 +95,18 @@ onMounted(() => document.addEventListener('scroll', onAnyScroll, true));
 
 // ── 登录页控制 ──
 const loginView = ref(!hasToken());
+// 本地无 token 时先裸探测服务端是否真的要令牌（api.js probeAuthRequired）：
+// 未启用鉴权（单机默认）→ 直接进面板，不再逼用户输入一个从未配置过的令牌（issue #213）；
+// 探测失败（服务未启动 / 网络异常）保留登录门，由登录页给出连接错误提示。
+const authChecking = ref(loginView.value);
+onMounted(async () => {
+  if (!loginView.value) return;
+  try {
+    if (!(await probeAuthRequired())) loginView.value = false;
+  } catch { /* 保留登录门 */ } finally {
+    authChecking.value = false;
+  }
+});
 function onAuth401() { loginView.value = true; }
 onMounted(() => window.addEventListener('vrc-auth-401', onAuth401));
 onUnmounted(() => window.removeEventListener('vrc-auth-401', onAuth401));
@@ -145,7 +157,11 @@ async function refresh() {
 </script>
 
 <template>
-  <LoginView v-if="loginView" />
+  <div v-if="authChecking" class="auth-probe">
+    <i class="pi pi-spin pi-spinner"></i>
+    <span>正在检查访问鉴权…</span>
+  </div>
+  <LoginView v-else-if="loginView" />
   <div v-else class="app-shell">
     <header class="app-header">
       <Button v-if="store.isMobile" icon="pi pi-bars" text rounded @click="store.navOpen = true" aria-label="打开菜单" />
@@ -282,4 +298,6 @@ async function refresh() {
 .drawer-group:first-child { margin-top: 0; }
 /* 移动端好友抽屉：RightBar 撑满并内部滚动（rb-inner 自带 height:100% + overflow-y:auto） */
 :deep(.friends-drawer .p-drawer-content) { padding: 0; overflow: hidden; }
+/* 首次进入时的鉴权裸探测占位（issue #213）：未启用鉴权时一闪而过，启用时过渡到登录门 */
+.auth-probe { min-height: 100vh; display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--text-dim); font-size: 13px; }
 </style>

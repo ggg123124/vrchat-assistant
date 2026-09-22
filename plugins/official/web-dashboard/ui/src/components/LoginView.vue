@@ -1,6 +1,6 @@
 <script setup>
 import { ref } from 'vue';
-import { setToken, hasToken } from '../api.js';
+import { setToken, verifyToken } from '../api.js';
 
 const token = ref('');
 const showPwd = ref(false);
@@ -13,20 +13,16 @@ async function submit() {
   loading.value = true;
   error.value = '';
   try {
-    // 用 /health 验证令牌：Authorization: Bearer 传递，避免令牌出现在 URL（日志/历史残留风险）
-    const r = await fetch('/health', {
-      headers: { 'Authorization': 'Bearer ' + t },
-      signal: AbortSignal.timeout(20000),
-    });
-    const d = await r.json().catch(() => ({}));
-    if (r.ok && d.auth && d.auth.authenticated) {
+    // 用受保护的 dashboard 路由验证令牌（issue #213）：判定必须基于 HTTP 状态。
+    // 此前用 /health 的 auth.authenticated —— 那是 VRChat 账号登录态，账号未登录 /
+    // 处于 needsTotp 时即使令牌正确也会被误判为「令牌无效」。
+    const ok = await verifyToken(t);
+    if (ok) {
       setToken(t);
       location.reload();  // 重新走正常加载流程
       return;
     }
-    if (r.status === 401) { error.value = '令牌无效，请检查后重试'; }
-    else if (d && d.auth && d.auth.needsTotp) { error.value = '账号需要 TOTP 验证（服务自动处理，稍后重试）'; }
-    else { error.value = '验证失败（' + r.status + '），请稍后重试'; }
+    error.value = '令牌无效，请检查后重试';
   } catch (e) {
     error.value = '无法连接服务，请确认服务已启动（' + (e.message || e) + '）';
   } finally {
