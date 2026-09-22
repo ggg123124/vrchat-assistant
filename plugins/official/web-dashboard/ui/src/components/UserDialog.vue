@@ -117,7 +117,13 @@ const trustLevel = computed(() => {
   // 原始等级（本地记录优先，其次从 API tags 推断——对齐 VRCX computeTrustLevel 的 tag→名映射）
   const lt = pLocal.value.trustLevel;
   if (lt) return lt;
-  const t = (pUser.value.tags || []).find((x) => String(x).startsWith('system_trust_'));
+  // 2026-09-22 修：tags 是【累积】的（basic→known→trusted→veteran 一路的痕迹）✗
+  // 原来用 .find() 取【第一个】⇒ 永远显示他最早那一档（显示成 New User，与卡片/接口不一致 ✓）
+  // 现在取【最高档】✓（顺序与 core/friend-refresh.js 的 TRUST_FROM_TAG 一致 ✓）
+  const RANK = { basic: 1, known: 2, trusted: 3, veteran: 4, legend: 5 };
+  const hits = (pUser.value.tags || []).map((x) => String(x)).filter((x) => x.startsWith('system_trust_'));
+  const best = hits.sort((a, b) => (RANK[b.replace('system_trust_', '')] || 0) - (RANK[a.replace('system_trust_', '')] || 0))[0];
+  const t = best;
   if (!t) return '';
   return String(t);
 });
