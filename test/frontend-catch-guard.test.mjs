@@ -60,7 +60,10 @@ function scan() {
           if (!t || t.startsWith('//')) continue;
           if (!NORMAL_WRITE.test(t)) continue;
           if (FLAG.test(t)) continue;
-          out.push([p.replace(/^plugins\/official\/web-dashboard\/ui\//, ''), t]);
+          // 2026-09-22 修（Windows CI 实测）：先把路径分隔符统一成 '/'，再做前缀剥离 ✓
+          // 否则 Windows 上键是 'plugins\\official\\…' ⇒ 与基线（'src/…'）全不匹配 ⇒ 每条基线都被当成未登记 ⇒ 必红 ✗
+          const rel = String(p).replace(/\\/g, '/').replace(/^plugins\/official\/web-dashboard\/ui\//, '');
+          out.push([rel, t]);
         }
       }
     }
