@@ -44,7 +44,7 @@ test('等级变化：逐好友 /users/{id} → 事件 + 回写基线（Known →
   const id = 'usr_xf';
   const { ctx, events, upserts } = makeCtx({
     friends: [{ user_id: id, display_name: 'XIAOFANG小芳', trust_level: 'Known User' }],
-    users: new Map([[id, userObj(id, { trust: 'Trusted User' })]]),
+    users: new Map([[id, userObj(id, { trust: 'Trusted User', tags: ['system_trust_veteran'] })]]),
   });
   await refreshFriendList(ctx, () => {});
   const tl = events.filter((e) => e.type === 'friend-update' && e.contentJson && e.contentJson.type === 'trust_level');
@@ -57,7 +57,7 @@ test('等级变化：逐好友 /users/{id} → 事件 + 回写基线（Known →
 test('第二次刷新（基线已更新）不再重复报等级变化', async () => {
   const id = 'usr_a';
   const friendRow = { user_id: id, display_name: 'A', trust_level: 'Known User' };
-  const users = new Map([[id, userObj(id, { trust: 'Trusted User' })]]);
+  const users = new Map([[id, userObj(id, { trust: 'Trusted User', tags: ['system_trust_veteran'] })]]);
   const { ctx, events } = makeCtx({ friends: [friendRow], users });
   await refreshFriendList(ctx, () => {});
   friendRow.trust_level = 'Trusted User';   // 基线已更新（upsert 回写后）
@@ -70,7 +70,7 @@ test('未变化：不产生事件', async () => {
   const id = 'usr_a';
   const { ctx, events } = makeCtx({
     friends: [{ user_id: id, display_name: 'A', trust_level: 'Trusted User' }],
-    users: new Map([[id, userObj(id, { trust: 'Trusted User' })]]),
+    users: new Map([[id, userObj(id, { trust: 'Trusted User', tags: ['system_trust_veteran'] })]]),
   });
   await refreshFriendList(ctx, () => {});
   assert.equal(events.filter((e) => e.type === 'friend-update' && e.contentJson && e.contentJson.type === 'trust_level').length, 0);
@@ -94,14 +94,16 @@ test('空字段不回写（不清空已有值）', async () => {
   const id = 'usr_a';
   const { ctx, upserts } = makeCtx({
     friends: [{ user_id: id, display_name: 'A', trust_level: '' }],
-    users: new Map([[id, userObj(id, { trust: 'Trusted User' })]]),
+    users: new Map([[id, userObj(id, { trust: 'Trusted User', tags: ['system_trust_veteran'] })]]),
   });
   // 覆盖为全空 profile（bio/status 等皆空 → 不应写入）
   const users = new Map([[id, { id, displayName: 'A', trust_level: 'Trusted User', tags: [], status: '', statusDescription: '', currentAvatarImageUrl: '', bio: '', userIcon: '', pronouns: '' }]]);
   const { ctx: ctx2, upserts: upserts2 } = makeCtx({ friends: [{ user_id: id, display_name: 'A', trust_level: '' }], users });
   await refreshFriendList(ctx2, () => {});
   const u = upserts2[0];
-  assert.equal(u.trustLevel, 'Trusted User');
+  // #222 审核 ⚠️：poll 路径与 WS 路径统一为「缺 tags 即未知」——tags 为空时**不得**回落到
+  // 载荷里的 trust_level 字段（否则会把权威值改回旧值、产生假变更事件）。
+  assert.ok(!('trustLevel' in u), '缺 tags 时不得回写 trustLevel');
   assert.equal('status' in u, false);
   assert.equal('bio' in u, false);
 });

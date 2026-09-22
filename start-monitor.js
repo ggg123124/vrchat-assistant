@@ -13,6 +13,7 @@ import net from 'node:net';
 
 import { ctx, log, refreshWatchlistCache } from './core/server-context.js';
 import { isWebPresence } from './core/event-pipeline.js';
+import { refreshFriendList } from './core/friend-refresh.js';
 import { initLogger, getLevelName, getLogger } from './core/logger.js';
 import { recordOpsLog, setOpsLogSink } from './core/ops-log.js';
 import * as registry from './core/registry.js';
@@ -876,6 +877,13 @@ setOpsLogSink((kind, level, message) => {
   // 7a. 好友头像补全：启动 90s 后首次 + 每 6 小时（低频，只补空头像）
   setTimeout(_syncFriendAvatars, 90 * 1000);
   setInterval(_syncFriendAvatars, 6 * 3600 * 1000);
+
+  // 好友资料权威刷新（issue：trust_level 陈旧无自愈；#222 审核 🔴1 指出本接线缺失 → 补上）：
+  // 启动 60 秒后跑首轮（部署即自愈存量陈旧等级），之后每 VRC_MONITOR_FRIEND_REFRESH_HOURS（默认 6）小时一次；
+  // 刷新时回写非空资料字段 + 记录 trust_level 变化事件；每周期上限 VRC_MONITOR_FRIEND_REFRESH_MAX（默认 50）。
+  const FRIEND_REFRESH_HOURS = Math.max(1, Number(process.env.VRC_MONITOR_FRIEND_REFRESH_HOURS) || 6);
+  setTimeout(() => { refreshFriendList(ctx, log).catch(() => {}); }, 60_000);
+  setInterval(() => { refreshFriendList(ctx, log).catch(() => {}); }, FRIEND_REFRESH_HOURS * 3600 * 1000);
 
   // 7a2. 追踪非好友（VRCX-Luo 对齐）：启动 20s 后自动导入历史非好友并首次拉取，之后每小时刷新
   setTimeout(async () => {

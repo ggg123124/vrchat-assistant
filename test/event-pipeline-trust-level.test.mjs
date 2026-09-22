@@ -39,7 +39,8 @@ test('等级变化：插入 trust_level 事件 + 回写基线（Known User → T
   await pipeline.process({
     type: 'friend-update', userId: 'usr_xiaofang', displayName: 'XIAOFANG小芳',
     receivedAt: '2026-09-15T13:26:00.000Z',
-    content: { userId: 'usr_xiaofang', user: { ...BASE_USER, tags: ['system_trust_trusted'] } },
+    // tag→名称口径见 ui/src/utils.js:165：trusted=Known User、veteran/legend=Trusted User（#222 审核 🔴2 纠正）
+    content: { userId: 'usr_xiaofang', user: { ...BASE_USER, tags: ['system_trust_veteran'] } },
   });
   const tl = events.filter((e) => e.type === 'friend-update' && e.contentJson && e.contentJson.type === 'trust_level');
   assert.equal(tl.length, 1, '应恰好插入一条 trust_level 事件');
