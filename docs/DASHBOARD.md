@@ -97,7 +97,7 @@ Authorization: Bearer <VRC_MONITOR_AUTH_TOKEN>
   - `client/dashboard.css`：前端样式（注入到 `/dashboard` 页面）。
   - `client/js/util.js`：前端纯工具函数——转义、时间/日期、状态灯、信任徽章、位置解析、世界名、事件类型、通知类型等（注入到 `/dashboard` 页面）。
   - `client/js/views.js`：前端视图渲染——各工作区加载/渲染、事件行、好友行、图表、弹窗、玩家资料（注入到 `/dashboard` 页面）。
-  - `client/js/app.js`：前端主逻辑——状态、`render`/`load` 调度、事件绑定、SSE、初始化（注入到 `/dashboard` 页面；三个 JS 文件拼接进同一 `<script>` 块，`util → views → app` 顺序）。
+  - `client/js/app.js`：**已废弃、未注入（勿用）**——旧版前端主逻辑——状态、`render`/`load` 调度、事件绑定、SSE、初始化（注入到 `/dashboard` 页面；三个 JS 文件拼接进同一 `<script>` 块，`util → views → app` 顺序）。
 - 内部路由模块通过 `registerXxxRoutes(api, state)` 注册，不是独立 Hermes 插件；所有模块共享同一个 `register(api)` 生命周期和插件 API。
 - 核心只提供通用 HTTP 路由注册、鉴权顺序和只读 Dashboard 服务。
 - 插件通过 `api.http.registerRoute()` 注册路由，通过 `api.consume('dashboard.*')` 读取数据。
