@@ -1,8 +1,7 @@
 <script setup>
-import { computed, ref, onMounted, onUnmounted } from 'vue';
+import { computed, ref, onMounted, onUnmounted, onErrorCaptured } from 'vue';
 import { useToast } from 'primevue/usetoast';
 import { store, setView, load, startDashboard, enableNotifications, disableNotifications } from './store.js';
-import { onErrorCaptured } from 'vue';
 
 // 2026-09-22 用户报障「请求正常但右边整块黑的」：全项目此前**没有任何渲染错误兜底** ✗ ⇒ 子组件报错会让那一块静默变黑 ✓。
 // 捕获后代组件的渲染/生命周期错误 → 写进全局失败横幅（store.loadError ✓）+ 控制台留痕，让症状可见而非黑屏 ✓。

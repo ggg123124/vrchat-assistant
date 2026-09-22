@@ -17,6 +17,7 @@ function parseEvents(d) {
 }
 
 export const store = reactive({
+  authRequired: null,   // null=未知（探针未跑）/ false=不需要鉴权 / true=需要 ✓
   view: 'feed',
   isMobile: false,
   navOpen: false,
@@ -648,35 +649,31 @@ function initKeyboard() {
   });
 }
 
-let __dashStarted = false;   // 2026-09-22 评审二轮：main.js 与 App.vue 两条路径都会调 startDashboard()
-// ⇒ 不幂等会重复装 keydown 监听器（实测 2 个 ⇒ Ctrl/Cmd+K 双 toggle 反而关掉）✗ ⇒ 这里做幂等收口 ✓
+// 2026-09-22 评审三轮：拆成两个幂等门 —— 本地初始化（可早于 mount）与数据面启动（探针判定后才允许）
+// 原因：未启用令牌的部署里 main.js 会在 app.mount() 前先调一次（那时 authRequired 还没置位 ⇒ authed=false），
+// 若用单个门，首次调用就把门锁掉 ⇒ App 在探针判定后那次调用被吞 ⇒ 零请求 / 不连 SSE / 不起校准
+let __dashStarted = false;   // 本地初始化门（幂等：只做一次，重复调用无副作用）
+let __dataStarted = false;   // 数据面门（只有 authed 时才开，且只开一次）
 export function startDashboard() {
-  if (__dashStarted) return;
-  __dashStarted = true;
-  initFromHash();
-  // 2026-09-22 用户截图实证：登录页（无令牌）也在打 bootstrap/watchlist/tracked/count/公告 等全部接口 ✗
-  // ⇒ 无令牌时只做纯本地初始化（hash/SSE/键盘/视口），不发任何 dashboard 请求、不起轮询 ✓。
-  // 登录成功后由 App 在挂载完成时调用本函数（见 App.vue 的挂载逻辑），行为与之前一致 ✓。
-  // 2026-09-22 评审纠正：原判据只有 !!getToken() —— 未启用访问令牌的部署（单机默认 / issue #213 模式）
-  // 会因此在 !loginView 进入面板后**零请求、不连 SSE**（实测：无 token 0 条 / 有 token 13 条）。
-  // 判据改为「有令牌 或 服务端不需要鉴权」（后者由 App 在 probeAuthRequired() 为 false 时置位）。
   const authed = (() => { try { return !!getToken() || store.authRequired === false; } catch { return false; } })();
-  if (authed) {
+  // —— 本地初始化：不依赖鉴权，幂等 ——
+  if (!__dashStarted) {
+    __dashStarted = true;
+    initFromHash();
+    try { store.notifyEnabled = localStorage.getItem('vrc_notify') === '1'; } catch { /* 隐私模式 */ }
+    trackViewport();
+    initKeyboard();
+    bindHashChange();
+  }
+  // —— 数据面：未登录不请求、不连 SSE、不轮询；探针判定后由 App 再调一次即可启动 ——
+  if (!__dataStarted && authed) {
+    __dataStarted = true;
     load();
     loadWatchlist();
     loadTracked();
     loadNotifCount();
     loadAnnNewFlag();
+    startSse();   // 与数据加载同处守卫（原 SSE 没进守卫 ⇒ 一连上就触发 load() ⇒ 登录页 overview 401）
+    setInterval(() => load(true), 120000);   // 全量校准：120s 一次（未登录不轮询）
   }
-  try { store.notifyEnabled = localStorage.getItem('vrc_notify') === '1'; } catch { /* 隐私模式 */ }
-  // 2026-09-22 用户截图实证：登录页仍有 stream(401) 与 overview(401) ✗
-  // ——因为 SSE 没进守卫，而 SSE 一连上就会触发 load() ⇒ 连带 overview 401 ✓。
-  // 故把 startSse() 与数据加载同处守卫内 ✓。
-  if (authed) startSse();
-  trackViewport();
-  initKeyboard();
-  bindHashChange();
-  if (authed) setInterval(() => load(true), 120000);   // 未登录不轮询 ✓  // 全量校准：120s 一次（SSE 增量主导，全量只防丢帧/断线自愈）
-  // 右侧栏"我自己"状态/位置：由 SSE user-update/user-location 事件直接更新 me + refreshMeFresh() 节流拉取，
-  // 不再需要 10s 定时全量拉 /me（已移除，2026-09-01 SSE 增量改造）
 }
