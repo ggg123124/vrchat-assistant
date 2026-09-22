@@ -151,7 +151,7 @@ export class EventPipeline {
     const prev = this.storage.getFriend(userId);
     const prevWorldId = prev?.world_id || '';
 
-        this.storage.upsertFriend({
+    this.storage.upsertFriend({
       userId,
       displayName,
       location,
