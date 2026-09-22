@@ -436,10 +436,11 @@ export function registerDashboardServices(loader, ctx) {
         // avatarId 富化：WS 推送不含 currentAvatar，从 planet_cache 的 imageUrl→avatarId 映射反查（_syncFriendAvatars 建立）
         avatarId: content.avatarId || user.currentAvatar || (() => {
           // 2026-09-22 #225：收敛到 avatarFileId()（原内联正则只认 /file/ ✗）
-          const fm = avatarFileId(content.avatarImageUrl);
+          // 2026-09-22 评审纠正：avatarFileId() 返回**字符串**（不是正则 match 数组）✗
+          const fm = avatarFileId(content.avatarImageUrl) || '';
           if (!fm) return '';
           try {
-            const avr = ctx.storage.query(`SELECT payload FROM planet_cache WHERE key = $k`, { $k: `avimg:${fm[1]}` });
+            const avr = ctx.storage.query(`SELECT payload FROM planet_cache WHERE key = $k`, { $k: `avimg:${fm}` });
             if (avr[0]) { const v = JSON.parse(avr[0].payload); if (v && v.avatarId) return v.avatarId; }
           } catch { /* ignore */ }
           return '';
@@ -1335,12 +1336,13 @@ export function registerDashboardServices(loader, ctx) {
     // 模型名（currentAvatarImageUrl → file id → planet_cache avatar_name）
     let avatarName = '';
     try {
-      const fm = String(user && (user.currentAvatarImageUrl || user.currentAvatarThumbnailImageUrl) || '').match(/\/file\/(file_[a-f0-9-]+)/);
+      // 2026-09-22 评审纠正：本处原来漏改（仍是旧正则 ✗）且条件里用了未绑定的 fid ✗ ⇒ ReferenceError 被 catch 吞掉 ⇒ 模型名恒空
+      const fid = avatarFileId(user && (user.currentAvatarImageUrl || user.currentAvatarThumbnailImageUrl || user.iconUrl) || '') || '';
       if (fid) {   // 2026-09-22 #225：原为 if (fm) ✗ —— 非好友/无 avimg 映射时整段被跳过 ⇒ 好友详情模型名恒空 ✓
         const anCache = loader._avatarNameCache || (loader._avatarNameCache = new Map());
-        if (anCache.has(fm[1])) avatarName = anCache.get(fm[1]);
+        if (fid && anCache.has(fid)) avatarName = anCache.get(fid);
         else {
-          const ar = ctx.storage.query(`SELECT payload FROM planet_cache WHERE key=$k`, { $k: `avatar_name:${fm[1]}` })[0];
+          const ar = ctx.storage.query(`SELECT payload FROM planet_cache WHERE key=$k`, { $k: `avatar_name:${fid}` })[0];
           if (ar) { try { const v = JSON.parse(ar.payload); if (v && v.name) avatarName = v.name; } catch { /* ignore */ } }
         }
       }

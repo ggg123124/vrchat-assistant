@@ -7,7 +7,9 @@ import { readFileSync } from 'node:fs';
 // 于是 image 形态（/image/file_xxx/1/256）被静默跳过 ⇒ 模型名/头像补不上（不报错、不写坏数据）✗。
 // #223 修好了共享实现 avatarFileId()，本测试把"调用点也收敛"这件事**锁死**：
 // 一旦有人在 start-monitor.js / core/*.js 里再手写一份旧正则，测试立刻变红 ✓。
-const LEGACY = /\/file\/\(file_/;   // 只认 /file/ 的旧写法（avatarFileId 内部那一份除外）
+// 2026-09-22 评审纠正：原写法用正则判定，转义易失 ⇒ 实测会恒绿 ✗（注入真·旧正则仍 pass）。
+// 改用【纯子串】比对：只要源码里出现下面这段字面量就命中 —— 不依赖任何转义。
+const LEGACY_TEXT = '\\/file\\/(file_';   // = 字面量 \/file\/(file_（旧正则的源码文本；avatarFileId 内部那份在 core/img-util.js，不在扫描清单）   // 旧写法的字面量特征（avatarFileId 内部那一份在 core/img-util.js，不在扫描清单里）
 const FILES = ['start-monitor.js', 'core/dashboard-services.js', 'core/friend-refresh.js', 'core/event-pipeline.js'];
 
 test('不得再出现"只认 /file/ 的"内联 fileId 正则（#225）', () => {
@@ -16,7 +18,7 @@ test('不得再出现"只认 /file/ 的"内联 fileId 正则（#225）', () => {
     let src;
     try { src = readFileSync(f, 'utf-8'); } catch { continue; }
     src.split('\n').forEach((line, i) => {
-      if (LEGACY.test(line)) hits.push(`${f}:${i + 1}: ${line.trim().slice(0, 90)}`);
+      if (line.includes(LEGACY_TEXT)) hits.push(`${f}:${i + 1}: ${line.trim().slice(0, 90)}`);
     });
   }
   assert.equal(hits.length, 0, '发现旧正则（应改用 core/img-util.js 的 avatarFileId ✓）：\n' + hits.join('\n'));
