@@ -132,6 +132,23 @@ jobs:
             exit 1
           fi
 
+      - name: Windows scripts are ASCII-only (issue #216)
+        if: runner.os == 'Linux'   # 纯字节扫描、与 OS 无关 → 只在 Linux 腿跑一次
+        shell: bash
+        run: |
+          # cmd.exe 按当前控制台代码页解析批处理文件本身（中文 Windows=cp936）；含非 ASCII 的
+          # .cmd/.bat 会整行错位（issue #212）。判据：非 ASCII 字节数 = 0。
+          # 用 git 索引遍历（含嵌套路径；grep -i 兼顾 .CMD 等大小写变体）; tr 为 POSIX、免外部依赖。
+          bad=0
+          while IFS= read -r f; do
+            [ -e "$f" ] || continue
+            if [ -n "$(LC_ALL=C tr -d '\000-\177' < "$f")" ]; then
+              echo "::error::$f contains non-ASCII bytes — .cmd/.bat must stay ASCII-only (issue #212/#216); put localized text in a separate .txt"
+              bad=1
+            fi
+          done < <(git ls-files | LC_ALL=C grep -iE '[.](cmd|bat)$' || true)
+          exit $bad
+
       - name: Install UI deps
         run: npm ci --prefix plugins/official/web-dashboard/ui
 
