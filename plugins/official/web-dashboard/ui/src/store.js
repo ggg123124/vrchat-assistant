@@ -648,7 +648,11 @@ function initKeyboard() {
   });
 }
 
+let __dashStarted = false;   // 2026-09-22 评审二轮：main.js 与 App.vue 两条路径都会调 startDashboard()
+// ⇒ 不幂等会重复装 keydown 监听器（实测 2 个 ⇒ Ctrl/Cmd+K 双 toggle 反而关掉）✗ ⇒ 这里做幂等收口 ✓
 export function startDashboard() {
+  if (__dashStarted) return;
+  __dashStarted = true;
   initFromHash();
   // 2026-09-22 用户截图实证：登录页（无令牌）也在打 bootstrap/watchlist/tracked/count/公告 等全部接口 ✗
   // ⇒ 无令牌时只做纯本地初始化（hash/SSE/键盘/视口），不发任何 dashboard 请求、不起轮询 ✓。
