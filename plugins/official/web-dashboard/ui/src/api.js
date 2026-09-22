@@ -28,7 +28,10 @@ function handle401() {
 // 这里用「裸探测」直接问服务端：受保护路由 200 → 无需令牌；401 → 需要令牌。
 // 判定必须基于 HTTP 状态，不得复用 /health 的 auth.authenticated —— 那是 VRChat 账号的
 // 登录态（账号未登录 / 处于 needsTotp 时为 false），与面板令牌是否有效无关。
-const AUTH_PROBE_PATH = '/api/dashboard/overview';
+// 2026-09-22 用户报：登录页（无令牌）仍在请求 /api/dashboard/overview
+// 探针本身要打一个【受鉴权保护】的接口来判断是否需要令牌，但原实现指向的是**重数据接口** overview。
+// 改用 /api/dashboard/me（本就存在、只回当前用户、同样受 auth-guard 保护 ⇒ 无令牌 401）
+const AUTH_PROBE_PATH = '/api/dashboard/me';
 
 export async function probeAuthRequired(timeout = 15000) {
   const r = await fetch(AUTH_PROBE_PATH, { signal: AbortSignal.timeout(timeout) });
