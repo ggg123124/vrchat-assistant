@@ -245,6 +245,28 @@ export function registerDashboardServices(loader, ctx) {
   });
   loader.serviceOwners.set('dashboard.eventsRange', 'core');
 
+  // 「最近一张已知头像」按 userId 进程内缓存（含负缓存：无图的用户 6 小时内不重复查库 ✓）
+  // —— 用于 status/bio 这类 WS 未带图的 profile 事件，避免行内头像空白（2026-09-22 用户报障 ✓）
+  const _lastAvatarCache = new Map();
+  const lastKnownAvatarUrl = (userId) => {
+    if (!userId) return '';
+    const hit = _lastAvatarCache.get(userId);
+    if (hit && hit.until > Date.now()) return hit.url;
+    let url = '';
+    try {
+      const r = ctx.storage.query(
+        `SELECT content_json AS c FROM events WHERE user_id = $u`
+        + ` AND json_extract(content_json,'$.avatarImageUrl') <> ''`
+        + ` ORDER BY created_at DESC LIMIT 1`, { $u: userId })[0];
+      if (r) {
+        let c = {}; try { c = JSON.parse(r.c); } catch { /* ignore */ }
+        url = imgProxy(avatarThumb(c.avatarImageUrl) || '');
+      }
+    } catch { /* 查询失败按无图处理 */ }
+    _lastAvatarCache.set(userId, { url, until: Date.now() + (url ? 6 * 3600 * 1000 : 30 * 60 * 1000) });
+    return url;
+  };
+
   loader.services.set('dashboard.events', async ({ limit = 50, offset = 0, dateFrom = '', dateTo = '' } = {}) => {
     // 日期范围过滤（VRCX 式日历范围选择）：只查首尾范围内的数据，分页也按范围
     const conds = [];
@@ -450,10 +472,14 @@ export function registerDashboardServices(loader, ctx) {
         bio: content.bio || user.bio || '',
         previousBio: content.previousBio || '',
         userIcon: imgProxy(content.userIcon || user.userIcon || ''),
+        // 2026-09-22 用户报障「为什么会有没头像的（散华ln 非好友）」——实测：该用户 status 事件的载荷里
+        // `avatarImageUrl` **就是空串** ✗（WS 没带图），所以本块即使拼了 avatarUrl 也不会有图 ✓。
+        // 正解：回退到「该 userId **最近一次带图的事件**」（数据就在 events 表里 ✓ 不需要发 API ✓），带进程内缓存 + 负缓存 ✓。
         // 2026-09-22 用户报障「为什么会有没头像的（散华ln 非好友，半天也不加载）」：
         // 本块（profile 变更）**此前没有 avatarUrl** ✗，而前端 playerAvatarOf 优先读 avatarUrl ⇒ 非好友行头像空白 ✓。
         // 数据其实就在事件载荷里（status 事件自带 avatarImageUrl ✓）—— 不是「没加载」，是没被拼进去 ✓。
-        avatarUrl: avatarOf(row.userIcon || user.userIcon, row.avatarUrl || content.avatarImageUrl || user.currentAvatarImageUrl),
+        avatarUrl: avatarOf(row.userIcon || user.userIcon, row.avatarUrl || content.avatarImageUrl || user.currentAvatarImageUrl)
+          || lastKnownAvatarUrl(row.user_id),
         previousUserIcon: content.previousUserIcon || '',
         pronouns: content.pronouns || user.pronouns || '',
         previousPronouns: content.previousPronouns || '',
