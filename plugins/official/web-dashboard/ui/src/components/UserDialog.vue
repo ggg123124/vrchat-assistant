@@ -287,7 +287,7 @@ const rawJson = computed(() => {
         </TabPanel>
 
         <!-- 共同好友 -->
-        <TabPanel value="mutual" v-if="isFriend">
+        <TabPanel value="mutual">
           <div v-if="!profile.mutualFriends.length" class="empty" style="padding:16px">暂无共同好友</div>
           <div v-else class="mini-list">
             <div v-for="f in profile.mutualFriends" :key="f.id" class="mini-row" role="button" tabindex="0" @click="store.userModal = { userId: f.id, displayName: f.displayName, avatarUrl: f.avatarUrl }" @keydown.enter="store.userModal = { userId: f.id, displayName: f.displayName, avatarUrl: f.avatarUrl }">
@@ -309,7 +309,7 @@ const rawJson = computed(() => {
         </TabPanel>
 
         <!-- 群组 -->
-        <TabPanel value="groups" v-if="isFriend">
+        <TabPanel value="groups">
           <div v-if="!profile.groups.length" class="empty" style="padding:16px">暂未加入群组</div>
           <div v-else class="mini-list">
             <div v-for="g in profile.groups" :key="g.id" class="mini-row" role="button" tabindex="0" @click="openGroup(g.id)" @keydown.enter="openGroup(g.id)">
