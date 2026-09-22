@@ -510,10 +510,21 @@ export function registerDashboardServices(loader, ctx) {
         const rows = ctx.storage.query(`SELECT key, payload FROM planet_cache WHERE key LIKE 'avatar_name:%'`);
         for (const r of rows) {
           const fid = String(r.key).slice('avatar_name:'.length);
-          try { const v = JSON.parse(r.payload); if (v && v.name) anCache.set(fid, v.name); } catch { /* ignore */ }
+          try {
+            const v = JSON.parse(r.payload);
+            // 负缓存也要载入，否则每次翻页都会重试同一批不可解析的 fileId ✗
+            if (v && v.miss) { if (!v.until || v.until > Date.now()) anCache.set(fid, ''); }
+            else if (v && v.name) anCache.set(fid, v.name);
+          } catch { /* ignore */ }
         }
       } catch { /* 无表/查询失败则仅用内存缓存 */ }
     }
+    // 2026-09-22：补名**失败**时写负缓存（6 小时内不再重试同一 fileId）—— 深层页全是老数据，
+    // 其 fileId 多不可解析，若失败什么都不写就会每次翻页重试同一批 ⇒ 限流器被打爆（实测 40–105 秒等待/分钟）
+    const saveAvMiss = (fileId) => {
+      anCache.set(fileId, '');
+      try { ctx.storage.setPlanetCache(`avatar_name:${fileId}`, { name: '', miss: true, until: Date.now() + 6 * 3600 * 1000 }); } catch { /* 落盘失败不影响响应 */ }
+    };
     const saveAvName = (fileId, name) => {
       anCache.set(fileId, name);
       try { ctx.storage.setPlanetCache(`avatar_name:${fileId}`, { name, at: Date.now() }); } catch { /* 落盘失败不影响响应 */ }
@@ -591,6 +602,7 @@ export function registerDashboardServices(loader, ctx) {
             const a = await ctx.rateLimiter.execute(() => ctx.api._request('GET', `/file/${fileId}`));
             const nm = parseAvName(a && a.data && a.data.name);
             if (nm) { ev[key] = nm; saveAvName(fileId, nm); try { console.log(`[模型名] 已解析 ${fileId.slice(0,20)}… → ${nm}`); } catch { /* 日志失败忽略 */ } }
+            else saveAvMiss(fileId);   // 失败留痕（负缓存）✓
           } catch { /* 查询失败保留空名，下次再试 */ }
         }
       })();
