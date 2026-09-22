@@ -214,7 +214,8 @@ export async function loadAnnNewFlag() {
     const base = localStorage.getItem('ga_last_seen') || '';
     store.annHasNew = !!latest && !!base && latest > base;
   } catch {
-    store.annHasNew = false;
+    // 2026-09-22 彻查：取数失败 ⇒ 保持上次已知值，**不要写成 false** ✗
+    // （false 的含义是「确实没有新公告」，而此刻我们只是「没拿到」——弱源不写，见 lesson 0mucncnwh 同族原则）
   }
 }
 
@@ -353,8 +354,10 @@ export async function resetFeed() {
     store.feedEvents = parsed.events;
     store.feedTotal = parsed.total || store.feedTotal;
     store.feedHasMore = parsed.events.length >= 50;
-  } catch {
-    store.feedHasMore = false;
+  } catch (err) {
+    // 2026-09-22 彻查（同类第 3 处）：筛选切换时请求失败也不能当成「没有更多」✗；
+    // 交给全局失败横幅显示原因，feedHasMore 保持原值（旧列表仍在，不谎报到底）。
+    store.loadError = (err && err.message) ? err.message : '网络或服务不可达';
   } finally {
     store.feedLoading = false;
   }
