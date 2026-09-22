@@ -24,6 +24,10 @@ Authorization: Bearer <VRC_MONITOR_AUTH_TOKEN>
 
 直接在地址栏访问时，建议通过前置反向代理注入鉴权 Header，或仅在可信局域网使用。不要把 Token 写进前端源码、URL、提交记录或截图。
 
+**令牌传输方式（issue #217）**：面板的普通请求（get/post）一律通过 **Authorization: Bearer <token> 头**传令牌，不放进 URL——query 形态会进入访问日志 / 反向代理日志 / 浏览器历史。**部署侧缓解（SSE 残留风险）**：/api/dashboard/stream 是长连接且断线会重连，其 URL（含 token）会反复写入反向代理访问日志——建议 nginx 侧对该路径只记 $uri、不记 $args（或该路径日志不外发/做参数脱敏）。图片代理 /api/dashboard/image-proxy 则被 auth-guard 无条件豁免（GET）、服务端该路由亦不校验令牌，故前端不再拼接 &token=（issue #217 审核 ⚠️，无功能代价）。
+
+**唯一例外是 SSE 事件流 GET /api/dashboard/stream**：EventSource 无法自定义请求头，只能沿用 query 形式，因此反代/日志侧请勿记录该路径的 query（或做参数脱敏）。
+
 **登录门与未启用鉴权的情况（issue #213）**：`auth-guard` 未配置 `VRC_MONITOR_AUTH_TOKEN` 时后端对全部请求放行。前端此前仅凭浏览器 `sessionStorage` 里有没有令牌决定是否显示登录页，于是单机本机用户会被要求输入一个从未配置过的令牌。现在前端在**本地无令牌时先裸探测一个受保护路由**：
 
 - `GET /api/dashboard/overview` 返回 **200** → 服务未启用鉴权，直接进入面板（不写任何令牌）；
