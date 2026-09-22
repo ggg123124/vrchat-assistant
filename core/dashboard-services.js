@@ -450,6 +450,10 @@ export function registerDashboardServices(loader, ctx) {
         bio: content.bio || user.bio || '',
         previousBio: content.previousBio || '',
         userIcon: imgProxy(content.userIcon || user.userIcon || ''),
+        // 2026-09-22 用户报障「为什么会有没头像的（散华ln 非好友，半天也不加载）」：
+        // 本块（profile 变更）**此前没有 avatarUrl** ✗，而前端 playerAvatarOf 优先读 avatarUrl ⇒ 非好友行头像空白 ✓。
+        // 数据其实就在事件载荷里（status 事件自带 avatarImageUrl ✓）—— 不是「没加载」，是没被拼进去 ✓。
+        avatarUrl: avatarOf(row.userIcon || user.userIcon, row.avatarUrl || content.avatarImageUrl || user.currentAvatarImageUrl),
         previousUserIcon: content.previousUserIcon || '',
         pronouns: content.pronouns || user.pronouns || '',
         previousPronouns: content.previousPronouns || '',
