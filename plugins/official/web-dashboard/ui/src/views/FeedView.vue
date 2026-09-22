@@ -1025,4 +1025,7 @@ onUnmounted(() => {
   .ev-row { cursor: default; }
   .ev-row.open { background: var(--surface); box-shadow: none; }
 }
+
+/* 2026-09-22 评审 💡：模板引用了 .feed-more-err 但样式表没定义 ⇒ 补上 ✓ */
+.feed-more-err { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 0; color: var(--text-dim); font-size: 12.5px; }
 </style>
