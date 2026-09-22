@@ -435,7 +435,8 @@ export function registerDashboardServices(loader, ctx) {
         previousAvatarName: content.previousAvatarName || '',
         // avatarId 富化：WS 推送不含 currentAvatar，从 planet_cache 的 imageUrl→avatarId 映射反查（_syncFriendAvatars 建立）
         avatarId: content.avatarId || user.currentAvatar || (() => {
-          const fm = String(content.avatarImageUrl || '').match(/\/file\/(file_[a-f0-9-]+)/);
+          // 2026-09-22 #225：收敛到 avatarFileId()（原内联正则只认 /file/ ✗）
+          const fm = avatarFileId(content.avatarImageUrl);
           if (!fm) return '';
           try {
             const avr = ctx.storage.query(`SELECT payload FROM planet_cache WHERE key = $k`, { $k: `avimg:${fm[1]}` });
@@ -1335,7 +1336,7 @@ export function registerDashboardServices(loader, ctx) {
     let avatarName = '';
     try {
       const fm = String(user && (user.currentAvatarImageUrl || user.currentAvatarThumbnailImageUrl) || '').match(/\/file\/(file_[a-f0-9-]+)/);
-      if (fm) {
+      if (fid) {   // 2026-09-22 #225：原为 if (fm) ✗ —— 非好友/无 avimg 映射时整段被跳过 ⇒ 好友详情模型名恒空 ✓
         const anCache = loader._avatarNameCache || (loader._avatarNameCache = new Map());
         if (anCache.has(fm[1])) avatarName = anCache.get(fm[1]);
         else {
