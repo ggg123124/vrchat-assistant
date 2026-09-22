@@ -254,7 +254,7 @@ const rawJson = computed(() => {
       <TabPanels>
         <!-- 信息 -->
         <TabPanel value="info">
-          <div v-if="!isFriend" class="ud-note"><i class="pi pi-info-circle"></i> 非好友 · 创建的世界 / 模型列表可能不完整（群组、共同好友已可查看）</div>
+          <div v-if="!isFriend" class="ud-note"><i class="pi pi-info-circle"></i> 非好友 · 创建的世界 / 模型列表不可见（群组、共同好友已可查看）</div>
           <div v-if="isOnline && instanceName" class="ud-loc">
             <i class="pi pi-map-marker"></i>
             <span class="link" @click="openWorld(user.worldId || '')">{{ instanceName }}</span>
