@@ -10,6 +10,8 @@
  * 纯搬移重构：服务名、owner、实现逐字节一致，无行为变更。
  */
 import { isSafeModeEnabled } from './safe-mode.js';
+import { getLogger } from './logger.js';   // 2026-09-22 评审 ⚠️1：新增的外部调用点必须逐分支留痕（不许 console.log 绕过 VRC_MONITOR_LOGGER_*）
+const log = getLogger('dashboard');
 import { resolveSelfPresence } from './self-presence.js';
 
 // 世界缓存新鲜度（2026-09-15 新增，env 可配）：world_cache 里的名字/描述/标签是**快照**，
@@ -601,9 +603,9 @@ export function registerDashboardServices(loader, ctx) {
           try {
             const a = await ctx.rateLimiter.execute(() => ctx.api._request('GET', `/file/${fileId}`));
             const nm = parseAvName(a && a.data && a.data.name);
-            if (nm) { ev[key] = nm; saveAvName(fileId, nm); try { console.log(`[模型名] 已解析 ${fileId.slice(0,20)}… → ${nm}`); } catch { /* 日志失败忽略 */ } }
-            else saveAvMiss(fileId);   // 失败留痕（负缓存）✓
-          } catch { /* 查询失败保留空名，下次再试 */ }
+            if (nm) { ev[key] = nm; saveAvName(fileId, nm); try { log.debug(`[模型名] 已解析 ${fileId.slice(0,20)}… → ${nm}`); } catch { /* 日志失败忽略 */ } }
+            else { log.info(`[模型名] 解析不出，落负缓存 6h：${fileId.slice(0,20)}…`); saveAvMiss(fileId); }   // 降级决策必须留痕 ✓
+          } catch (e) { log.warn('[模型名] 解析失败（保留空名，下次再试）：' + (e && e.message ? e.message : e)); }
         }
       })();
     }
