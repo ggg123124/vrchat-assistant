@@ -41,3 +41,23 @@ test('未连接或没有计时起点 ⇒ 不触发（不会误伤空闲连接）
   assert.equal(b.m._checkSilent(), false);
   assert.equal(a.count() + b.count(), 0);
 });
+
+
+// issue #247 评审 🔴：stop() 必须在 close 前摘掉 handler —— 否则迟到的 close 会触发
+// _onClose ⇒ _scheduleReconnect，多排一次 _connect（两条连接同时存活、事件双投）。
+test('stop() 会摘掉当前 socket 的 handler（防迟到 close 多排重连）', () => {
+  const m = new WsManager({ apiClient: {}, onEvent: () => {}, onStatusChange: () => {} });
+  let removed = 0;
+  let closed = 0;
+  m.ws = {
+    readyState: 1,
+    close() { closed += 1; },
+    removeAllListeners() { removed += 1; },
+    ping() {},
+    terminate() {},
+    on() {},
+  };
+  m.stop();
+  assert.equal(removed, 1, 'socket 的 handler 应被摘掉');
+  assert.equal(closed, 1, 'socket 仍应被关闭');
+});

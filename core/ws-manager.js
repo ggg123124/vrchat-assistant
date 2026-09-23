@@ -97,6 +97,9 @@ export class WsManager {
     this.shouldReconnect = false;
     this._clearTimers();
     if (this.ws) {
+      // issue #247 评审 RED：close 事件是异步派发的 —— 手动停止后若不摘掉 handler，迟到的 close
+      // 会触发 _onClose ⇒ _scheduleReconnect，多排一次 _connect ⇒ 两条连接同时存活、事件双投。
+      try { this.ws.removeAllListeners(); } catch {}
       try { this.ws.close(1000, 'Manual stop'); } catch {}
       this.ws = null;
     }
@@ -203,10 +206,13 @@ export class WsManager {
       }
 
       // 设置事件处理器（如果是直连成功，open 事件已被 inline listener 消费，需要标记）
-      this.ws.on('open', () => this._onOpen());
-      this.ws.on('message', (data) => this._onMessage(data));
-      this.ws.on('close', (code, reason) => this._onClose(code, reason));
-      this.ws.on('error', (err) => this._onError(err));
+      // issue #247 评审 RED：捕获本 socket 引用并加陈旧判别 —— 只有它仍是当前 ws 时才处理事件，
+      // 避免「已被替换掉的旧连接」继续往 event-pipeline 灌事件（实测会导致事件双投）。
+      const sock = this.ws;
+      sock.on('open', () => { if (this.ws === sock) this._onOpen(); });
+      sock.on('message', (data) => { if (this.ws === sock) this._onMessage(data); });
+      sock.on('close', (code, reason) => { if (this.ws === sock) this._onClose(code, reason); });
+      sock.on('error', (err) => { if (this.ws === sock) this._onError(err); });
 
       // 如果直连已成功但 open 事件已被消费，手动触发 _onOpen
       if (connectedDirectly && this.ws.readyState === WebSocket.OPEN) {
