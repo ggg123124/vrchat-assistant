@@ -1,3 +1,8 @@
+// ⚠️ 未注入、勿用（2026-09-22 标注，issue #217 审核 💡）：本文件不会被下发到浏览器——
+// web-dashboard/index.js 只注入 client/js/util.js 与 client/js/vue/{core,views,dialogs,rightbar,app}.js。
+// 它**调用**的 api()（query 令牌形态）定义在 client/js/app.js；本文件自身不定义 api()。
+// 现行注入层以 client/js/vue/core.js 为准（已改走 Authorization 头）。
+
 async function openWorld(worldId){if(!worldId)return;closeWorldModal();if(window.__store)window.__store.worldModal={worldId}}
 function closeWorldModal(){document.querySelector('#worldModal').classList.remove('show');document.querySelector('#worldModalBack').classList.remove('show')}
 function eventDetailLine(x){if(x.type==='friend-location'){const p=x.previousWorldName||'';const n=x.worldName||'';const parts=[];if(p&&p!==n)parts.push(`从 ${p}`);if(n)parts.push(`到 ${n}`);if(x.travelingToLocation)parts.push('传送中');if(x.canRequestInvite)parts.push('可请求邀请');return parts.join(' ')}if(x.type==='user-location'){const n=locLabel(x.location)||x.location;return n?`位置：${n}`:''}if(x.type==='friend-active'){const d=x.statusDescription||x.status;return d?`状态：${d}`:''}if(x.type==='friend-update'){const u=x.updateType;const s=x.statusDescription||x.status||'';if(u==='avatar')return x.avatarName?('更换模型 · '+x.avatarName):'更换模型';if(u==='status')return s?('状态：'+s):'状态变化';if(u==='bio')return x.bio?('简介变化：'+x.bio):'更新了简介';if(u==='user_icon')return '更新了头像图标';if(u==='pronouns')return x.pronouns?('代词：'+x.pronouns):'更新了代词';return '资料变化'}if(x.type==='friend-add')return '新好友';if(x.type==='friend-delete')return '已解除好友';return ''}

@@ -214,7 +214,8 @@ export async function loadAnnNewFlag() {
     const base = localStorage.getItem('ga_last_seen') || '';
     store.annHasNew = !!latest && !!base && latest > base;
   } catch {
-    store.annHasNew = false;
+    // 2026-09-22 彻查：取数失败 ⇒ 保持上次已知值，**不要写成 false** ✗
+    // （false 的含义是「确实没有新公告」，而此刻我们只是「没拿到」——弱源不写，见 lesson 0mucncnwh 同族原则）
   }
 }
 
@@ -287,6 +288,12 @@ export async function load(quiet = false) {
       get('/api/dashboard/events-range'),
     ]);
     const val = (i) => (settled[i].status === 'fulfilled' ? settled[i].value : null);
+    // 2026-09-22 评审残留：allSettled **永不 reject** ⇒ 不能把"本轮全部结束"当成"本轮成功"
+    // 判据改为"至少一个 fulfilled"；全部失败时反而写 loadError（此前 load() 自身无失败上报路径）
+    const okAny = settled.some((x) => x.status === 'fulfilled');
+    // 2026-09-22 评审（阻断）：只判「有任一成功」不够 —— events 单点失败而 overview 成功时，
+    // 横幅被清 + 动态被写成空 ⇒ 仍是「把失败伪装成正常结论」。关键请求＝动态流（settled[2]）
+    const feedOk = settled[2].status === 'fulfilled';
     const o = val(0);
     const f = val(1);
     const parsed = parseEvents(val(2));
@@ -302,12 +309,14 @@ export async function load(quiet = false) {
       if (o.vrcStatus) store.vrcStatus = o.vrcStatus;
       else if (o.status && o.status.indicator) store.vrcStatus = o.status.indicator;
     }
+    store.loadError = feedOk ? '' : (okAny ? '动态流加载失败（其余数据正常）' : '本轮请求全部失败（网络或服务不可达）');   // 关键请求成功才清；文案不带前缀（模板已拼「加载失败：」）
     store.friends = (f && f.friends) || (Array.isArray(f) ? f : store.friends);
-    if (!Array.isArray(store.feedEvents) || store.feedEvents.length <= 50) {
+    // 评审（阻断）其二：关键请求失败时不得用空值覆盖旧数据（否则「暂无动态」且无提示）
+    if (feedOk && (!Array.isArray(store.feedEvents) || store.feedEvents.length <= 50)) {
       store.feedEvents = parsed.events;
       store.feedTotal = parsed.total || store.feedTotal;
     }
-    store.feedHasMore = parsed.events.length >= 50;
+    if (feedOk) store.feedHasMore = parsed.events.length >= 50;
     syncRightGroups();
 
     Promise.allSettled([
@@ -353,8 +362,10 @@ export async function resetFeed() {
     store.feedEvents = parsed.events;
     store.feedTotal = parsed.total || store.feedTotal;
     store.feedHasMore = parsed.events.length >= 50;
-  } catch {
-    store.feedHasMore = false;
+  } catch (err) {
+    // 2026-09-22 彻查（同类第 3 处）：筛选切换时请求失败也不能当成「没有更多」✗；
+    // 交给全局失败横幅显示原因，feedHasMore 保持原值（旧列表仍在，不谎报到底）。
+    store.loadError = (err && err.message) ? err.message : '网络或服务不可达';
   } finally {
     store.feedLoading = false;
   }
@@ -376,14 +387,16 @@ export async function loadMoreFeed({ target = 50, countMatch = null } = {}) {
         break;
       }
       store.feedEvents = [...store.feedEvents, ...more];
+      store.loadError = '';   // 同上：分页成功也清空 ✓
       store.feedHasMore = more.length >= 50;
       // 匹配数达标（或没有匹配判定=普通分页一次一批）→ 停；否则继续向前加载
       if (!countMatch) break;
       if (countMatch() >= target) break;
       if (!store.feedHasMore) break;
     }
-  } catch {
-    store.feedHasMore = false;
+  } catch (err) {
+    // 2026-09-22：失败不得伪装成「没有更多了」✗ —— 保持 feedHasMore 原值，把失败交给全局横幅 + 重试 ✓
+    store.loadError = (err && err.message) ? err.message : '加载更多失败（网络或服务不可达）';
   } finally {
     store.feedLoadingMore = false;
   }
