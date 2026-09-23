@@ -6,20 +6,23 @@
   const token = new URLSearchParams(location.search).get('token') || sessionStorage.getItem('vrc_dashboard_token') || '';
   if (token) sessionStorage.setItem('vrc_dashboard_token', token);
 
+  // 令牌传输（issue #217）：普通请求走 Authorization 头；api() 只留给 EventSource（第 257 行，
+  // 它无法自定义请求头）——query 形态会进访问日志 / 反向代理日志 / 浏览器历史。
+  const authHeaders = () => (token ? { Authorization: 'Bearer ' + token } : {});
   const api = (p) => (token ? `${p}${p.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}` : p);
   window.__api = api;
 
   const get = async (p, timeout = 25000) => {
-    const r = await fetch(api(p), { signal: AbortSignal.timeout(timeout) });
+    const r = await fetch(p, { headers: authHeaders(), signal: AbortSignal.timeout(timeout) });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     return r.json();
   };
   window.__get = get;
 
   const post = async (p, body = {}, timeout = 25000) => {
-    const r = await fetch(api(p), {
+    const r = await fetch(p, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(timeout),
     });

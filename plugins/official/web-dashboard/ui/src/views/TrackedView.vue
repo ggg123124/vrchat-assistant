@@ -219,7 +219,7 @@ const lastChangeAt = (x) => {
   return x.lastChangeAt || '';
 };
 
-const CHANGE_LABEL = { bio: '简介变更', status: '状态变更', avatar: '头像更新', user_icon: '头像图标更新', pronouns: '代词更新', displayName: '改名', location: '位置/上下线' };
+const CHANGE_LABEL = { bio: '简介变更', status: '状态变更', avatar: '头像更新', user_icon: '头像图标更新', pronouns: '代词更新', trust_level: '等级变更', displayName: '改名', location: '位置/上下线' };
 // 位置可读化：offline=离线 / offline:offline=网页在线 / traveling=传送中 / wrld_xxx=世界（世界名在 c.worldName 里附加）
 const locLabel = (l) => { const v = String(l || ''); if (!v || v === 'offline') return '离线'; if (v === 'offline:offline') return '网页在线'; if (v === 'traveling') return '传送中'; return v; };
 const statusText = (s) => statusLabels[s] || s || '—';

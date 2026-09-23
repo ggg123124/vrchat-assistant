@@ -24,29 +24,85 @@ afterEach(() => {
   vi.resetModules();
 });
 
-describe('apiUrl（token 注入）', () => {
+/** 记录调用参数的 fetch 替身；按 statuses 顺序返回 Response 样式对象（镜像 auth-gate.test.js）。 */
+function stubFetch(statuses) {
+  const calls = [];
+  const queue = [...statuses];
+  globalThis.fetch = vi.fn(async (url, opts = {}) => {
+    calls.push({ url: String(url), opts });
+    const status = queue.length ? queue.shift() : 200;
+    return { ok: status >= 200 && status < 300, status, json: async () => ({}) };
+  });
+  return calls;
+}
+
+describe('令牌传输：普通请求走 Authorization 头、不进 URL（issue #217）', () => {
+  it('get() 带 Authorization，URL 不含 token=', async () => {
+    setupEnv('?token=abc123');
+    const calls = stubFetch([200]);
+    const { get } = await import('./api.js');
+    await get('/api/dashboard/x');
+    expect(calls[0].url).toBe('/api/dashboard/x');
+    expect(String(calls[0].url)).not.toContain('token=');
+    expect(calls[0].opts.headers.Authorization).toBe('Bearer abc123');
+  });
+
+  it('post() 同时带 Content-Type 与 Authorization', async () => {
+    setupEnv('?token=abc123');
+    const calls = stubFetch([200]);
+    const { post } = await import('./api.js');
+    await post('/api/dashboard/y', { a: 1 });
+    expect(calls[0].url).toBe('/api/dashboard/y');
+    expect(calls[0].opts.headers['Content-Type']).toBe('application/json');
+    expect(calls[0].opts.headers.Authorization).toBe('Bearer abc123');
+  });
+
+  it('无令牌时不带 Authorization', async () => {
+    setupEnv('');
+    const calls = stubFetch([200]);
+    const { get } = await import('./api.js');
+    await get('/api/dashboard/z');
+    expect(calls[0].opts.headers.Authorization).toBeUndefined();
+  });
+
+  it('图片代理 URL 不带 token（该路由被 auth-guard 无条件豁免，issue #217 审核 ⚠️）', async () => {
+    setupEnv('?token=abc123');
+    const { imgUrl } = await import('./api.js');
+    const out = imgUrl('https://api.vrchat.cloud/api/1/file/fid/1');
+    expect(out).toContain('/api/dashboard/image-proxy?url=');
+    expect(out).not.toContain('token=');
+  });
+
+  it('SSE 仍用 query 形态（EventSource 无法自定义头，属已知例外）', async () => {
+    setupEnv('?token=abc123');
+    const { sseUrl } = await import('./api.js');
+    expect(sseUrl('/api/dashboard/stream')).toBe('/api/dashboard/stream?token=abc123');
+  });
+});
+
+describe('sseUrl（EventSource 专用，token 走 query）', () => {
   it('无 token 时原样返回', async () => {
     setupEnv('');
-    const { apiUrl } = await import('./api.js');
-    expect(apiUrl('/api/dashboard/x')).toBe('/api/dashboard/x');
-    expect(apiUrl('/api/dashboard/x?a=1')).toBe('/api/dashboard/x?a=1');
+    const { sseUrl } = await import('./api.js');
+    expect(sseUrl('/api/dashboard/x')).toBe('/api/dashboard/x');
+    expect(sseUrl('/api/dashboard/x?a=1')).toBe('/api/dashboard/x?a=1');
   });
   it('URL token 注入（? 与 & 分支）', async () => {
     setupEnv('?token=abc123');
-    const { apiUrl } = await import('./api.js');
-    expect(apiUrl('/api/dashboard/x')).toBe('/api/dashboard/x?token=abc123');
-    expect(apiUrl('/api/dashboard/x?y=1')).toBe('/api/dashboard/x?y=1&token=abc123');
+    const { sseUrl } = await import('./api.js');
+    expect(sseUrl('/api/dashboard/x')).toBe('/api/dashboard/x?token=abc123');
+    expect(sseUrl('/api/dashboard/x?y=1')).toBe('/api/dashboard/x?y=1&token=abc123');
   });
   it('sessionStorage token 兜底 + 回写', async () => {
     setupEnv('');
     globalThis.sessionStorage.setItem('vrc_dashboard_token', 'from-storage');
-    const { apiUrl } = await import('./api.js');
-    expect(apiUrl('/api/dashboard/x')).toBe('/api/dashboard/x?token=from-storage');
+    const { sseUrl } = await import('./api.js');
+    expect(sseUrl('/api/dashboard/x')).toBe('/api/dashboard/x?token=from-storage');
     // URL token 优先于 storage（重新加载模块以读取新环境）
     vi.resetModules();
     setupEnv('?token=from-url');
-    const { apiUrl: apiUrl2 } = await import('./api.js');
-    expect(apiUrl2('/api/dashboard/x')).toBe('/api/dashboard/x?token=from-url');
+    const { sseUrl: sseUrl2 } = await import('./api.js');
+    expect(sseUrl2('/api/dashboard/x')).toBe('/api/dashboard/x?token=from-url');
   });
 });
 
