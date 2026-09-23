@@ -31,7 +31,15 @@ const WS_PROXY = process.env.VRC_MONITOR_WS_PROXY
 const RECONNECT_DELAYS = [1, 2, 4, 8, 16, 30, 60];
 const HEARTBEAT_INTERVAL = 30_000;  // 30 秒 ping
 const HEARTBEAT_TIMEOUT = 10_000;   // 10 秒等 pong
-const SILENT_RECONNECT_MS = 15 * 60 * 1000; // 应用层静默阈值（issue #247）：超过该时长没有任何 WS 消息 ⇒ 视为半死连接并主动重连
+// issue #247：应用层静默阈值 —— 超过该时长没有任何 WS 消息 ⇒ 视为半死连接并主动重连
+// 默认 30 分钟（审核方实测合法静默最长 1645s=27.4min，判别带取 (27min, 75min]）
+// 可用 VRC_MONITOR_WS_SILENT_RECONNECT_MS 覆盖：调用时读取，空/非数字/非正数回落默认
+const SILENT_RECONNECT_DEFAULT_MS = 30 * 60 * 1000;
+function silentReconnectMs() {
+  const raw = process.env.VRC_MONITOR_WS_SILENT_RECONNECT_MS;
+  const n = Number(raw);
+  return (raw !== undefined && String(raw).trim() !== '' && Number.isFinite(n) && n > 0) ? n : SILENT_RECONNECT_DEFAULT_MS;
+}
 const MAX_RECONNECT_ATTEMPTS = 0;   // 0 = 无限重试
 
 export class WsManager {
@@ -85,6 +93,7 @@ export class WsManager {
 
   /** 停止连接 */
   stop() {
+    this.lastMessageAt = null;   // issue #247 审核 💡2：停服后不应再输出持续增长的 silentForSec
     this.shouldReconnect = false;
     this._clearTimers();
     if (this.ws) {
@@ -212,6 +221,7 @@ export class WsManager {
 
   _onOpen() {
     // issue #247：连接成功即开始静默计时 —— 否则「连上后一条消息都没来过」这一形态永远检测不到
+    this.lastMessageAt = Date.now();   // issue #247：连接成功即开始计时（否则「连上就静默」永远检测不到）
     const lastAttempt = this.attempt; // 归零前记录本次成功前的重连次数（审核建议）
     this.attempt = 0;
     this.connectedAt = new Date();
@@ -288,23 +298,29 @@ export class WsManager {
 
   // ── 心跳 ──
 
+  /**
+   * issue #247：应用层静默检测（抽成方法以便单测）。
+   * 上面的 ping/pong 只覆盖 TCP/WS 层 —— 对端只要正常回 pong，即使一条应用消息都不推，
+   * 心跳也永不判死（半死连接）。故在此加「消息静默超时」判据。
+   * @returns {boolean} true 表示已触发重连（调用方应停止本轮后续动作）
+   */
+  _checkSilent() {
+    if (this.status !== 'connected' || !this.lastMessageAt) return false;
+    const limit = silentReconnectMs();
+    if (Date.now() - this.lastMessageAt <= limit) return false;
+    const mins = Math.round(limit / 60000);
+    log.info('[警告] WS 应用层静默超过 ' + mins + ' 分钟（ping/pong 正常但无事件）⇒ 主动重连');
+    try { recordOpsLog('ws', 'warn', 'WS 静默超时（' + mins + ' 分钟无消息），主动重连'); } catch {}
+    this.lastMessageAt = Date.now();   // 先刷新，避免重连期间重复触发
+    void this.forceReconnect().catch(() => {});
+    return true;
+  }
   _startHeartbeat() {
     this._clearHeartbeat();
     this._pongReceived = true;
 
     this.heartbeatTimer = setInterval(() => {
-      // issue #247：应用层静默检测。上面的 ping/pong 只覆盖 TCP/WS 层 ——
-      // 对端只要正常回 pong，即使一条应用消息都不推，心跳也永不判死（半死连接）。
-      // 故在此加「消息静默超时」：超过 SILENT_RECONNECT_MS 无任何消息 ⇒ 主动重连。
-      if (this.status === 'connected' && this.lastMessageAt &&
-          Date.now() - this.lastMessageAt > SILENT_RECONNECT_MS) {
-        const mins = Math.round(SILENT_RECONNECT_MS / 60000);
-        log.info('[警告] WS 应用层静默超过 ' + mins + ' 分钟（ping/pong 正常但无事件）⇒ 主动重连');
-        try { recordOpsLog('ws', 'warn', 'WS 静默超时（' + mins + ' 分钟无消息），主动重连'); } catch {}
-        this.lastMessageAt = Date.now();   // 先刷新，避免重连期间重复触发
-        void this.forceReconnect().catch(() => {});
-        return;
-      }
+      if (this._checkSilent()) return;   // issue #247：应用层静默 ⇒ 已触发重连
       if (this.ws?.readyState === WebSocket.OPEN) {
         this._pongReceived = false;
         this.ws.ping();
