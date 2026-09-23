@@ -286,7 +286,7 @@ const feedRows = computed(() => {
 /* ── 自动加载 ── */
 const FEED_TARGET = 50;
 // 性能保护（无虚拟滚动）：移动端 DOM 行数上限收紧（中端机挂 400 个复杂行滚动掉帧），
-// 桌面 400。到上限后停补并隐藏"加载更多"，用户用筛选/日期缩小范围查看更早内容
+// 桌面 400。到上限后**只停止自动触底补拉**（静默保护 DOM）；手动"加载更多"按钮始终可用 ✓（2026-09-22 用户要求撤掉对用户可见的上限语义）
 const isMobileDev = () => (typeof window !== 'undefined' && window.innerWidth < 900);
 const feedHardCap = computed(() => (isMobileDev() ? 200 : 400));
 function hasFilter() {
@@ -679,7 +679,13 @@ onUnmounted(() => {
       </template>
 
       <div class="feed-more">
-        <Button v-if="store.feedHasMore && store.feedEvents.length < feedHardCap" :label="store.feedLoadingMore ? '加载中…' : '加载更多'" text size="small" icon="pi pi-angle-down" @click="loadMoreFeed()" />
+        <!-- 用户 2026-09-22：「明明还可以加载，加载前他写的却是达展示上限，我觉得这个东西明明可以不设上限」⇒
+             撤掉对用户可见的"上限"语义：上限只作**自动触底**的静默保护，手动按钮永远可用。 -->
+        <div v-if="store.feedMoreError" class="feed-more-err">
+          <span>加载更多失败：{{ store.feedMoreError }}</span>
+          <Button label="重试" size="small" text icon="pi pi-refresh" @click="loadMoreFeed()" />
+        </div>
+        <Button v-else-if="store.feedHasMore" :label="store.feedLoadingMore ? '加载中…' : '加载更多'" text size="small" icon="pi pi-angle-down" @click="loadMoreFeed()" />
         <span v-else-if="store.feedEvents.length" class="feed-end">— 已加载全部动态 —</span>
         <!-- 哨兵始终渲染（条件渲染会导致 onMounted 拿不到元素、observer 失效） -->
         <div id="feed-sentinel" class="feed-sentinel"></div>
@@ -1019,4 +1025,7 @@ onUnmounted(() => {
   .ev-row { cursor: default; }
   .ev-row.open { background: var(--surface); box-shadow: none; }
 }
+
+/* 2026-09-22 评审 💡：模板引用了 .feed-more-err 但样式表没定义 ⇒ 补上 ✓ */
+.feed-more-err { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 0; color: var(--text-dim); font-size: 12.5px; }
 </style>

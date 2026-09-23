@@ -63,7 +63,10 @@ async function loadInvites() {
   try {
     const r = await get('/api/dashboard/group-invites');
     invites.value = (r && r.invites) || [];
-  } catch { invites.value = []; } finally { invitesLoading.value = false; }
+  } catch (err) {
+    // 2026-09-22 彻查：失败不写正常态（[]=「没有邀请」✗）⇒ 保持旧值 + 如实报错 ✓
+    toast('群组邀请加载失败：' + ((err && err.message) || err), 'error');
+  } finally { invitesLoading.value = false; }
 }
 
 const groups = computed(() => {

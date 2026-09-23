@@ -13,7 +13,7 @@ import net from 'node:net';
 
 import { ctx, log, refreshWatchlistCache } from './core/server-context.js';
 import { isWebPresence } from './core/event-pipeline.js';
-import { avatarFileId, parseAvatarName } from './core/img-util.js';   // 2026-09-22：模型名解析（iconUrl → fileId → /file/{id} → name）
+import { avatarFileId, parseAvatarName } from './core/img-util.js';   // 2026-09-22 #225：fileId 提取统一走它（支持 /image/ 形态 + 代理 URL 还原）；#233 由 parseAvatarName 解析模型名
 import { initLogger, getLevelName, getLogger } from './core/logger.js';
 import { recordOpsLog, setOpsLogSink } from './core/ops-log.js';
 import * as registry from './core/registry.js';
@@ -233,9 +233,11 @@ async function _syncFriendAvatars() {
       for (const f of r.data) {
         // 模型 ID ↔ 图片映射：VRChat WS 推送的 friend-update 不含 currentAvatar（只有图片 URL），
         // 这里用全量好友列表建 imageUrl→avatarId 映射，供 events 服务富化模型变动事件的 avtr ID
-        const fm = String(f.currentAvatarImageUrl || '').match(/\/file\/(file_[a-f0-9-]+)/);
+        // 2026-09-22 #225：收敛到 avatarFileId()（原内联正则只认 /file/ ✗ ⇒ image 形态被静默跳过）
+        // 2026-09-22 评审纠正：avatarFileId() 返回字符串 ✗（原来按 match 数组取 fm[1] ⇒ 键退化成 avimg:i，所有好友挤一个键、后写覆盖）
+        const fm = avatarFileId(f.currentAvatarImageUrl) || '';
         if (fm && f.currentAvatar) {
-          try { storage.setPlanetCache(`avimg:${fm[1]}`, { avatarId: f.currentAvatar, at: Date.now() }); } catch { /* 落盘失败忽略 */ }
+          try { storage.setPlanetCache(`avimg:${fm}`, { avatarId: f.currentAvatar, at: Date.now() }); } catch { /* 落盘失败忽略 */ }
         }
         // VRChat API User 对象：头像字段 currentAvatarImageUrl/currentAvatarThumbnailImageUrl/userIcon，信任等级 trustLevel
         const av = f.currentAvatarImageUrl || f.currentAvatarThumbnailImageUrl || '';
@@ -357,7 +359,8 @@ async function _refreshTrackedNonFriends() {
       } catch { /* 解析失败留空，下次再试 */ }
       // 头像变化检测：按 file id 归一化比较（防 currentAvatarImageUrl vs Thumbnail 兜底链或 URL 版本号 /1/ vs /3/ 波动误报）
       const prevAv = u.avatar_image_url || '';
-      const fileIdOf = (url) => { const m = String(url || '').match(/\/file\/(file_[a-f0-9-]+)/); return m ? m[1] : ''; };
+      // 2026-09-22 #225：同上，统一用 avatarFileId()（它会先还原代理 URL ✓ 且支持 /image/ 形态 ✓）
+      const fileIdOf = (url) => avatarFileId(url) || '';
       const changed = fileIdOf(av) && fileIdOf(prevAv) ? fileIdOf(av) !== fileIdOf(prevAv) : (av !== prevAv);
       if (av && prevAv && changed) {
         try {
