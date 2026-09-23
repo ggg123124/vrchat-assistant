@@ -48,7 +48,7 @@ export function useNotif({ get = async () => null, updateTitle = () => {} } = {}
       try { base = localStorage.getItem('ga_last_seen') || ''; } catch { /* 隐私模式 */ }
       state.annHasNew = !!latest && !!base && latest > base;
     } catch {
-      state.annHasNew = false;
+      // 2026-09-22 彻查：取数失败 ≠ 没有新公告 ⇒ 保持上次值，不要写 false ✗
     }
   }
 

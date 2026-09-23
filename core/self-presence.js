@@ -24,6 +24,27 @@
 /** 在游戏内但超过该时长无新位置事件 → 无法确认仍在游戏内（降级 unknown） */
 export const SELF_PRESENCE_STALE_MS = 60 * 60 * 1000;
 
+// 出游戏确认窗口（issue #218，2026-09-22）：VRChat 在私人房之间切换 / 换图间隙会瞬时上报
+// `offline:offline`（生产实测两种形态：0.6–11.7s 居多，也存在 349s / 352.5s 一档）。单次离线
+// 信号不足以判定「真的离开」——离线信号**持续**不足该窗口时返回 unknown（消费方据此跳过，
+// 不写挂机文案、不翻转判定态），持续超过窗口才判 not_in_game。
+// ⚠️ 边界：只能抑制「时长 ≤ 窗口」的瞬断；真出游戏后写挂机文案会相应延后最多一个窗口。
+// env 在调用时读取，便于测试与热调；设 0 恢复旧行为（单次离线即判出游戏）。
+export const SELF_PRESENCE_OFFLINE_GRACE_DEFAULT_MS = 6 * 60 * 1000;   // 默认 6 分钟，覆盖已观测到的 349 / 352.5s 档
+
+/** 出游戏确认窗口（毫秒）：env VRC_MONITOR_SELF_PRESENCE_OFFLINE_GRACE_SECONDS（默认 360s，范围 0-3600），调用时读取。 */
+export function readOfflineGraceMs() {
+  const raw = process.env.VRC_MONITOR_SELF_PRESENCE_OFFLINE_GRACE_SECONDS;
+  // 未设 / 空串（.env 里写成 VAR=）/ 纯空白 / 非数字 / 负数 → 一律回落默认；
+  // **只有显式 0 才关闭确认窗口**。
+  // 理由（#221 审核 ⚠️）：旧写法走 Number('') === 0 → 一个空值会把刚修好的去抖静默关掉，
+  // 使用者不会收到任何告警；本仓库同类变量（如 WORLD_FETCH_COOLDOWN_MS）的既有约定是「非法值/负回落默认」。
+  if (raw === undefined || String(raw).trim() === '') return SELF_PRESENCE_OFFLINE_GRACE_DEFAULT_MS;
+  const n = Number(String(raw).trim());
+  if (!Number.isFinite(n) || n < 0) return SELF_PRESENCE_OFFLINE_GRACE_DEFAULT_MS;
+  return Math.min(3600, n) * 1000;
+}
+
 /** 非 wrld_ 的"在游戏内"位置前缀（实例可见性为 private/friends 等时 VRChat 不下发 worldId） */
 export const IN_GAME_LOCATION_RE = /^(private|friends|group|local)\b/;
 
@@ -47,7 +68,10 @@ export function worldIdFromSelfLocation(location) {
  * @returns {{userId: string, state: 'in_game'|'not_in_game'|'unknown', location: string,
  *            worldId: string, at: string, ageMs: number|null}}
  */
-export function resolveSelfPresence(storage, { selfId = '', now = Date.now(), staleMs = SELF_PRESENCE_STALE_MS } = {}) {
+export function resolveSelfPresence(storage, {
+  selfId = '', now = Date.now(), staleMs = SELF_PRESENCE_STALE_MS,
+  offlineGraceMs = readOfflineGraceMs(),
+} = {}) {
   const base = { userId: selfId || '', state: 'unknown', location: '', worldId: '', at: '', ageMs: null };
   if (!selfId || !storage || typeof storage.query !== 'function') return base;
 
@@ -77,6 +101,14 @@ export function resolveSelfPresence(storage, { selfId = '', now = Date.now(), st
 
   // 明确离线：网页端在线（服务自身常驻登录）/ 空位置
   if (loc === '' || loc === 'offline' || loc === 'offline:offline') {
+    // 未满确认窗口 → unknown：消费方（presence-status / events 离线刷新调度器 / dashboard）
+    // 一律跳过，既不写挂机文案也不翻转判定态；满窗口才认为真的离开（issue #218）。
+    // 注：ageMs 为 null（缺失 / 不可解析的 created_at）→ `ageMs !== null` 为假 →
+    // 直接判 not_in_game（视为已超出确认窗口）。这是**保守取旧行为**：坏时间戳不得把出游戏判定
+    // 永久卡在 unknown、导致真下线写不进挂机文案。
+    if (ageMs !== null && ageMs < offlineGraceMs) {
+      return { ...base, state: 'unknown', location: loc, at, ageMs };
+    }
     return { ...base, state: 'not_in_game', location: loc, at, ageMs };
   }
 

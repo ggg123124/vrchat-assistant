@@ -50,7 +50,9 @@
 - **防抖**：两次 PUT 之间最小间隔 65 秒（与核心动态状态引擎同阈值）；目标文案已在位时不重复提交；
   重启后从插件表恢复 `lastState`/`savedText`，不会因重启重复动作。
 - **延迟**：插件契约 v1.3 的 8 个 API 面没有事件订阅能力，因此按 `pollSeconds` 轮询（默认 60s）
-  ——从你进/出游戏到文字切换，最坏延迟约等于轮询间隔。轮询只查本地 SQL（不产生 VRChat API 调用），
+  ——**进游戏**方向最坏延迟约等于轮询间隔；**出游戏**方向还要先过核心的出游戏确认窗口
+  （`core/self-presence.js` 的 `VRC_MONITOR_SELF_PRESENCE_OFFLINE_GRACE_SECONDS`，默认 360s；窗口内一律判 `unknown`、
+  本插件据此跳过写入），故最坏延迟 ≈ 轮询间隔 + 确认窗口（默认约 420s）。轮询只查本地 SQL（不产生 VRChat API 调用），
   每个转换点最多 2 次 API 调用（`/auth/user` + `PUT /users/{id}`）。
 
 ## 用法

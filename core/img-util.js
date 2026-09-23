@@ -35,11 +35,25 @@ export const avatarFileId = (u) => {
   let s = String(u);
   const pm = s.match(/^\/api\/dashboard\/image-proxy\?url=(.+)$/);
   if (pm) { try { s = decodeURIComponent(pm[1]); } catch { /* 保持原样 */ } }
-  const fm = s.match(/\/file\/(file_[a-f0-9-]+)/);
+  // VRChat 模型图有两种 URL 形态：/file/file_XXX/1/file 与 /image/file_XXX/1/256 —— 段名分别是 file / image。
+  // 本机实测（413 好友 / 4615 条 avatar 事件，2026-09-22）：好友记录里 image 占 234/413（57%）、
+  // 动态补名 job 里 image 占 833/8165（10%）⇒ 两种形态都真实存在，不能只认一种。
+  // 旧正则只认 /file/ ⇒ image 形态一律返回 null ⇒ 上层 `if (!fileId) continue` **静默跳过** ⇒ 模型名永不补齐
+  //（这才是本 PR 修的那一半；注意**不是**「日志里连续 404」—— 旧代码根本不会发出请求）。
+  // ⚠️ 另注：`avimg:*` 映射恒空**与本正则无关** ✗ —— 写侧有 `if (fm && f.currentAvatar)` 守卫，而现代 VRChat API
+  // 已从 User 对象移除 `currentAvatar`（见 docs/DASHBOARD-DEV-STATUS.md:348），该映射属「API 恢复字段即自动生效」的预留。
+  const fm = s.match(/\/(?:file|image)\/(file_[a-f0-9-]+)/);
   return fm ? fm[1] : null;
 };
 
 // 用户头像展示统一入口：优先用户资料里设置的图标头像(user_icon)，兜底当前模型外观缩略图(currentAvatar)。
 // 背景：currentAvatarImageUrl 语义是"穿戴的3D模型外观"，常为默认机器人图而非用户真实头像，
 //       user_icon 是用户主动设置的头像（XM1023 显示机器人而非金发女仆头像 bug 的根因，2026-09-01）。
+/** VRChat 文件式模型名 → 展示名（"Avatar - Name - Image" → "Name"）；与 dashboard-services 内的实现同源。 */
+export const parseAvatarName = (n) => {
+  if (!n) return '';
+  const m = String(n).match(/^Avatar\s*-\s*(.+?)(\s*-\s*(Image|File|Texture|Thumbnail|VRChat)?.*)?$/i);
+  return m ? m[1].trim() : String(n);
+};
+
 export const avatarOf = (iconUrl, modelUrl) => avatarThumb(iconUrl) || avatarThumb(modelUrl);

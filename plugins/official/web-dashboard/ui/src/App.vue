@@ -194,6 +194,12 @@ async function refresh() {
       </nav>
 
       <main class="main-viewport">
+        <!-- 2026-09-22 用户：任何页面加载失败都不能静默（此前失败被伪装成「暂无数据」）——全局横幅覆盖所有视图 -->
+        <div v-if="store.loadError" class="load-error-banner">
+          <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+          <span>加载失败：{{ store.loadError }}</span>
+          <Button label="重试" size="small" text icon="pi pi-refresh" @click="load()" />
+        </div>
         <Transition name="view-fade" mode="out-in">
           <FeedView v-if="store.view === 'feed'" key="feed" />
           <FriendsView v-else-if="store.view === 'friends'" key="friends" />
@@ -287,6 +293,21 @@ async function refresh() {
 </template>
 
 <style scoped>
+.load-error-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 12px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border-soft);
+  border-left: 3px solid #e5484d;
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 13px;
+}
+.load-error-banner i { color: #e5484d; }
+.load-error-banner span { flex: 1; }
 .header-bell-dot { position: absolute; top: 2px; right: 2px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--danger); color: #fff; font-size: 9px; font-weight: 700; line-height: 16px; text-align: center; box-sizing: border-box; }
 .to-top { position: fixed; right: 18px; bottom: 76px; z-index: 50; width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--border); background: var(--surface-3); color: var(--text); cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgba(0,0,0,0.35); transition: transform 0.12s, border-color 0.12s; }
 .to-top:hover { border-color: var(--accent); transform: translateY(-1px); }

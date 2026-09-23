@@ -23,6 +23,8 @@ function truncateCodePoints(str, max) {
  * 
  * 将 WebSocket 事件标准化并持久化到 SQLite
  */
+import { trustFromTags } from './friend-refresh.js';
+
 export class EventPipeline {
   constructor(storage, worldCache) {
     this.storage = storage;
@@ -220,6 +222,14 @@ export class EventPipeline {
     // 无历史快照（首次采集）或字段无基线值时只初始化，不误报变更。
     const userObj = event.content && event.content.user ? event.content.user : null;
     if (userObj) {
+      // trust 在此层计算：diff 与最终 upsertFriend 都用（tags 优先，见 friend-refresh.js 头注释）
+      // 用户 2026-09-22 报「信任等级 … 天天刷」根因：WS 的 user 载荷**可能缺 tags**，
+      // 此时若回落到载荷里的 trust_level 字段（VRChat 的部分/过时字段），会把权威值
+      // （逐好友 GET /users/{id} → tags 推导，见 friend-refresh.js）覆盖回旧等级，
+      // 于是「升级 → 被覆盖 → 下次轮询再报升级」振荡（生产实证：晴天时雨/无敌只因哥哥
+      // 库里停在 Known User，而事件里已升 Trusted User）。⇒ 只认 tags 推导；无 tags 视为
+      // 未知：既不 diff 也不回写，避免把好数据写坏。
+      const trust = trustFromTags(userObj.tags) || '';
       const prev = this.storage.getFriend(userId);
       if (prev && prev.user_id) {
         const changes = [];
@@ -259,6 +269,19 @@ export class EventPipeline {
           && (prev.pronouns || '') !== (userObj.pronouns || '');
         if (pronounsChanged) {
           changes.push({ type: 'pronouns', payload: { pronouns: userObj.pronouns || '', previousPronouns: prev.pronouns || '' } });
+        }
+
+        // 信任等级（2026-09-15 用户报障）：此前五类资料变更都跟踪、唯独漏了 trust_level——
+        // 且回写也不带 trustLevel → 好友等级变化既无事件、基线也永远不更新（生产实证：
+        // XIAOFANG小芳已升 Trusted User，库内仍停 Known User）。VRChat 的 user 对象
+        // 携带 trust_level（LimitedUser 字段），与其它字段同源 diff 即可。
+        const trustChanged = prev.trust_level && trust
+          && (prev.trust_level || '') !== trust;
+        if (trustChanged) {
+          changes.push({ type: 'trust_level', payload: {
+            trustLevel: trust,
+            previousTrustLevel: prev.trust_level || '',
+          }});
         }
         for (const c of changes) {
           this.storage.insertEvent({
@@ -304,6 +327,10 @@ export class EventPipeline {
               log.info(`${displayName} 代词变更: ${prevPr} → ${newPr}`);
               break;
             }
+            case 'trust_level': {
+              log.info(`${displayName} 等级变更: ${c.payload.previousTrustLevel || '(无)'} → ${c.payload.trustLevel || '(无)'}`);
+              break;
+            }
           }
         }
       }
@@ -317,6 +344,7 @@ export class EventPipeline {
         bio: userObj.bio || '',
         userIcon: userObj.userIcon || '',
         pronouns: userObj.pronouns || '',
+        ...(trust ? { trustLevel: trust } : {}),
         lastSeen: event.receivedAt,
       });
     } else {

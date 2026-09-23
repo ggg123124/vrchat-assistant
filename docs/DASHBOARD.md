@@ -24,6 +24,10 @@ Authorization: Bearer <VRC_MONITOR_AUTH_TOKEN>
 
 直接在地址栏访问时，建议通过前置反向代理注入鉴权 Header，或仅在可信局域网使用。不要把 Token 写进前端源码、URL、提交记录或截图。
 
+**令牌传输方式（issue #217）**：面板的普通请求（get/post）一律通过 **Authorization: Bearer <token> 头**传令牌，不放进 URL——query 形态会进入访问日志 / 反向代理日志 / 浏览器历史。**部署侧缓解（SSE 残留风险）**：/api/dashboard/stream 是长连接且断线会重连，其 URL（含 token）会反复写入反向代理访问日志——建议 nginx 侧对该路径只记 $uri、不记 $args（或该路径日志不外发/做参数脱敏）。图片代理 /api/dashboard/image-proxy 则被 auth-guard 无条件豁免（GET）、服务端该路由亦不校验令牌，故前端不再拼接 &token=（issue #217 审核 ⚠️，无功能代价）。
+
+**唯一例外是 SSE 事件流 GET /api/dashboard/stream**：EventSource 无法自定义请求头，只能沿用 query 形式，因此反代/日志侧请勿记录该路径的 query（或做参数脱敏）。
+
 **登录门与未启用鉴权的情况（issue #213）**：`auth-guard` 未配置 `VRC_MONITOR_AUTH_TOKEN` 时后端对全部请求放行。前端此前仅凭浏览器 `sessionStorage` 里有没有令牌决定是否显示登录页，于是单机本机用户会被要求输入一个从未配置过的令牌。现在前端在**本地无令牌时先裸探测一个受保护路由**：
 
 - `GET /api/dashboard/overview` 返回 **200** → 服务未启用鉴权，直接进入面板（不写任何令牌）；
@@ -93,7 +97,7 @@ Authorization: Bearer <VRC_MONITOR_AUTH_TOKEN>
   - `client/dashboard.css`：前端样式（注入到 `/dashboard` 页面）。
   - `client/js/util.js`：前端纯工具函数——转义、时间/日期、状态灯、信任徽章、位置解析、世界名、事件类型、通知类型等（注入到 `/dashboard` 页面）。
   - `client/js/views.js`：前端视图渲染——各工作区加载/渲染、事件行、好友行、图表、弹窗、玩家资料（注入到 `/dashboard` 页面）。
-  - `client/js/app.js`：前端主逻辑——状态、`render`/`load` 调度、事件绑定、SSE、初始化（注入到 `/dashboard` 页面；三个 JS 文件拼接进同一 `<script>` 块，`util → views → app` 顺序）。
+  - `client/js/app.js`：**已废弃、未注入（勿用）**——旧版前端主逻辑——状态、`render`/`load` 调度、事件绑定、SSE、初始化（注入到 `/dashboard` 页面；三个 JS 文件拼接进同一 `<script>` 块，`util → views → app` 顺序）。
 - 内部路由模块通过 `registerXxxRoutes(api, state)` 注册，不是独立 Hermes 插件；所有模块共享同一个 `register(api)` 生命周期和插件 API。
 - 核心只提供通用 HTTP 路由注册、鉴权顺序和只读 Dashboard 服务。
 - 插件通过 `api.http.registerRoute()` 注册路由，通过 `api.consume('dashboard.*')` 读取数据。
