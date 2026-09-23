@@ -820,7 +820,7 @@ export function registerDashboardServices(loader, ctx) {
       `INSERT OR IGNORE INTO tracked_non_friends (user_id, display_name) VALUES ($u, $d)`,
       { $u: userId, $d: dn });
     // 重新添加：清除移除标记（若是历史移除过的用户）
-    ctx.storage.run(`UPDATE tracked_non_friends SET removed_at = '' WHERE user_id = $u`, { $u: userId });
+    ctx.storage.run(`UPDATE tracked_non_friends SET removed_at = '', fail_count = 0 WHERE user_id = $u`, { $u: userId });
     const added = !existing.length;
     return { ok: true, added, userId, displayName: dn };
   });

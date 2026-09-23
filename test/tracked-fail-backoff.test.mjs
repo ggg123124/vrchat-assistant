@@ -1,9 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { unlinkSync, existsSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { Storage } from '../core/storage.js';
 
-const TMP = () => `/tmp/trk-241-${process.pid}.db`;
+// 2026-09-23 评审 ⚠️1：不要硬编码 /tmp —— 本仓其余测试统一走 os.tmpdir()（Windows 上当前盘符根可能没有 \tmp）
+const TMP = () => path.join(os.tmpdir(), 'trk-241-' + process.pid + '.db');
 const cleanup = () => { try { if (existsSync(TMP())) unlinkSync(TMP()); } catch { /* ignore */ } };
 
 test('迁移幂等：tracked_non_friends 含 fail_count（issue #241）', async () => {
