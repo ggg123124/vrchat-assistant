@@ -14,7 +14,7 @@ import net from 'node:net';
 import { ctx, log, refreshWatchlistCache } from './core/server-context.js';
 import { isWebPresence } from './core/event-pipeline.js';
 import { refreshFriendList } from './core/friend-refresh.js';
-import { avatarFileId } from './core/img-util.js';   // 2026-09-22 #225：fileId 提取统一走它（支持 /image/ 形态 + 代理 URL 还原）
+import { avatarFileId, parseAvatarName } from './core/img-util.js';   // 2026-09-22 #225：fileId 提取统一走它（支持 /image/ 形态 + 代理 URL 还原）；#233 由 parseAvatarName 解析模型名
 import { initLogger, getLevelName, getLogger } from './core/logger.js';
 import { recordOpsLog, setOpsLogSink } from './core/ops-log.js';
 import * as registry from './core/registry.js';
@@ -331,6 +331,38 @@ async function _refreshTrackedNonFriends() {
       // ⇒ 若本 PR 先合并，node start-monitor.js 会在加载阶段 ERR_MODULE_NOT_FOUND 直接崩 ✗
       // ⇒ 改用**本文件既有**的 inferTrustFromTags()（main 上就有 ✓，映射与 VRCX computeTrustLevel 对齐 ✓）
       const tl = (() => { try { return inferTrustFromTags(Array.isArray(userObj.tags) ? userObj.tags : []) || ''; } catch { return ''; } })();
+      // 2026-09-22：非好友的**当前模型名**也能拿 ✓（实测：iconUrl 的 fileId → GET /file/{id} → name = 「Avatar - 模型名 - Image - …」✓）
+      // 与事件补名共用同一张缓存 planet_cache 的 avatar_name:<fid> ✓；解析不到就留空、不覆盖旧值 ✓
+      // ⚠️ 失败时也写一条 miss（6 小时 TTL）—— 否则每次刷新都会重试同一批不可解析的 fileId ✗
+      const parseAvName = parseAvatarName;
+      let avatarName = '';
+      try {
+        const fid = avatarFileId(userObj.iconUrl || '');
+        if (fid) {
+          const cached = ctx.storage.query('SELECT payload FROM planet_cache WHERE key = $k', { $k: 'avatar_name:' + fid })[0];
+          let hit = null;
+          if (cached) { try { hit = JSON.parse(cached.payload); } catch { /* 忽略 */ } }
+          if (hit && typeof hit.until === 'number' && hit.until <= Date.now()) hit = null;
+          if (hit) avatarName = hit.name || '';
+          else {
+            const fr = await rateLimiter.execute(() => api._request('GET', '/file/' + encodeURIComponent(fid)));
+            // 实测 iconUrl 有时是「用户头像/相机图」而非模型图 ✗ ⇒ 文件名形如 file_xxx_camera_user_icon
+            // 这类**不是模型名**，必须过滤 ✓（真模型名解析后是纯名字，如「测试」✓）
+            // 2026-09-22 评审 ⚠️2：只挡 file_ 前缀是不够的 —— iconUrl 也可能指向资料头像/相机图，
+            // 文件名可为任意值（实测 selfie.png / My cute avatar / IMG_20240101_123456.jpg 都会被原过滤当模型名）
+            // ⇒ 改为只采信 VRChat 模型文件的命名形态「Avatar - <名> - Image …」
+            const rawName = String((fr && fr.data && fr.data.name) || '');
+            const parsed = String(parseAvName(rawName) || '');
+            avatarName = /^Avatar\s*-\s*/i.test(rawName) ? parsed : '';
+            try {
+              ctx.storage.setPlanetCache('avatar_name:' + fid, avatarName
+                ? { name: avatarName, at: Date.now() }
+                : { name: '', miss: true, until: Date.now() + 6 * 3600 * 1000 });
+            } catch { /* 落盘失败不影响刷新 */ }
+            if (avatarName) { try { log('[模型名] 追踪解析 ' + fid.slice(0, 16) + '… → ' + avatarName); } catch { /* 忽略 */ } }
+          }
+        }
+      } catch { /* 解析失败留空，下次再试 */ }
       // 头像变化检测：按 file id 归一化比较（防 currentAvatarImageUrl vs Thumbnail 兜底链或 URL 版本号 /1/ vs /3/ 波动误报）
       const prevAv = u.avatar_image_url || '';
       // 2026-09-22 #225：同上，统一用 avatarFileId()（它会先还原代理 URL ✓ 且支持 /image/ 形态 ✓）
