@@ -13,6 +13,8 @@ import net from 'node:net';
 
 import { ctx, log, refreshWatchlistCache } from './core/server-context.js';
 import { isWebPresence } from './core/event-pipeline.js';
+import { refreshFriendList } from './core/friend-refresh.js';
+import { avatarFileId, parseAvatarName } from './core/img-util.js';   // 2026-09-22 #225：fileId 提取统一走它（支持 /image/ 形态 + 代理 URL 还原）；#233 由 parseAvatarName 解析模型名
 import { initLogger, getLevelName, getLogger } from './core/logger.js';
 import { recordOpsLog, setOpsLogSink } from './core/ops-log.js';
 import * as registry from './core/registry.js';
@@ -233,9 +235,11 @@ async function _syncFriendAvatars() {
       for (const f of r.data) {
         // 模型 ID ↔ 图片映射：VRChat WS 推送的 friend-update 不含 currentAvatar（只有图片 URL），
         // 这里用全量好友列表建 imageUrl→avatarId 映射，供 events 服务富化模型变动事件的 avtr ID
-        const fm = String(f.currentAvatarImageUrl || '').match(/\/file\/(file_[a-f0-9-]+)/);
+        // 2026-09-22 #225：收敛到 avatarFileId()（原内联正则只认 /file/ ✗ ⇒ image 形态被静默跳过）
+        // 2026-09-22 评审纠正：avatarFileId() 返回字符串 ✗（原来按 match 数组取 fm[1] ⇒ 键退化成 avimg:i，所有好友挤一个键、后写覆盖）
+        const fm = avatarFileId(f.currentAvatarImageUrl) || '';
         if (fm && f.currentAvatar) {
-          try { storage.setPlanetCache(`avimg:${fm[1]}`, { avatarId: f.currentAvatar, at: Date.now() }); } catch { /* 落盘失败忽略 */ }
+          try { storage.setPlanetCache(`avimg:${fm}`, { avatarId: f.currentAvatar, at: Date.now() }); } catch { /* 落盘失败忽略 */ }
         }
         // VRChat API User 对象：头像字段 currentAvatarImageUrl/currentAvatarThumbnailImageUrl/userIcon，信任等级 trustLevel
         const av = f.currentAvatarImageUrl || f.currentAvatarThumbnailImageUrl || '';
@@ -341,9 +345,47 @@ async function _refreshTrackedNonFriends() {
       const userObj = r.data;
       const av = userObj.currentAvatarImageUrl || userObj.currentAvatarThumbnailImageUrl || userObj.userIcon || '';
       const dn = userObj.displayName || u.display_name || '';
+      // 2026-09-22：非好友也能拿信任等级（/users/{id} 的 tags 有值 ⇒ 与好友页同一套映射）
+      // 2026-09-22 评审 🔴：原先顶层 import 了 core/friend-refresh.js —— 该模块只由**仍 open 的 #222** 引入 ✗
+      // ⇒ 若本 PR 先合并，node start-monitor.js 会在加载阶段 ERR_MODULE_NOT_FOUND 直接崩 ✗
+      // ⇒ 改用**本文件既有**的 inferTrustFromTags()（main 上就有 ✓，映射与 VRCX computeTrustLevel 对齐 ✓）
+      const tl = (() => { try { return inferTrustFromTags(Array.isArray(userObj.tags) ? userObj.tags : []) || ''; } catch { return ''; } })();
+      // 2026-09-22：非好友的**当前模型名**也能拿 ✓（实测：iconUrl 的 fileId → GET /file/{id} → name = 「Avatar - 模型名 - Image - …」✓）
+      // 与事件补名共用同一张缓存 planet_cache 的 avatar_name:<fid> ✓；解析不到就留空、不覆盖旧值 ✓
+      // ⚠️ 失败时也写一条 miss（6 小时 TTL）—— 否则每次刷新都会重试同一批不可解析的 fileId ✗
+      const parseAvName = parseAvatarName;
+      let avatarName = '';
+      try {
+        const fid = avatarFileId(userObj.iconUrl || '');
+        if (fid) {
+          const cached = ctx.storage.query('SELECT payload FROM planet_cache WHERE key = $k', { $k: 'avatar_name:' + fid })[0];
+          let hit = null;
+          if (cached) { try { hit = JSON.parse(cached.payload); } catch { /* 忽略 */ } }
+          if (hit && typeof hit.until === 'number' && hit.until <= Date.now()) hit = null;
+          if (hit) avatarName = hit.name || '';
+          else {
+            const fr = await rateLimiter.execute(() => api._request('GET', '/file/' + encodeURIComponent(fid)));
+            // 实测 iconUrl 有时是「用户头像/相机图」而非模型图 ✗ ⇒ 文件名形如 file_xxx_camera_user_icon
+            // 这类**不是模型名**，必须过滤 ✓（真模型名解析后是纯名字，如「测试」✓）
+            // 2026-09-22 评审 ⚠️2：只挡 file_ 前缀是不够的 —— iconUrl 也可能指向资料头像/相机图，
+            // 文件名可为任意值（实测 selfie.png / My cute avatar / IMG_20240101_123456.jpg 都会被原过滤当模型名）
+            // ⇒ 改为只采信 VRChat 模型文件的命名形态「Avatar - <名> - Image …」
+            const rawName = String((fr && fr.data && fr.data.name) || '');
+            const parsed = String(parseAvName(rawName) || '');
+            avatarName = /^Avatar\s*-\s*/i.test(rawName) ? parsed : '';
+            try {
+              ctx.storage.setPlanetCache('avatar_name:' + fid, avatarName
+                ? { name: avatarName, at: Date.now() }
+                : { name: '', miss: true, until: Date.now() + 6 * 3600 * 1000 });
+            } catch { /* 落盘失败不影响刷新 */ }
+            if (avatarName) { try { log('[模型名] 追踪解析 ' + fid.slice(0, 16) + '… → ' + avatarName); } catch { /* 忽略 */ } }
+          }
+        }
+      } catch { /* 解析失败留空，下次再试 */ }
       // 头像变化检测：按 file id 归一化比较（防 currentAvatarImageUrl vs Thumbnail 兜底链或 URL 版本号 /1/ vs /3/ 波动误报）
       const prevAv = u.avatar_image_url || '';
-      const fileIdOf = (url) => { const m = String(url || '').match(/\/file\/(file_[a-f0-9-]+)/); return m ? m[1] : ''; };
+      // 2026-09-22 #225：同上，统一用 avatarFileId()（它会先还原代理 URL ✓ 且支持 /image/ 形态 ✓）
+      const fileIdOf = (url) => avatarFileId(url) || '';
       const changed = fileIdOf(av) && fileIdOf(prevAv) ? fileIdOf(av) !== fileIdOf(prevAv) : (av !== prevAv);
       if (av && prevAv && changed) {
         try {
@@ -360,8 +402,8 @@ async function _refreshTrackedNonFriends() {
       const loc = userObj.location || '';
       if (av || dn || st || loc) {
         storage.run(
-          `UPDATE tracked_non_friends SET avatar_image_url=$a, display_name=$d, status=$s, status_description=$sd, location=$l, last_refresh_at=datetime('now') WHERE user_id=$u`,
-          { $a: av, $d: dn, $s: st, $sd: stDesc, $l: loc, $u: u.user_id }
+          `UPDATE tracked_non_friends SET avatar_image_url=$a, display_name=$d, status=$s, status_description=$sd, location=$l, trust_level=$tl, last_refresh_at=datetime('now') WHERE user_id=$u`,
+          { $a: av, $d: dn, $s: st, $sd: stDesc, $l: loc, $tl: tl || (u.trust_level || ''), $u: u.user_id }
         );
       }
       // location/上下线变化检测（#146）：轮询 1h 低频，offline/offline:offline/traveling 离线态微动与转场不记录
@@ -895,6 +937,22 @@ setOpsLogSink((kind, level, message) => {
   // 7a. 好友头像补全：启动 90s 后首次 + 每 6 小时（低频，只补空头像）
   setTimeout(_syncFriendAvatars, 90 * 1000);
   setInterval(_syncFriendAvatars, 6 * 3600 * 1000);
+
+  // 好友资料权威刷新（issue：trust_level 陈旧无自愈；#222 审核 🔴1 指出本接线缺失 → 补上）：
+  // 启动 60 秒后跑首轮（部署即自愈存量陈旧等级），之后每 VRC_MONITOR_FRIEND_REFRESH_HOURS（默认 6）小时一次；
+  // 刷新时回写非空资料字段 + 记录 trust_level 变化事件；每周期上限 VRC_MONITOR_FRIEND_REFRESH_MAX（默认 50）。
+  const FRIEND_REFRESH_HOURS = Math.max(1, Number(process.env.VRC_MONITOR_FRIEND_REFRESH_HOURS) || 6);
+  const runFriendRefresh = () => {
+    // #222 审核 💡2：未认证时跳过（否则每周期 50 次 401 + 逐个触发自动重认证 ✗）；
+    // 且异常必须记一行（原来的 .catch(() => {}) 会静默吞掉模块级异常 ✗）。
+    if (!ctx.serverState || !ctx.serverState.authUser) {
+      log('[追踪] 好友资料刷新跳过：尚未认证（避免未登录时打 401）');
+      return;
+    }
+    refreshFriendList(ctx, log).catch((e) => log('[警告] 好友资料刷新异常: ' + e.message));
+  };
+  setTimeout(runFriendRefresh, 60_000);
+  setInterval(runFriendRefresh, FRIEND_REFRESH_HOURS * 3600 * 1000);
 
   // 7a2. 追踪非好友（VRCX-Luo 对齐）：启动 20s 后自动导入历史非好友并首次拉取，之后每小时刷新
   setTimeout(async () => {

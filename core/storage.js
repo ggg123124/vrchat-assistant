@@ -85,6 +85,10 @@ export class Storage {
     if (!tnfCols.some(c => c.name === 'memo')) {
       this._run(`ALTER TABLE tracked_non_friends ADD COLUMN memo TEXT DEFAULT ''`);
     }
+    // 迁移：追踪对象缺信任等级列（2026-09-22，幂等；实测 tags 对非好友有值 ⇒ 可算）
+    if (!tnfCols.some(c => c.name === 'trust_level')) {
+      this._run(`ALTER TABLE tracked_non_friends ADD COLUMN trust_level TEXT DEFAULT ''`);
+    }
     // 迁移：旧库 world_cache 缺 note 列
     const worldCols = this._query(`PRAGMA table_info(world_cache)`);
     if (!worldCols.some(c => c.name === 'note')) {
