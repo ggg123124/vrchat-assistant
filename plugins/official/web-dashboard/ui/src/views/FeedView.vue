@@ -754,7 +754,7 @@ onUnmounted(() => {
 /* 筛选 chip：视觉语言统一走全局 .chip（style.css），此处仅保留本页私有覆盖 */
 .date-btn i { font-size: 11px; }
 .date-btn.active { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
-.star-btn { width: 30px; padding: 0; justify-content: center; }
+.star-btn { min-width: 30px; width: auto; padding: 0 8px; justify-content: center; }
 .star-btn i { font-size: 12px; }
 .star-btn.star-on { color: var(--star); border-color: color-mix(in srgb, var(--star) 40%, var(--border)); }
 .date-cal { padding: 6px; }
