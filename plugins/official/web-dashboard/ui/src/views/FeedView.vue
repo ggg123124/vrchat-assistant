@@ -754,7 +754,8 @@ onUnmounted(() => {
 /* 筛选 chip：视觉语言统一走全局 .chip（style.css），此处仅保留本页私有覆盖 */
 .date-btn i { font-size: 11px; }
 .date-btn.active { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
-.star-btn { width: 30px; padding: 0; justify-content: center; }
+/* 仅图标按钮保持 30px 方形；带文字/计数的同类 chip（清除全部、只看此世界、星标/追踪计数）按内容撑开，文字不再溢出胶囊 */
+.star-btn { min-width: 30px; padding: 0 9px; justify-content: center; }
 .star-btn i { font-size: 12px; }
 .star-btn.star-on { color: var(--star); border-color: color-mix(in srgb, var(--star) 40%, var(--border)); }
 .date-cal { padding: 6px; }
