@@ -61,3 +61,13 @@ test('stop() 会摘掉当前 socket 的 handler（防迟到 close 多排重连�
   assert.equal(removed, 1, 'socket 的 handler 应被摘掉');
   assert.equal(closed, 1, 'socket 仍应被关闭');
 });
+
+// 评审 ⚠️1：真正驱动 _onOpen() 的回归护栏。
+// 上一版第 3 例只是把「无计时起点」当预期行为断言 —— 把 _onOpen 里的赋值移除后它照样绿（被突变测试证伪）。
+test('回归：_onOpen() 必须真正开始计时（否则首个连接零消息时静默检测永不触发）', () => {
+  const { m } = makeManager();
+  try { m._onOpen(); } catch { /* 测试环境无完整上下文；赋值在第一行已完成 */ }
+  try { m._clearHeartbeat(); } catch { /* 清掉 30s 定时器，避免测试进程挂住 */ }
+  assert.ok(m.lastMessageAt, '_onOpen() 应设置 lastMessageAt');
+  assert.notEqual(m.getState().silentForSec, null, 'getState() 应能输出 silentForSec（不是 null）');
+});
