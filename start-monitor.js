@@ -309,8 +309,6 @@ async function _seedTrackedNonFriends() {
 
 let _trackedRefreshRunning = false;  // 手动/定时刷新并发闸（防重复 diff 事件）
 
-// 2026-09-23 issue #241：连续多少次非 200 判定为「失效」（1 次瞬时失败不误杀）
-const TRACKED_FAIL_LIMIT = 3;
 const dn0 = (u) => u.display_name || u.user_id;
 
 async function _refreshTrackedNonFriends() {
@@ -323,16 +321,16 @@ async function _refreshTrackedNonFriends() {
     try {
       const r = await rateLimiter.execute(() => api._request('GET', `/users/${encodeURIComponent(u.user_id)}`));
       if (r.status !== 200 || !r.data || r.data.error) {
-        // 2026-09-23 issue #241：此前这里只 continue => 失效 userId 每小时被无限重试、永久刷屏
-        // => 连续 K 次非 200 判定失效（一次瞬时 404 不误杀有效条目）=> 按现有语义软删除 + 一次留痕
-        const fails = (Number(u.fail_count) || 0) + 1;
+        // 2026-09-23 issue #241（评审 ⚠️2 修正）：判定抽到 core/tracked-fail-policy.js 的纯函数 ✓
+        // 只把「明确 404」当永久失效 —— 429/5xx 等暂时性故障不累计，避免误杀有效条目（且不会自愈）✗
+        const d = decideTrackedFail({ failCount: u.fail_count, status: r.status, hasDataError: !!(r.data && r.data.error) });
         try {
-          if (fails >= TRACKED_FAIL_LIMIT) {
+          if (d.remove) {
             storage.run(`UPDATE tracked_non_friends SET removed_at = $t, fail_count = $n WHERE user_id = $u`,
-              { $t: new Date().toISOString(), $n: fails, $u: u.user_id });
-            log("[追踪] " + dn0(u) + " 连续 " + fails + " 次请求失败（HTTP " + r.status + "）=> 判定为失效并移出刷新列表（数据保留、可手工恢复）");
+              { $t: new Date().toISOString(), $n: d.next, $u: u.user_id });
+            log("[追踪] " + dn0(u) + " 连续 " + d.next + " 次" + d.reason + " => 判定为失效并移出刷新列表（数据保留、可手工恢复）");
           } else {
-            storage.run(`UPDATE tracked_non_friends SET fail_count = $n WHERE user_id = $u`, { $n: fails, $u: u.user_id });
+            storage.run(`UPDATE tracked_non_friends SET fail_count = $n WHERE user_id = $u`, { $n: d.next, $u: u.user_id });
           }
         } catch { /* 标记失败不影响刷新 */ }
         continue;

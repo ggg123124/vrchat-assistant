@@ -414,7 +414,7 @@ export class EventPipeline {
       if (event.userId && String(event.userId).startsWith('usr_')) {
         this.storage.run(
           `INSERT INTO tracked_non_friends (user_id, display_name) VALUES ($u, $d)
-           ON CONFLICT(user_id) DO UPDATE SET removed_at = ''`,
+           ON CONFLICT(user_id) DO UPDATE SET removed_at = '', fail_count = 0`,
           { $u: event.userId, $d: event.displayName || '' });
       }
     } catch { /* 联动失败不影响事件记录 */ }
