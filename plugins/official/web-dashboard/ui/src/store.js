@@ -1,6 +1,6 @@
 // 响应式数据层（移植旧 core.js 模式：快/慢路径拆分 + 30s 轮询 + SSE + hash 视图同步）
 import { reactive } from 'vue';
-import { get, post, openSse } from './api.js';
+import { get, post, openSse, getToken } from './api.js';   // 2026-09-22：补 getToken 导入 —— 启动守卫里用了它却没导入 ⇒ ReferenceError 被 catch 吞掉 ⇒ authed 恒 false ⇒ 一个请求都不发（表现与后端挂了完全一样）✗
 
 // 兼容 events 接口的几种历史形状，避免包一层对象后前端当数组用 → 动态整页空
 function parseEvents(d) {
@@ -17,6 +17,7 @@ function parseEvents(d) {
 }
 
 export const store = reactive({
+  authRequired: null,   // null=未知（探针未跑）/ false=不需要鉴权 / true=需要 ✓
   view: 'feed',
   isMobile: false,
   navOpen: false,
@@ -270,9 +271,12 @@ export async function toggleWatch(userId, displayName = '') {
 }
 
 function syncRightGroups() {
-  store.onlineFriends = store.friends.filter((f) => f.isOnline);
-  store.offlineFriends = store.friends.filter((f) => !f.isOnline);
-  store.favFriends = store.friends.filter((f) => store.favFriendIds && store.favFriendIds.has(f.userId));
+  // 2026-09-22 用户报障「有时候请求正常但右边整块黑的」：这类症状通常是**渲染期抛错**导致整块子树不挂载 ✗。
+  // 这里把唯一会直接 .filter 的数据源做防空（本地缓存 hydrate / 接口返回异常形状时不再整块崩掉 ✓）。
+  const list = Array.isArray(store.friends) ? store.friends : [];
+  store.onlineFriends = list.filter((f) => f.isOnline);
+  store.offlineFriends = list.filter((f) => !f.isOnline);
+  store.favFriends = list.filter((f) => store.favFriendIds && store.favFriendIds.has(f.userId));
 }
 
 // 关键路径（本地 DB，秒回）+ 慢路径（VRChat API，后台填）
@@ -504,7 +508,7 @@ function refreshFriends() {
       const f = await get('/api/dashboard/friends?limit=1000');  // issue #127
       if (f && Array.isArray(f.friends)) {
         // 按 userId 合并，保留现有顺序，更新已存在的、追加新的
-        const m = new Map(store.friends.map((x) => [x.userId, x]));
+        const m = new Map((Array.isArray(store.friends) ? store.friends : []).map((x) => [x.userId, x]));
         for (const nf of f.friends) m.set(nf.userId, nf);
         const merged = f.friends.map((x) => m.get(x.userId));
         for (const x of store.friends) {
@@ -678,19 +682,31 @@ function initKeyboard() {
   });
 }
 
+// 2026-09-22 评审三轮：拆成两个幂等门 —— 本地初始化（可早于 mount）与数据面启动（探针判定后才允许）
+// 原因：未启用令牌的部署里 main.js 会在 app.mount() 前先调一次（那时 authRequired 还没置位 ⇒ authed=false），
+// 若用单个门，首次调用就把门锁掉 ⇒ App 在探针判定后那次调用被吞 ⇒ 零请求 / 不连 SSE / 不起校准
+let __dashStarted = false;   // 本地初始化门（幂等：只做一次，重复调用无副作用）
+let __dataStarted = false;   // 数据面门（只有 authed 时才开，且只开一次）
 export function startDashboard() {
-  initFromHash();
-  load();
-  loadWatchlist();
-  loadTracked();
-  loadNotifCount();
-  loadAnnNewFlag();
-  try { store.notifyEnabled = localStorage.getItem('vrc_notify') === '1'; } catch { /* 隐私模式 */ }
-  startSse();
-  trackViewport();
-  initKeyboard();
-  bindHashChange();
-  setInterval(() => load(true), 120000);  // 全量校准：120s 一次（SSE 增量主导，全量只防丢帧/断线自愈）
-  // 右侧栏"我自己"状态/位置：由 SSE user-update/user-location 事件直接更新 me + refreshMeFresh() 节流拉取，
-  // 不再需要 10s 定时全量拉 /me（已移除，2026-09-01 SSE 增量改造）
+  const authed = (() => { try { return !!getToken() || store.authRequired === false; } catch { return false; } })();
+  // —— 本地初始化：不依赖鉴权，幂等 ——
+  if (!__dashStarted) {
+    __dashStarted = true;
+    initFromHash();
+    try { store.notifyEnabled = localStorage.getItem('vrc_notify') === '1'; } catch { /* 隐私模式 */ }
+    trackViewport();
+    initKeyboard();
+    bindHashChange();
+  }
+  // —— 数据面：未登录不请求、不连 SSE、不轮询；探针判定后由 App 再调一次即可启动 ——
+  if (!__dataStarted && authed) {
+    __dataStarted = true;
+    load();
+    loadWatchlist();
+    loadTracked();
+    loadNotifCount();
+    loadAnnNewFlag();
+    startSse();   // 与数据加载同处守卫（原 SSE 没进守卫 ⇒ 一连上就触发 load() ⇒ 登录页 overview 401）
+    setInterval(() => load(true), 120000);   // 全量校准：120s 一次（未登录不轮询）
+  }
 }

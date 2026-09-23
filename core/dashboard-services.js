@@ -1405,9 +1405,16 @@ export function registerDashboardServices(loader, ctx) {
     const pickGroup = (g) => ({ id: g.id || g.groupId || '', name: g.name || '', iconUrl: imgProxy(g.iconUrl || g.$thumbnailUrl || ''), memberCount: g.memberCount || 0, shortCode: g.shortCode || '', isRepresenting: !!g.isRepresenting });
     const pickWorld = (w) => ({ id: w.id || '', name: w.name || '', imageUrl: imgProxy(w.imageUrl || w.thumbnailImageUrl || ''), authorName: w.authorName || '', description: w.description || '', capacity: w.capacity || 0, favorites: w.favorites || 0, visits: w.visits || 0, releaseStatus: w.releaseStatus || '', createdAt: w.createdAt || '' });
     const pickAvatar = (a) => ({ id: a.id || '', name: a.name || '', thumbnailImageUrl: imgProxy(a.thumbnailImageUrl || ''), imageUrl: imgProxy(a.imageUrl || ''), releaseStatus: a.releaseStatus || '', tags: Array.isArray(a.tags) ? a.tags : [] });
+    // 2026-09-22：把追踪行的本地备注一起带出（弹窗里直接编辑；免得多挂一个常驻 Dialog）
+    let trackedMemo = '';
+    try {
+      const tm = ctx.storage.query('SELECT memo FROM tracked_non_friends WHERE user_id = $u', { $u: uid })[0];
+      trackedMemo = (tm && tm.memo) || '';
+    } catch { /* 忽略 */ }
     return {
       user,
       avatarName,
+      trackedMemo,   // 2026-09-22：追踪行备注（弹窗可编辑）
       representedGroup: representedGroup ? pickGroup(representedGroup) : null,
       mutualFriendCount: mutualFriends.length,
       mutualFriends: mutualFriends.map((f) => ({ id: f.id, displayName: f.displayName || '', avatarUrl: avatarOf(f.userIcon, f.currentAvatarImageUrl || f.currentAvatarThumbnailImageUrl) })),

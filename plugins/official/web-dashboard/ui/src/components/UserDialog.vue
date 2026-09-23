@@ -129,6 +129,22 @@ const trustLevel = computed(() => {
 });
 // VRCX 风格英文名（Trusted User / Known User / User / New User / Visitor）
 const trustNameText = computed(() => trustName(trustLevel.value));
+// 2026-09-22：备注就在弹窗里改（免得多挂一个常驻 Dialog —— 那正是「全站空白」的元凶）
+// 只用已确认存在的导入：ref/watch 来自 vue ✓、post 来自 api.js ✓、toast 来自 toast.js ✓
+const memoDraft = ref('');
+const memoSaving = ref(false);
+watch(() => profile.value && profile.value.trackedMemo, (v) => { memoDraft.value = v || ''; }, { immediate: true });
+async function saveMemo() {
+  if (memoSaving.value) return;
+  memoSaving.value = true;
+  try {
+    const r = await post('/api/dashboard/tracked/memo', { userId: user.value.userId, memo: memoDraft.value });
+    if (r && r.ok === false) throw new Error(r.error || '保存失败');
+    if (profile.value) profile.value.trackedMemo = memoDraft.value;
+    toast('备注已保存', 'success');
+  } catch (e) { toast('备注保存失败：' + (e.message || e), 'error'); }   // 失败必须可见，不伪装成功
+  finally { memoSaving.value = false; }
+}
 const statusValue = computed(() => pUser.value.status || pLocal.value.status || '');
 const statusText = computed(() => {
   if (pUser.value.statusDescription) return pUser.value.statusDescription;
@@ -281,6 +297,14 @@ const rawJson = computed(() => {
             <div class="fact"><span>账号创建日期</span><span>{{ pStats.dateJoined || '-' }}</span></div>
             <div v-if="isFriend" class="fact"><span>添加为好友的时间</span><span>{{ pStats.dateFriended ? date(pStats.dateFriended) : '-' }}</span></div>
             <div class="fact"><span>是否允许克隆模型</span><span>{{ pStats.allowAvatarCopying ? '允许' : '不允许' }}</span></div>
+            <!-- 2026-09-22 用户：备注在弹窗里改（替代卡片上那个会引发白屏的常驻 Dialog） -->
+            <div v-if="!isFriend" class="fact fact-wide">
+              <span>本地备注</span>
+              <span class="memo-cell">
+                <input v-model="memoDraft" class="memo-input" placeholder="给这个人加个备注…" @keydown.enter="saveMemo" />
+                <Button label="保存" size="small" :loading="memoSaving" @click="saveMemo" />
+              </span>
+            </div>
             <!-- 2026-09-22 用户：玩家 ID 单独占两列（不然会被换行）；复制按钮挪到这一行右边 -->
             <div class="fact fact-wide">
               <span>玩家 ID</span>
@@ -443,6 +467,8 @@ const rawJson = computed(() => {
 .fact span:first-child { color: var(--text-dim); flex: none; }
 .fact span:last-child { text-align: right; word-break: break-all; }
 .ud-actions { display: flex; gap: 8px; margin-top: 12px; justify-content: flex-end; }
+.memo-cell { display: flex; align-items: center; gap: 8px; justify-content: flex-end; flex: 1; }
+.memo-input { flex: 1; max-width: 360px; background: var(--surface-2); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 5px 9px; font-size: 12.5px; }
 
 /* 2026-09-22：玩家 ID 单占一行（两列宽），右侧带复制按钮 */
 .facts > .fact-wide { grid-column: 1 / -1; }
