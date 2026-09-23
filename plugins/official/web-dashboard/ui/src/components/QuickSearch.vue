@@ -1,4 +1,5 @@
 <script setup>
+import { toast } from '../toast.js';
 import { ref, watch, computed } from 'vue';
 import { store, openUser, openWorld } from '../store.js';
 import { get, imgUrl } from '../api.js';
@@ -37,7 +38,10 @@ watch(q, (v) => {
     try {
       const d = await get(`/api/dashboard/search?q=${encodeURIComponent(v.trim())}&type=users&limit=8`);
       remote.value = d.items || d.users || d.results || [];
-    } catch { remote.value = []; }
+    } catch (err) {
+      // 2026-09-22 彻查：搜索失败不能显示成「无结果」✗ ⇒ 保持旧值 + 如实报错 ✓
+      toast('远程搜索失败：' + ((err && err.message) || err), 'error');
+    }
     searching.value = false;
   }, 300);
 });

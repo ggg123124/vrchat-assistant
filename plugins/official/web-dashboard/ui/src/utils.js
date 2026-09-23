@@ -180,6 +180,7 @@ export function trustColor(t) {
 // 等级名标准化为 VRCX 英文名（tags / 旧推断值 Visitor·New·User·Known·Trusted·Veteran → 规范名）
 export const TRUST_TAG_NAMES = {
   veteran: 'Trusted User',
+  legend: 'Trusted User',   // #222 审核 💡4：与 DB 侧写入值对齐（否则弹窗会显示原样 'legend'）
   trusted: 'Known User',
   known: 'User',
   basic: 'New User',

@@ -64,7 +64,8 @@ describe('probeAuthRequired（未启用鉴权时直接放行）', () => {
     const calls = stubFetch([200]);
     const { probeAuthRequired } = await import('./api.js');
     await probeAuthRequired();
-    expect(calls[0].url).toBe('/api/dashboard/overview');
+    // 2026-09-22：探针由重数据接口 overview 改为轻量接口 me（用户报登录页仍在请求 overview）
+    expect(calls[0].url).toBe('/api/dashboard/me');
     expect(calls[0].url).not.toContain('token=');
     expect(calls[0].opts.headers).toBeUndefined();
   });

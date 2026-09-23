@@ -26,15 +26,13 @@ const NORMAL_WRITE = /(=\s*|return\s+)(false|true|\[\]|null|0|'')\s*[;)]/;
 
 // 基线：文件 + 该行文本（去首尾空白）作为稳定键（不用行号，插入代码不会误报）✓
 const BASELINE = [
-  ["src/components/QuickSearch.vue", "remote.value = [];", "\u4e0a\u6e38\u73b0\u72b6\uff08\u672c PR \u4ece upstream/main \u5efa\uff09\uff1a\u8be5\u5904\u7531 #228 \u7b49\u4fee\u590d PR \u5904\u7406\uff1b\u4fee\u590d\u5408\u5e76\u540e\u81ea\u68c0\u4e8c\u4f1a\u63d0\u793a\u5220\u9664\u672c\u884c"],
-  ["src/components/UserDialog.vue", "events.value = [];", "\u4e0a\u6e38\u73b0\u72b6\uff08\u672c PR \u4ece upstream/main \u5efa\uff09\uff1a\u8be5\u5904\u7531 #228 \u7b49\u4fee\u590d PR \u5904\u7406\uff1b\u4fee\u590d\u5408\u5e76\u540e\u81ea\u68c0\u4e8c\u4f1a\u63d0\u793a\u5220\u9664\u672c\u884c"],
-  ["src/composables/useNotif.js", "state.annHasNew = false;", "\u4e0a\u6e38\u73b0\u72b6\uff08\u672c PR \u4ece upstream/main \u5efa\uff09\uff1a\u8be5\u5904\u7531 #228 \u7b49\u4fee\u590d PR \u5904\u7406\uff1b\u4fee\u590d\u5408\u5e76\u540e\u81ea\u68c0\u4e8c\u4f1a\u63d0\u793a\u5220\u9664\u672c\u884c"],
-  ["src/store.js", "store.annHasNew = false;", "\u4e0a\u6e38\u73b0\u72b6\uff08\u672c PR \u4ece upstream/main \u5efa\uff09\uff1a\u8be5\u5904\u7531 #228 \u7b49\u4fee\u590d PR \u5904\u7406\uff1b\u4fee\u590d\u5408\u5e76\u540e\u81ea\u68c0\u4e8c\u4f1a\u63d0\u793a\u5220\u9664\u672c\u884c"],
-  ["src/store.js", "store.feedHasMore = false;", "\u4e0a\u6e38\u73b0\u72b6\uff08\u672c PR \u4ece upstream/main \u5efa\uff09\uff1a\u8be5\u5904\u7531 #228 \u7b49\u4fee\u590d PR \u5904\u7406\uff1b\u4fee\u590d\u5408\u5e76\u540e\u81ea\u68c0\u4e8c\u4f1a\u63d0\u793a\u5220\u9664\u672c\u884c"],
-  ["src/views/FavoritesView.vue", "groupsList = [];", "\u4e0a\u6e38\u73b0\u72b6\uff08\u672c PR \u4ece upstream/main \u5efa\uff09\uff1a\u8be5\u5904\u7531 #228 \u7b49\u4fee\u590d PR \u5904\u7406\uff1b\u4fee\u590d\u5408\u5e76\u540e\u81ea\u68c0\u4e8c\u4f1a\u63d0\u793a\u5220\u9664\u672c\u884c"],
-  ["src/views/GroupsView.vue", "invites.value = [];", "\u4e0a\u6e38\u73b0\u72b6\uff08\u672c PR \u4ece upstream/main \u5efa\uff09\uff1a\u8be5\u5904\u7531 #228 \u7b49\u4fee\u590d PR \u5904\u7406\uff1b\u4fee\u590d\u5408\u5e76\u540e\u81ea\u68c0\u4e8c\u4f1a\u63d0\u793a\u5220\u9664\u672c\u884c"],
-  ["src/views/WorldsView.vue", "fws.value = [];", "\u4e0a\u6e38\u73b0\u72b6\uff08\u672c PR \u4ece upstream/main \u5efa\uff09\uff1a\u8be5\u5904\u7531 #228 \u7b49\u4fee\u590d PR \u5904\u7406\uff1b\u4fee\u590d\u5408\u5e76\u540e\u81ea\u68c0\u4e8c\u4f1a\u63d0\u793a\u5220\u9664\u672c\u884c"],
   ['src/api.js', 'return null;', 'API 包装层：把失败返回给调用方由上层决定（调用方已分别处理）'],
+  // 2026-09-23 维护方合并 #239 时按自检二修正两处漂移（原条目为 #228 写的基线，已被后续合并改动）：
+  // ① 原 ['src/App.vue','loginView.value = true;'] 已不存在 —— #230 重写鉴权门后该赋值移入 onAuth401()，不再位于 catch 内 ⇒ 删除；
+  // ② 原 ['src/store.js','return null;','readCache 的 catch…'] 已不存在（readCache 该分支已被重写）⇒ readCache 不再命中，
+  //    当前 store.js 唯一命中项是 startDashboard 的 getToken() 兜底 `catch { return false; }`（保守默认：视为没取到令牌，非把失败当结论）⇒ 按实际命中项改写。
+  ['src/store.js', 'return false;', 'startDashboard 的 getToken() 兜底：抛错即视为未取到令牌（保守默认，非把失败写成业务结论）'],
+  ['src/components/AvatarDialog.vue', 'data.value = null;', '上方已设 loadError.value'],
   ['src/views/BoothView.vue', "if (mySeq === seq) { results.value = []; toast('搜索失败：' + (e.message || e), 'error'); }", '新查询清空 + toast 报错'],
   ['src/views/SearchView.vue', "if (mySeq === seq) { results.value = []; toast('搜索失败：' + (e.message || e), 'error'); }", '新查询清空 + toast 报错'],
   ['src/views/RecommendView.vue', "if (mySeq === seq) { data.value = null; toast('加载推荐失败：' + (e.message || e), 'error'); }", '新查询清空 + toast 报错'],
@@ -42,7 +40,6 @@ const BASELINE = [
   ['src/views/WeeklyReportView.vue', "if (mySeq === seq) { report.value = null; toast('加载周报失败：' + (e.message || e), 'error'); }", '新查询清空 + toast 报错'],
   ['src/views/PrintsView.vue', "if (tab.value === 'prints') prints.value = [];", '上方已设 error.value = 加载失败'],
   ['src/views/PrintsView.vue', 'else gallery.value = [];', '同上'],
-  ['src/components/AvatarDialog.vue', 'data.value = null;', '上方已设 loadError.value'],
 ];
 
 function scan() {
