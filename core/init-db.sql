@@ -215,6 +215,7 @@ CREATE TABLE IF NOT EXISTS tracked_non_friends (
   status_description TEXT DEFAULT '',
   location TEXT DEFAULT '',
   removed_at TEXT DEFAULT '',
+  fail_count INTEGER DEFAULT 0,          -- 连续失败计数（issue #241）
   memo TEXT DEFAULT ''
 );
 

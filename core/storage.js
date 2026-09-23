@@ -78,6 +78,10 @@ export class Storage {
     if (!tnfCols.some(c => c.name === 'removed_at')) {
       this._run(`ALTER TABLE tracked_non_friends ADD COLUMN removed_at TEXT DEFAULT ''`);
     }
+    // 迁移：失效重试计数（issue #241；幂等，自己的列 + 自己的条件块）
+    if (!tnfCols.some(c => c.name === 'fail_count')) {
+      this._run(`ALTER TABLE tracked_non_friends ADD COLUMN fail_count INTEGER DEFAULT 0`);
+    }
     if (!tnfCols.some(c => c.name === 'memo')) {
       this._run(`ALTER TABLE tracked_non_friends ADD COLUMN memo TEXT DEFAULT ''`);
     }
