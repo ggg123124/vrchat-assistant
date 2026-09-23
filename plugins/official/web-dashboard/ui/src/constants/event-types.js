@@ -3,7 +3,7 @@
 
 export const TYPE_LABELS = {
   location: '位置变动', online: '上线', offline: '下线', status: '状态变动', avatar: '模型变动',
-  bio: '简介变更', userIcon: '头像图标', pronouns: '代词变更', displayName: '改名',
+  bio: '简介变更', userIcon: '头像图标', pronouns: '代词变更', trustLevel: '等级变动', displayName: '改名',
   friendRequest: '好友申请', invite: '邀请', message: '私信', group: '群组通知',
   notification: '通知', notificationUpdate: '通知更新', friendAdd: '新增好友', friendDelete: '删除好友',
   unknown: '未知事件', contentRefresh: '内容库', groupJoined: '加入群组', groupMemberUpdated: '群组更新',
@@ -14,7 +14,7 @@ export const TYPE_LABELS = {
 export const TYPE_ICONS = {
   location: 'pi-map-marker', online: 'pi-sign-in', offline: 'pi-sign-out', status: 'pi-heart',
   avatar: 'pi-user-edit', bio: 'pi-file-edit', userIcon: 'pi-id-card', pronouns: 'pi-user',
-  displayName: 'pi-pencil', friendRequest: 'pi-user-plus', invite: 'pi-arrow-right-arrow-left',
+  displayName: 'pi-pencil', trustLevel: 'pi-shield', friendRequest: 'pi-user-plus', invite: 'pi-arrow-right-arrow-left',
   message: 'pi-comment', group: 'pi-users', notification: 'pi-bell', notificationUpdate: 'pi-bell',
   friendAdd: 'pi-user-plus', friendDelete: 'pi-user-minus', unknown: 'pi-question-circle',
   contentRefresh: 'pi-refresh', groupJoined: 'pi-users', groupMemberUpdated: 'pi-users',
@@ -23,7 +23,7 @@ export const TYPE_ICONS = {
 
 export const TYPE_SEVERITIES = {
   location: 'info', online: 'success', offline: 'secondary', status: 'warning', avatar: 'warn',
-  bio: 'contrast', userIcon: 'secondary', pronouns: 'contrast', displayName: 'warn',
+  bio: 'contrast', userIcon: 'secondary', pronouns: 'contrast', displayName: 'warn',  trustLevel: 'contrast',
   friendRequest: 'success', invite: 'info', message: 'secondary', group: 'warn',
   notification: 'secondary', notificationUpdate: 'secondary', friendAdd: 'success',
   friendDelete: 'danger', unknown: 'secondary', contentRefresh: 'info', groupJoined: 'success',
@@ -42,6 +42,7 @@ export function typeOf(x) {
     if (x.updateType === 'status') return 'status';
     if (x.updateType === 'user_icon') return 'userIcon';
     if (x.updateType === 'pronouns') return 'pronouns';
+    if (x.updateType === 'trust_level') return 'trustLevel';
     if (x.updateType === 'displayName') return 'displayName';
     return 'other';
   }

@@ -417,3 +417,15 @@ button { font-family: inherit; }
 @media (max-width: 899px) {
   .chip { height: 34px; padding: 4px 14px; font-size: 12px; }
 }
+
+/* 2026-09-22 手机端横向溢出修复（用户截图：页面能左右滑、左边内容被切 ✗）
+   实测 390px 视口下文档宽 429px ⇒ 罪魁是顶栏右侧图标组 .header-right（right=429 分毫不差 ✓）
+   注：.ft-chips 的 right=610 是"滚动区内的正常位置"，不是溢出源（它有 min-width:0 + overflow-x:auto ✓） */
+@media (max-width: 899px) {
+  .header-right { gap: 2px; }
+  .header-right .p-button { width: 34px; height: 34px; min-width: 34px; padding: 0; }
+  /* 2026-09-22 第二轮：用户要保留「好友列表」图标 ⇒ 不再隐藏，改为收小尺寸 + 让标题可缩 ✓ */
+  /* （评审 💡1：原先那条 :has(.pi-users) { display: inline-flex } 是死规则 —— 没有任何规则隐藏过该按钮 ⇒ 已删，避免后人误以为此处有显隐逻辑 ✓）*/
+  .header-left, .app-header > :first-child { min-width: 0; }
+  .app-header .brand, .app-header .app-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
