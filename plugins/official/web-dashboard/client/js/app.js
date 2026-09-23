@@ -1,3 +1,7 @@
+// ⚠️ 未注入、勿用（2026-09-22 标注，issue #217 审核 💡）：本文件**不会被下发到浏览器**——
+// web-dashboard/index.js 只注入 client/js/util.js 与 client/js/vue/{core,views,dialogs,rightbar,app}.js。
+// 它保留着一份「把令牌拼进 query string」的旧写法，若照 docs 旧描述复活这条通道，会把令牌带回访问日志；
+// 需要旧行为时请基于 client/js/vue/core.js（已改走 Authorization 头）。
 
 const token=new URLSearchParams(location.search).get('token')||sessionStorage.getItem('vrc_dashboard_token')||'';if(token)sessionStorage.setItem('vrc_dashboard_token',token);const api=p=>token?`${p}${p.includes('?')?'&':'?'}token=${encodeURIComponent(token)}`:p;const labels={'friend-online':'上线','friend-offline':'下线','friend-location':'位置变动','friend-update':'资料变动','friend-active':'状态变动','friend-add':'加好友','friend-delete':'删好友','user-location':'我的位置','user-update':'资料变动','notification':'通知','notification-v2':'通知'};let state={view:'feed',filter:'all',friends:[],events:[],feedEvents:[],feedHasMore:false,selected:null,nicknameMap:{}};window.__state=state;
 window.__renderView=(view)=>{if(!_vmap[view])return;state.view=view;if(window.__store)window.__store.view=view;syncViewNav(view);document.querySelector('#viewTitle').textContent=_vmap[view];document.title='VRChat Assistant · '+_vmap[view];syncHash();render()};

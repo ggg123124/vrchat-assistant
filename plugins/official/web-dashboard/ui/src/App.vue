@@ -257,7 +257,7 @@ async function refresh() {
           <OpenView v-else-if="store.view === 'open'" key="open" />
           <PlaceholderView v-else :view="store.view" key="placeholder" />
         </Transition>
-              </template>
+        </template>
       </main>
 
       <aside v-if="!store.isMobile" class="rightbar">
@@ -325,6 +325,21 @@ async function refresh() {
 </template>
 
 <style scoped>
+.load-error-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 12px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border-soft);
+  border-left: 3px solid #e5484d;
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 13px;
+}
+.load-error-banner i { color: #e5484d; }
+.load-error-banner span { flex: 1; }
 .header-bell-dot { position: absolute; top: 2px; right: 2px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--danger); color: #fff; font-size: 9px; font-weight: 700; line-height: 16px; text-align: center; box-sizing: border-box; }
 .to-top { position: fixed; right: 18px; bottom: 76px; z-index: 50; width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--border); background: var(--surface-3); color: var(--text); cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgba(0,0,0,0.35); transition: transform 0.12s, border-color 0.12s; }
 .to-top:hover { border-color: var(--accent); transform: translateY(-1px); }

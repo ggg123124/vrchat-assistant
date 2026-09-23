@@ -10,6 +10,7 @@ name: CI
 #   - test/test-safe-mode.mjs    （安全模式门控：破坏性工具过滤/放行；issue #190 起纳入门禁）
 #   - test/test-totp.mjs         （TOTP 纯算法验证，无网络无凭据；issue #190 起纳入门禁）
 #   - scripts/check-doc-drift.py （文档漂移：skill 工具清单/数字残留/版本同步/死引用，has_drift=false）
+#   - 仓库源码纪律：service-windows/*.cmd|*.bat 必须纯 ASCII（issue #216；tr 判据 + git ls-files|grep -iE，跑 Linux 腿一次）
 #
 # ⚠️ 命名与收录（issue #190）：`npm test` 的 glob 只收 `*.test.mjs`（带 .test 段）；
 #    `test-*.mjs` 是独立套件、不会被 npm test 收录——要进门禁必须像下面这样显式加一步。
@@ -108,8 +109,26 @@ jobs:
           else echo "::error::python not found"; exit 2; fi
           "$PY" scripts/check-doc-drift.py --json
 
+      - name: Windows scripts are ASCII-only (issue #216)
+        if: runner.os == 'Linux'   # 纯字节扫描、与 OS 无关 → 只在 Linux 腿跑一次
+        shell: bash
+        run: |
+          # cmd.exe 按当前控制台代码页解析批处理文件本身（中文 Windows=cp936）；含非 ASCII 的
+          # .cmd/.bat 会整行错位（issue #212）。判据：非 ASCII 字节数 = 0。
+          # 用 git 索引遍历（含嵌套路径；grep -i 兼顾 .CMD 等大小写变体）; tr 为 POSIX、免外部依赖。
+          bad=0
+          while IFS= read -r f; do
+            [ -e "$f" ] || continue
+            if [ -n "$(LC_ALL=C tr -d '\000-\177' < "$f")" ]; then
+              echo "::error::$f contains non-ASCII bytes — .cmd/.bat must stay ASCII-only (issue #212/#216); put localized text in a separate .txt"
+              bad=1
+            fi
+          done < <(git ls-files | LC_ALL=C grep -iE '[.](cmd|bat)$' || true)
+          exit $bad
+
   # 产物出库后（issue #186 方案 A）前端必须有可复现构建路径：
   # 断言 ui/dist 不被入库、且能从源码构建出产物（防「装完没有 UI」/构建静默失败）
+
   ui-build:
     name: UI buildable (dist out-of-repo)
     runs-on: ubuntu-latest
@@ -131,6 +150,7 @@ jobs:
             echo "::error::ui/dist is tracked — issue #186 方案 A 要求产物出库"
             exit 1
           fi
+
 
       - name: Install UI deps
         run: npm ci --prefix plugins/official/web-dashboard/ui
