@@ -34,6 +34,7 @@ const filterOptions = [
   { value: 'status', label: '状态变动' },
   { value: 'avatar', label: '模型变动' },
   { value: 'bio', label: '简介变更' },
+  { value: 'trustLevel', label: '等级变动' },
 ];
 
 /* ── 日期范围筛选（VRCX 式日历范围选择：只选首尾，中间某天没数据也可选）── */
@@ -556,6 +557,11 @@ onUnmounted(() => {
           <!-- 代词变更 -->
           <template v-else-if="typeOf(x) === 'pronouns'">
             <span class="dim">代词：</span><span>{{ x.previousPronouns || '(空)' }} → {{ x.pronouns || '(空)' }}</span>
+          </template>
+
+          <!-- 信任等级变更 -->
+          <template v-else-if="typeOf(x) === 'trustLevel'">
+            <span class="dim">信任等级：</span><span>{{ x.previousTrustLevel || '(空)' }} → {{ x.trustLevel || '(空)' }}</span>
           </template>
 
           <!-- 改名 -->
