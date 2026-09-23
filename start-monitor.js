@@ -46,6 +46,7 @@ import { handleRecommendWorlds } from './core/tools/recommend-worlds.js';
 import { parseTotpSecret, generateTotp } from './core/totp.js';
 import { notifier } from './core/notifier.js';
 import { buildChannels } from './core/notify-channels.js';
+import { decideTrackedFail } from './core/tracked-fail-policy.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
