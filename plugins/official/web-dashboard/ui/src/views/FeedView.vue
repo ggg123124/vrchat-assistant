@@ -756,11 +756,11 @@ onUnmounted(() => {
 .date-btn.active { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
 /* 仅图标按钮保持方形、带文字/计数的同类 chip（清除全部、只看此世界、此人、星标/追踪计数）按内容撑开。
    注意：min-width 必须**替换** width —— 只追加 min-width 而不删 width 等于没修（宽度仍恒为 30px）。
-   宽度口径（含 1px 边框，box-sizing: border-box）：纯图标态 ≥30px，具体值由断点 padding 决定——
-   >1280px 走本规则 padding: 0 8px ⇒ 12+16+2 = 30px（与修前一致）；
-   900–1280px / ≤899px 由 .vt-actions .chip 的断点 padding 接管 ⇒ 30px / 38px（后者顺带修掉了
-   修前纯图标被挤到 4px 内容盒、左右各外溢 4px 的问题）。 */
-.star-btn { min-width: 30px; padding: 0 8px; justify-content: center; }
+   本规则**不写 padding**：纯图标态宽度由 `.vt-actions .chip` 系列规则提供（同特异性、打包后更靠后 ⇒ 胜出），
+   此处写了也不生效、只会误导读者。实测（运行中真实构建产物的同一张样式表 + 含 scope 属性的真实 DOM，
+   宽度含 1px 边框）：纯图标 >1280px = 34px（padding 10px）/ 900–1280px = 30px（8px）/ ≤899px = 38px（12px）；
+   带文字/计数 chip 修前横向外溢 14–19px，修后三个断点均归零。 */
+.star-btn { min-width: 30px; justify-content: center; }
 .star-btn i { font-size: 12px; }
 .star-btn.star-on { color: var(--star); border-color: color-mix(in srgb, var(--star) 40%, var(--border)); }
 .date-cal { padding: 6px; }
