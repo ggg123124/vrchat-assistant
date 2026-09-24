@@ -10,6 +10,8 @@ name: CI
 #   - test/test-safe-mode.mjs    （安全模式门控：破坏性工具过滤/放行；issue #190 起纳入门禁）
 #   - test/test-totp.mjs         （TOTP 纯算法验证，无网络无凭据；issue #190 起纳入门禁）
 #   - scripts/check-doc-drift.py （文档漂移：skill 工具清单/数字残留/版本同步/死引用，has_drift=false）
+#   - service-windows/tests/test_vrcmon_watchdog.py（watchdog 判据单测 + 长 init 时间线回归，
+#     打桩无副作用：覆盖启动宽限/连续失败/验证失败判活/拉起异常等分支）
 #   - 仓库源码纪律：service-windows/*.cmd|*.bat 必须纯 ASCII（issue #216；tr 判据 + git ls-files|grep -iE，跑 Linux 腿一次）
 #
 # ⚠️ 命名与收录（issue #190）：`npm test` 的 glob 只收 `*.test.mjs`（带 .test 段）；
@@ -100,6 +102,14 @@ jobs:
 
       - name: Migrate legacy data regression (issue #103, no credentials)
         run: node test/test-migrate-data.mjs
+
+      - name: Watchdog decision-logic unit tests (no credentials)
+        shell: bash
+        run: |
+          if command -v python3 >/dev/null 2>&1; then PY=python3
+          elif command -v python >/dev/null 2>&1; then PY=python
+          else echo "::error::python not found"; exit 2; fi
+          "$PY" service-windows/tests/test_vrcmon_watchdog.py
 
       - name: Doc drift check (has_drift must be false)
         shell: bash

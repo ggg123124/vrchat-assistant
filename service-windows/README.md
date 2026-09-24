@@ -7,9 +7,53 @@
 | 文件 | 作用 |
 |------|------|
 | `vrcmon_service_launcher.py` | 以独立（detached）进程启动服务；幂等（已在运行则跳过）。用于登录自启动 |
-| `vrcmon_watchdog.py` | 崩溃自愈：每分钟检查健康端点，服务挂掉则杀掉残留进程并重启，把修复记录写入 `service-logs/vrcmon-repairs.log`。**全程静默**（无输出） |
+| `vrcmon_watchdog.py` | 崩溃自愈：每分钟检查健康端点，经「启动宽限 + 连续失败」两道闸判定后杀掉残留进程并重启，把修复记录写入 `service-logs/vrcmon-repairs.log`。**全程静默**（无输出）。判据与状态文件见下节 |
 | `vrcmon_daily_report.py` | 每日修复报告：统计昨天的修复次数，**昨天有修复才打印一行**（否则完全静默），可接任意通知渠道 |
 | `setup-windows.cmd` | 一键注册计划任务 + 登录自启动（含权限不足时回退 Startup 文件夹） |
+
+## 判定逻辑与状态文件（watchdog）
+
+三道**独立**的闸，全部放行才会杀进程重启（常量都在 `vrcmon_watchdog.py` 顶部）：
+
+| 闸 | 常量 | 作用 |
+|----|------|------|
+| 健康检查 | `HEALTH_TIMEOUT = 8`（秒） | 单次 `/health` 超时。它只**降低误判概率**，不解决"初始化期间端点本就不可用" |
+| 启动宽限 | `GRACE_SECONDS = 300`（秒） | 服务"开始启动"至今不足 300s ⇒ 视为启动中，不介入（大库 `storage.init` 实测 50-70s+） |
+| 连续失败 | `FAIL_THRESHOLD = 2` / `FAIL_WINDOW = 600`（秒） | 同类不健康连续 2 次（= 相邻两个每分钟探测点，≈120s）才判宕机；单次超时（事件循环被小时级任务阻塞）不再误杀 |
+
+状态文件（都在本地、不进仓库）：
+
+| 文件 | 位置 | 说明 |
+|------|------|------|
+| `.vrcmon-watchdog-launch` | `service-logs/` | 本 watchdog 上次拉起服务的时刻戳（`GRACE_SECONDS` 判定用） |
+| `.vrcmon-watchdog-unhealthy` | `service-logs/` | 连续探测失败计数（内容 `count epoch`）；探活成功即删除 |
+| `.vrcmon-service-start` | 服务日志目录（`VRC_MONITOR_LOGGER_DIR`；默认 `<项目>/logs`） | **服务自己**在 `storage.init` 前写的启动戳记（`start-monitor.js`）。有它以后，**任何拉起渠道**（本 watchdog / launcher / 手动 / Hermes 插件 `vrc_start`）拉起的实例都能获得启动宽限 |
+
+边界（如实声明）：
+
+- 两枚启动戳记都不存在时（例如把仓库拷到新机器后直接 `node start-monitor.js`，本 watchdog 从未拉起过它）**不使用启动宽限**，此时仍由"连续失败"闸兜底 —— 实测外部拉起 + init≈70s 为 0 次误杀，init > ~120s 时最坏被误杀一次。
+- 拉起后 25s 验证失败时**先判进程是否真的消失**：进程已消失（拉起即崩溃）⇒ 清除两枚戳记 + 回拨失败计数，下一轮立即重试；**进程仍在**（大概率仍在 init —— 25s 对 init 50-70s+ 的部署是假阴性）⇒ **保留宽限**，交回 `GRACE_SECONDS` 兜底。
+- 服务侧日志目录变量 `VRC_MONITOR_LOGGER_DIR` 既可写在环境变量里，也可只写在仓库 `.env`（`start-monitor.js` 会无条件加载它）—— watchdog 两处都读。watchdog 自己的 `VRC_MONITOR_LOG_DIR` 则**必须**在环境变量里（计划任务看不到 `.env`）。
+
+### 修复日志格式
+
+`service-logs/vrcmon-repairs.log` 每行以日期开头，`vrcmon_daily_report.py` 按日期前缀计数：
+
+```
+2026-09-23 16:55:28 repair                                    # 拉起后 25s 验证健康
+2026-09-23 17:12:03 repair (unverified: not healthy after 25s, 进程仍在)      # 仍在 init
+2026-09-23 17:12:03 repair (unverified: not healthy after 25s, 进程已消失)    # 拉起即崩溃
+```
+
+后两种也计入每日报告 —— 否则"每分钟重启但始终没起来"会被统计成"昨天 0 次修复"。
+
+### 自测
+
+```bash
+python service-windows/tests/test_vrcmon_watchdog.py   # 判据单测 + 长 init 时间线回归（打桩，无副作用）
+```
+
+CI 也会跑（见 `.github/workflows/ci.yml`）。**非 Windows 部署**（Linux / docker / systemd）不使用本 watchdog，但主服务同样会写 `logs/.vrcmon-service-start`（每次启动覆盖，仅作启动时刻标记）——看到该文件属正常，可安全忽略。
 
 ## 快速开始（Windows）
 

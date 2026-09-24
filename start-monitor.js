@@ -6,7 +6,7 @@
  * 
  * 启动: node start-monitor.js
  */
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import net from 'node:net';
@@ -746,6 +746,19 @@ async function main() {
 
   // 0c. 旧数据迁移（issue #103）：根目录旧文件 → data/
   migrateLegacyData(__dirname, path.join(__dirname, 'data'));
+
+  // 0d. 启动戳记：供 service-windows/vrcmon_watchdog.py 判断"本服务已启动多久"。
+  //     必须写在 storage.init 之前 —— 大库 init 实测 50-70s+，期间 /health 必然不可用；
+  //     有了这枚由**服务自己**写下的戳记，无论服务由谁拉起（计划任务 watchdog /
+  //     vrcmon_service_launcher.py / 手动 / Hermes 插件 vrc_start）都能在初始化期间获得宽限。
+  //     进程启动即崩溃时戳记会留在磁盘上，由 watchdog 的验证失败分支清除（不留静默窗口）。
+  try {
+    writeFileSync(path.join(logState.dir, '.vrcmon-service-start'), new Date().toISOString());
+  } catch (e) {
+    // 不阻断启动，但必须留痕：写失败会让 service-windows 的 watchdog 失去启动宽限，
+    // 而"宽限失效"只会在误杀时才显形、极难归因（仓库「禁静默降级、逐分支留痕」规范）。
+    log(`[警告] 启动戳记写入失败（watchdog 启动宽限将不生效）: ${e.message}`);
+  }
 
   // 1. 初始化数据库
   log('[初始化] 初始化数据库...');
