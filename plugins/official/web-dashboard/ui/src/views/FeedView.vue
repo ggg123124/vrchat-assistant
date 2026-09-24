@@ -754,7 +754,13 @@ onUnmounted(() => {
 /* 筛选 chip：视觉语言统一走全局 .chip（style.css），此处仅保留本页私有覆盖 */
 .date-btn i { font-size: 11px; }
 .date-btn.active { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
-.star-btn { width: 30px; padding: 0; justify-content: center; }
+/* 仅图标按钮保持方形、带文字/计数的同类 chip（清除全部、只看此世界、此人、星标/追踪计数）按内容撑开。
+   注意：min-width 必须**替换** width —— 只追加 min-width 而不删 width 等于没修（宽度仍恒为 30px）。
+   宽度口径（含 1px 边框，box-sizing: border-box）：纯图标态 ≥30px，具体值由断点 padding 决定——
+   >1280px 走本规则 padding: 0 8px ⇒ 12+16+2 = 30px（与修前一致）；
+   900–1280px / ≤899px 由 .vt-actions .chip 的断点 padding 接管 ⇒ 30px / 38px（后者顺带修掉了
+   修前纯图标被挤到 4px 内容盒、左右各外溢 4px 的问题）。 */
+.star-btn { min-width: 30px; padding: 0 8px; justify-content: center; }
 .star-btn i { font-size: 12px; }
 .star-btn.star-on { color: var(--star); border-color: color-mix(in srgb, var(--star) 40%, var(--border)); }
 .date-cal { padding: 6px; }
