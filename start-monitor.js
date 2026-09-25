@@ -120,6 +120,9 @@ async function _updateFriendState(event) {
 }
 
 // ── WebSocket 重连后刷新全量在线状态 ──
+// 网页/移动端在线是否计入「在线好友数」（默认计入；VRC_MONITOR_ONLINE_INCLUDE_WEB=0 只算游戏内）
+const ONLINE_INCLUDE_WEB = Number(process.env.VRC_MONITOR_ONLINE_INCLUDE_WEB) !== 0;
+
 async function _refreshOnlineState() {
   const { api, friendState, storage } = ctx;
   try {
@@ -143,7 +146,7 @@ async function _refreshOnlineState() {
       worldId: f.worldId || (f.location || '').split(':')[0],
       // 在线口径与 MCP get_online_friends 一致：仅「有有效 location」计在线（offline=false 返回含
       // active/菜单中用户，location 为空者不算在线——issue #114 ⚠️2 复测遗留修复）
-      isOnline: !!(f.location && f.location !== 'offline'),
+      isOnline: !!(f.location && f.location !== 'offline') || (ONLINE_INCLUDE_WEB && isWebPresence(f.platform)),
     })));
     // 网页端在线自愈（2026-09-10 用户报 bug：转网页在线后 friends 表残留最后进房世界）。
     // REST 在线列表里 location='offline' 的条目=仅网页在线（VRChat 语义），把 platform/location
@@ -921,7 +924,9 @@ setOpsLogSink((kind, level, message) => {
       log(`[连接] WebSocket: ${status}`);
       if (status === 'connected') {
         // 连接后延迟对账：先让重连突发的实时推送（上线/下线）落地，再对账补漏，避免双记
+        // 首轮延迟（等重连突发的实时推送落地）+ 之后每 5 分钟一次（WS 连接间隙错过的事件靠它补）
         setTimeout(() => { _refreshOnlineState().catch(() => {}); }, 25_000);
+        if (!globalThis.__onlineReconcileTimer) { globalThis.__onlineReconcileTimer = setInterval(() => { _refreshOnlineState().catch(() => {}); }, 5 * 60_000); }
         // WS 重连成功但启动登录可能失败(如 OTP 错位)，此处复查认证并同步 authUser
         ctx.api.checkAuth().then((res) => {
           if (res.valid) {
