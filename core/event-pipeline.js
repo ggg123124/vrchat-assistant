@@ -299,6 +299,11 @@ export class EventPipeline {
         // 两条事件，且后者前后常是同一张图（用户实测截图里出现过「更新了头像图标 🍮 → 🍮」）。
         // 该形态下图标变化已由 avatarChanged 覆盖，故不在此重复判。
         const isAvatarBanner = String(userObj.bannerType || '') === 'avatarBanner';
+        // 取舍（2026-09-25 审查 💡 指出，如实记录）：本门禁比「同载荷已报 avatar 才跳过」更宽 ——
+        //   只要 bannerType=avatarBanner 就永不产 user_icon，副作用是该档下【真实用户图标变更】也不报；
+        //   且若 prev.avatar_image_url 基线为空，该次换模型连 avatar 事件也没有（要等基线补上后的下一次才触发）。
+        // 为何仍选更宽的判据：该档 iconUrl 与模型图【同源】，本层无法区分「用户改了图标」与「换模型」；
+        //   而误报（每次换模型都多一条「更新了头像图标」）是用户明确报障，误漏（改图标不报）无用户可见影响。
         const iconChanged = !isAvatarBanner
           && prev.user_icon
           && newUserIcon !== undefined
