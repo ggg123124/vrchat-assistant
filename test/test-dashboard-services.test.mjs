@@ -572,3 +572,30 @@ test('previousWorldName：左端世界名走 world_cache（私人房不载荷 wo
   assert.equal(cur.previousWorldName, '缓存世界名', '左端世界名应取自 world_cache（与右端同口径）');
   assert.equal(cur.previousWorldId, widPrev, '左端世界 id 应指向上一位置');
 });
+
+test('previousWorldName：同一世界时左端名与右端名一致（消除「从 X → 到 Y」幻影行）', async () => {
+  // 2026-09-25 审查 nixi-agent 建议（#262）：
+  //   前端 views.js 以 `previousWorldName !== worldName` 判定是否渲染「从 X → 到 Y」；
+  //   修前左端只读载荷 ⇒ 同一世界若载荷无 world（私人房常见）而缓存有名字，就会显示成【幻影世界切换】。
+  //   他本机 30 天实测：修前 115 行、修后 0 行。本用例把该不变量钉死。
+  const uid = 'usr_test-0000-0000-0000-0000000000e1';
+  const wid = 'wrld_test-3333-3333-3333-333333333333';
+  ctx.storage.run(
+    `INSERT OR REPLACE INTO world_cache (world_id, name, image_url) VALUES ($w, $n, '')`,
+    { $w: wid, $n: '缓存世界名' });
+  ctx.storage.insertEvent({
+    type: 'friend-location', userId: uid, displayName: '幻影测试',
+    contentJson: { userId: uid, location: wid + ':11111~hidden(usr_bbbbbbbb-0000-0000-0000-000000000002)', user: {} },
+    worldId: wid, worldName: '', createdAt: new Date(Date.now() - 60000).toISOString(), source: 'websocket',
+  });
+  ctx.storage.insertEvent({
+    type: 'friend-location', userId: uid, displayName: '幻影测试',
+    contentJson: { userId: uid, location: wid + ':11111~hidden(usr_bbbbbbbb-0000-0000-0000-000000000002)', user: {} },
+    worldId: wid, worldName: '', createdAt: new Date().toISOString(), source: 'websocket',
+  });
+  const r = await services.get('dashboard.events')({ limit: 50, offset: 0 });
+  const cur = r.events.find((e) => e.userId === uid);
+  assert.ok(cur, '应能查到该事件');
+  assert.equal(cur.worldName, '缓存世界名', '右端名取自 world_cache');
+  assert.equal(cur.previousWorldName, cur.worldName, '同一世界时左端名必须与右端一致（否则前端渲染出幻影世界切换）');
+});
