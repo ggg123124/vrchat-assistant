@@ -106,7 +106,7 @@ export function useFriendGroups() {
     if (isWebOnline(f) || !f.isOnline) return '';
     return locLabel(f.location) || '';
   }
-  function avatarOf(f) { return f.avatarUrl || f.userIcon || ''; }
+  function avatarOf(f) { return f.userIcon || f.avatarUrl || ''; }
   function groupIcon(g) {
     const f = g.list && g.list[0];
     return (f && f.worldImageUrl) ? f.worldImageUrl : '';

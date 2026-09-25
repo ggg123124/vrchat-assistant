@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { store, setView, openUser, openWorld, openPreview, loadMoreFeed, copyText, openGroup, resetFeed } from '../store.js';
-import { time, date, locLabel, statusLabels, trustColor, instanceLabel, avatarLabel } from '../utils.js';
+import { time, date, locLabel, locLabelFull, specialLocationLabel, parseLoc, statusLabels, trustColor, instanceLabel, avatarLabel } from '../utils.js';
 import { post } from '../api.js';
 import { toast } from '../toast.js';
 import { statusColor } from '../composables/useFriendGroups.js';
@@ -24,6 +24,10 @@ function sourceLabel(s) {
   if (s === 'api') return 'API';
   return s || '—';
 }
+
+function prevLabelOf(e) { return specialLocationLabel(e.previousLocation) || e.previousWorldName || ''; }
+function curIsWorld(e) { return String(e.worldId || '').startsWith('wrld_'); }
+
 
 /* ── 类型定义（对齐 VRCX Feed filters：GPS/Online/Offline/Status/Avatar/Bio）── */
 const filterOptions = [
@@ -122,18 +126,6 @@ function toggleFav() {
 function toggleWatchFilter() {
   store.feedOnlyWatch = !store.feedOnlyWatch;
 }
-function exportRows() {
-  const list = rows.value || [];
-  if (!list.length) { toast('当前无事件可导出', 'warn'); return; }
-  const blob = new Blob([JSON.stringify(list, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'vrchat-events-' + new Date().toISOString().slice(0, 10) + '.json';
-  a.click();
-  URL.revokeObjectURL(url);
-  toast('已导出 ' + list.length + ' 条事件', 'success');
-}
 
 function toggleTrackedFilter() {
   store.feedOnlyTracked = !store.feedOnlyTracked;
@@ -209,13 +201,13 @@ function playerNameOf(x) {
   return x.notiGroupName || '通知';
 }
 function playerAvatarOf(x) {
-  if (!isNoti(x)) return x.avatarUrl || x.userIcon || '';
+  if (!isNoti(x)) return x.userIcon || x.avatarUrl || '';
   if (typeOf(x) === 'group') return x.notiImageUrl || '';
   if (x.senderUserId) {
     const f = store.friends.find((f) => f.userId === x.senderUserId);
-    if (f) return f.avatarUrl || f.userIcon || '';
+    if (f) return f.userIcon || f.avatarUrl || '';
   }
-  return x.avatarUrl || x.userIcon || '';
+  return x.userIcon || x.avatarUrl || '';
 }
 function playerOpen(x) {
   if (isNoti(x)) {
@@ -363,7 +355,6 @@ onUnmounted(() => {
 
     <div class="feed-head">
       <h2><i class="pi pi-bolt"></i> 动态</h2>
-      <span class="feed-sub">{{ store.feedTotal ? '数据库共 ' + store.feedTotal + ' 条' : '好友活动实时记录' }}</span>
       <Tag v-if="store.feedLoading" value="同步中…" severity="secondary" rounded />
       <!-- 日期+星标在标题行（双端统一）；弹层锚定到点击的按钮 -->
       <span class="vt-actions">
@@ -372,15 +363,14 @@ onUnmounted(() => {
           {{ dateLabel }}
         </button>
         <button class="chip star-btn" :class="{ 'star-on': store.feedOnlyFav }" @click="toggleFav" :title="'仅显示星标好友'" aria-label="仅显示星标好友">
-          <i :class="store.feedOnlyFav ? 'pi pi-star-fill' : 'pi pi-star'"></i><span v-if="store.favFriendIds && store.favFriendIds.size"> ({{ store.favFriendIds.size }})</span>
+          <i :class="store.feedOnlyFav ? 'pi pi-star-fill' : 'pi pi-star'"></i>
         </button>
         <button class="chip star-btn" :class="{ 'star-on': store.feedOnlyWatch }" @click="toggleWatchFilter" :title="'仅显示关注名单'" aria-label="仅显示关注名单">
           <i :class="store.feedOnlyWatch ? 'pi pi-eye' : 'pi pi-eye-slash'"></i>
         </button>
         <button class="chip star-btn" :class="{ 'star-on': store.feedOnlyMe }" @click="toggleMeFilter" :title="'仅显示我的事件'" aria-label="仅显示我的事件">
-          <i :class="store.feedOnlyMe ? 'pi pi-user-check' : 'pi pi-user'"></i>
+          <i :class="store.feedOnlyMe ? 'pi pi-verified' : 'pi pi-user'"></i>
         </button>
-        <button class="chip star-btn" title="导出当前筛选结果（JSON）" aria-label="导出当前筛选结果" @click="exportRows"><i class="pi pi-download"></i></button>
         <button v-if="hasAnyFilter" class="chip star-btn" title="清除全部筛选" aria-label="清除全部筛选" @click="clearAllFilters"><i class="pi pi-filter-slash"></i> 清除全部</button>
         <button v-if="store.feedOnlyWorld" class="chip star-btn star-on" @click="clearWorldFilter" :title="'清除「只看此世界」筛选'" aria-label="清除只看此世界筛选">
           <i class="pi pi-globe"></i> 只看此世界{{ worldNameOf() ? '：' + worldNameOf().slice(0, 16) : '' }}
@@ -389,7 +379,7 @@ onUnmounted(() => {
           <i class="pi pi-filter"></i> 此人 {{ store.feedOnlyUser.slice(0, 8) }}…
         </button>
         <button class="chip star-btn" :class="{ 'star-on': store.feedOnlyTracked }" @click="toggleTrackedFilter" :title="'仅显示追踪非好友的事件'" aria-label="仅显示追踪非好友的事件">
-          <i class="pi pi-binoculars"></i><span v-if="store.trackedIds.size"> ({{ store.trackedIds.size }})</span>
+          <i class="pi pi-users"></i>
         </button>
       </span>
       <span class="feed-count" :title="'当前筛选 ' + rows.length + ' / 已加载 ' + store.feedEvents.length + ' / 数据库共 ' + store.feedTotal + ' 条'">{{ rows.length }} / {{ store.feedEvents.length }} / {{ store.feedTotal }}</span>
@@ -452,17 +442,17 @@ onUnmounted(() => {
               <span class="dim">传送中</span>
             </template>
             <template v-else>
-            <template v-if="x.previousWorldName && x.previousWorldName !== x.worldName">
+            <template v-if="prevLabelOf(x) && (curIsWorld(x) ? prevLabelOf(x) !== x.worldName : true)">
               <img v-if="x.previousWorldImageUrl" class="wthumb" :src="x.previousWorldImageUrl" alt="" loading="lazy" />
               <span v-if="x.previousWorldId" class="world-link" @click="openWorld(x.previousWorldId)" role="button" tabindex="0" @keydown.enter="openWorld(x.previousWorldId)">{{ x.previousWorldName }}</span>
-              <span v-else class="dim">{{ x.previousWorldName }}</span>
+              <span v-else class="dim">{{ prevLabelOf(x) }}</span>
+              <span v-if="locLabelFull(x.previousLocation)" class="inst mono">{{ locLabelFull(x.previousLocation) }}</span>
               <span class="arr">→</span>
             </template>
             <img v-if="x.worldImageUrl" class="wthumb" :src="x.worldImageUrl" alt="" loading="lazy" />
             <span v-if="x.worldName" class="world-link" @click="openWorld(x.worldId)" role="button" tabindex="0" @keydown.enter="openWorld(x.worldId)">{{ x.worldName }}</span>
-            <span v-else-if="x.location" class="dim">{{ locLabel(x.location) || x.location }}</span>
+            <span v-else-if="x.location" class="dim">{{ specialLocationLabel(x.location) || locLabel(x.location) || x.location }}</span>
             <span v-if="x.instanceType || x.region || x.instanceId" class="inst mono">{{ instanceLabel(x.instanceType) }}{{ x.region ? ' · ' + x.region.toUpperCase() : '' }}{{ x.instanceId ? ' · ' + x.instanceId : '' }}</span>
-            <span v-if="x.travelingToLocation" class="dim">传送中</span>
             </template>
           </template>
 
@@ -550,7 +540,7 @@ onUnmounted(() => {
             <span class="dim">更新了头像图标</span>
             <img v-if="x.previousUserIcon" class="uicon" :src="x.previousUserIcon" alt="" loading="lazy" />
             <span v-if="x.previousUserIcon && x.userIcon" class="av-arrow" aria-hidden="true">→</span>
-            <img v-if="x.userIcon" class="uicon" :src="x.userIcon" alt="" loading="lazy" @click="openPreview(x.userIcon)" />
+            <img v-if="x.userIcon" class="uicon" :src="x.userIcon" alt="" loading="lazy" />
             <span v-if="!x.previousUserIcon && !x.userIcon" class="dim">（图片未取到）</span>
           </template>
 
@@ -658,7 +648,7 @@ onUnmounted(() => {
             <b class="ed-ellip">{{ x.previousPronouns || '(空)' }} → {{ x.pronouns || '(空)' }}</b></div>
           <div v-if="x.updateType === 'user_icon'" class="ed-cell"><span>头像图标</span>
             <b class="ed-ellip">{{ x.previousUserIcon ? '已更换' : '已设置' }}</b>
-            <img v-if="x.userIcon" class="uicon" :src="x.userIcon" alt="" loading="lazy" @click="openPreview(x.userIcon)" /></div>
+            <img v-if="x.userIcon" class="uicon" :src="x.userIcon" alt="" loading="lazy" /></div>
           <div v-if="x.previousStatus && x.previousStatus !== x.status" class="ed-cell"><span>状态</span>
             <span class="slamp" :style="{ background: statusColor(x.previousStatus) }" :title="statusText(x.previousStatus)"></span>
             <span class="arr">→</span>
@@ -702,6 +692,9 @@ onUnmounted(() => {
 
 <style scoped>
 .feed-view { padding: 4px; }
+/* 标题行：让 .feed-count 的 margin-left:auto 生效（上游此前没有这条规则 ⇒ 计数贴不到右） */
+.feed-head { display: flex; align-items: center; gap: 6px; }
+
 .feed-toolbar {
   margin-bottom: 12px;
   /* 长列表滚动时筛选工具栏吸顶（相对 .main-viewport 滚动容器），随时切换筛选不用滚回顶部 */
@@ -735,7 +728,6 @@ onUnmounted(() => {
 .ft-search > .pi-search { font-size: 11px; color: var(--text-dim); flex: none; }
 .search-clear { font-size: 10px; color: var(--text-dim); cursor: pointer; padding: 2px; flex: none; }
 .search-clear:hover { color: var(--text); }
-.feed-sub { font-size: 11px; color: var(--text-dim); flex: 1; min-width: 80px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .feed-count { margin-left: auto; color: var(--text-dim); font-size: 11px; font-variant-numeric: tabular-nums; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* C4 窄窗口：计数保持行内、贴最右（不换行独占） */
 @media (min-width: 900px) and (max-width: 1280px) {
@@ -836,7 +828,6 @@ onUnmounted(() => {
 .dim { color: var(--text-dim); white-space: nowrap; }
 .arr { color: var(--text-dim); opacity: 0.6; font-size: 11px; }
 .world-link {
-.uicon { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; flex: none; cursor: pointer; }
   color: var(--accent-2);
   cursor: pointer;
   padding: 1px 5px;
@@ -844,6 +835,7 @@ onUnmounted(() => {
   background: color-mix(in srgb, var(--accent-2) 10%, transparent);
   white-space: nowrap;
 }
+.uicon { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; flex: none; }
 .world-link:hover { background: color-mix(in srgb, var(--accent-2) 22%, transparent); }
 .inst { color: var(--text-dim); font-size: 10.5px; background: var(--surface-3); padding: 1px 6px; border-radius: 5px; flex: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 

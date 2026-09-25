@@ -4,13 +4,16 @@
 
 import { ctx, log, parseLocation } from '../server-context.js';
 import { resolveWorldNames } from '../world-names.js';
+import { isOnlineForCount, readOnlineCountIncludeWeb } from '../online-count-policy.js';
 
 export async function handleGetOnlineFriends() {
   const { storage, api } = ctx;
   const r = await api._request('GET', '/auth/user/friends?offline=false');
   if (r.status !== 200) throw new Error(`API error: ${r.status}`);
   const friends = Array.isArray(r.data) ? r.data : [];
-  const online = friends.filter(f => f.location && f.location !== 'offline');
+  // 在线口径与 friendState 统一走 core/online-count-policy.js（含「网页在线」开关，调用时读取）
+  const includeWeb = readOnlineCountIncludeWeb();
+  const online = friends.filter((f) => isOnlineForCount(f, includeWeb));
 
   const nicknames = storage.getNicknames({});
   const nicknameMap = new Map();

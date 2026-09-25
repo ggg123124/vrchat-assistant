@@ -112,7 +112,7 @@ async function onToggleWatch() {
     watchBusy = false;
   }
 }
-const avatarUrl = computed(() => user.value.avatarUrl || user.value.userIcon || pUser.value.currentAvatarThumbnailImageUrl || pUser.value.currentAvatarImageUrl || '');
+const avatarUrl = computed(() => user.value.userIcon || user.value.avatarUrl || pUser.value.currentAvatarThumbnailImageUrl || pUser.value.currentAvatarImageUrl || '');
 const trustLevel = computed(() => {
   // 原始等级（本地记录优先，其次从 API tags 推断——对齐 VRCX computeTrustLevel 的 tag→名映射）
   const lt = pLocal.value.trustLevel;
