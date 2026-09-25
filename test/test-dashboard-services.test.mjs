@@ -583,3 +583,28 @@ test('dashboard.events：无模型图的 avatar 事件【不得】用跨事件�
   assert.notEqual(newest.avatarName, '旧事件模型名', '【阻断项】不得用跨事件的旧模型名回填');
   assert.equal(newest.avatarName, '同事件模型名', '应使用【同事件】thumbnail 回落到本次新模型名');
 });
+
+// ── #264（审查 nixi-agent 建议②）：用【真实载荷形态】把限度钉死 ──
+test('dashboard.events：载荷无新模型图时保持「未知模型」（不得跨事件猜测当前模型名）', async () => {
+  // 上游这批推送 avatarImageUrl / avatarThumbnailUrl 同为空串、且无 user.currentAvatar*（生产实测形态）。
+  // 本用例钉住：这种情况下【保持未知】，绝不用「好友当前模型名」猜测（那会把更早的行写成当前模型名，张冠李戴）。
+  const uid = 'usr_test-0000-0000-0000-0000000000f3';
+  const fidCur = 'file_ffff5555-0000-0000-0000-000000000005';
+  const curImg = 'https://api.vrchat.cloud/api/1/file/' + fidCur + '/1/file';
+  ctx.storage.upsertFriend({ userId: uid, displayName: '限度测试', avatarImageUrl: curImg, bio: '', status: 'active' });
+  ctx.storage.setPlanetCache('avatar_name:' + fidCur, { name: '当前模型名', at: Date.now() });
+  loader._avatarNameCache = new Map();
+  loader._avatarNameCacheLoaded = false;
+  ctx.storage.insertEvent({
+    type: 'friend-update', userId: uid, displayName: '限度测试',
+    contentJson: { userId: uid, displayName: '限度测试', type: 'avatar', avatarImageUrl: '', avatarThumbnailUrl: '',
+      previousAvatarImageUrl: 'https://api.vrchat.cloud/api/1/image/file_ffff6666-0000-0000-0000-000000000006/1/256' },
+    worldId: '', worldName: '', createdAt: new Date(Date.now() + 10800000).toISOString(), source: 'ws',
+  });
+  await services.get('dashboard.events')({ limit: 50, offset: 0 });
+  const r = await services.get('dashboard.events')({ limit: 50, offset: 0 });
+  const ev = r.events.find((e) => e.userId === uid);
+  assert.ok(ev, '应能查到该事件');
+  assert.notEqual(ev.avatarName, '当前模型名', '不得跨事件用「好友当前模型」回填（会张冠李戴）');
+  assert.equal(ev.avatarName, '', '载荷没有新模型图时保持未知（本 PR 的已知限度）');
+});
