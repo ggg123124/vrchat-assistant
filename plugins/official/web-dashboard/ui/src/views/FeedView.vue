@@ -28,11 +28,6 @@ function sourceLabel(s) {
 function prevLabelOf(e) { return specialLocationLabel(e.previousLocation) || e.previousWorldName || ''; }
 function curIsWorld(e) { return String(e.worldId || '').startsWith('wrld_'); }
 
-function prevInstLabel(e) {
-  const p = parseLoc(e.previousLocation || '');
-  if (!p || !p.type) return '';
-  return [instanceLabel(p.type), p.region ? p.region.toUpperCase() : '', p.instanceId || ''].filter(Boolean).join(' · ');
-}
 
 /* ── 类型定义（对齐 VRCX Feed filters：GPS/Online/Offline/Status/Avatar/Bio）── */
 const filterOptions = [
@@ -465,7 +460,7 @@ onUnmounted(() => {
               <img v-if="x.previousWorldImageUrl" class="wthumb" :src="x.previousWorldImageUrl" alt="" loading="lazy" />
               <span v-if="x.previousWorldId" class="world-link" @click="openWorld(x.previousWorldId)" role="button" tabindex="0" @keydown.enter="openWorld(x.previousWorldId)">{{ x.previousWorldName }}</span>
               <span v-else class="dim">{{ prevLabelOf(x) }}</span>
-              <span v-if="prevInstLabel(x)" class="inst mono">{{ prevInstLabel(x) }}</span>
+              <span v-if="locLabelFull(x.previousLocation)" class="inst mono">{{ locLabelFull(x.previousLocation) }}</span>
               <span class="arr">→</span>
             </template>
             <img v-if="x.worldImageUrl" class="wthumb" :src="x.worldImageUrl" alt="" loading="lazy" />
