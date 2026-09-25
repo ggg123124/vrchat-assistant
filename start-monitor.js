@@ -13,6 +13,7 @@ import net from 'node:net';
 
 import { ctx, log, refreshWatchlistCache } from './core/server-context.js';
 import { isWebPresence } from './core/event-pipeline.js';
+import { readOnlineCountIncludeWeb, isOnlineForCount } from './core/online-count-policy.js';
 import { refreshFriendList } from './core/friend-refresh.js';
 import { avatarFileId, parseAvatarName } from './core/img-util.js';   // 2026-09-22 #225：fileId 提取统一走它（支持 /image/ 形态 + 代理 URL 还原）；#233 由 parseAvatarName 解析模型名
 import { initLogger, getLevelName, getLogger } from './core/logger.js';
@@ -121,7 +122,7 @@ async function _updateFriendState(event) {
 
 // ── WebSocket 重连后刷新全量在线状态 ──
 // 网页/移动端在线是否计入「在线好友数」（默认计入；VRC_MONITOR_ONLINE_INCLUDE_WEB=0 只算游戏内）
-const ONLINE_INCLUDE_WEB = Number(process.env.VRC_MONITOR_ONLINE_INCLUDE_WEB) !== 0;
+const ONLINE_INCLUDE_WEB = readOnlineCountIncludeWeb();
 
 // 对账定时器：模块级（不用 globalThis —— 那是临时/取巧的写法，且会污染全局）
 let onlineReconcileTimer = null;
@@ -149,7 +150,7 @@ async function _refreshOnlineState() {
       worldId: f.worldId || (f.location || '').split(':')[0],
       // 在线口径与 MCP get_online_friends 一致：仅「有有效 location」计在线（offline=false 返回含
       // active/菜单中用户，location 为空者不算在线——issue #114 ⚠️2 复测遗留修复）
-      isOnline: !!(f.location && f.location !== 'offline') || (ONLINE_INCLUDE_WEB && isWebPresence(f.platform)),
+      isOnline: isOnlineForCount(f, ONLINE_INCLUDE_WEB),
     })));
     // 网页端在线自愈（2026-09-10 用户报 bug：转网页在线后 friends 表残留最后进房世界）。
     // REST 在线列表里 location='offline' 的条目=仅网页在线（VRChat 语义），把 platform/location
