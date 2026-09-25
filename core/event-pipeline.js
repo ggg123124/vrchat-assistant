@@ -17,7 +17,7 @@ const log = getLogger('event');
  * avatarBanner 267 / null 106 / color 87，约 42% 的推送里 iconUrl 并不是模型图）。
  * ⇒ 非 avatarBanner 时视为没有模型信息（弱源不产出），再由旧字段兜底。
  */
-function avatarImageUrlFromUser(user) {
+export function avatarImageUrlFromUser(user) {
   const isAvatarBanner = String(user.bannerType || '') === 'avatarBanner';
   return (isAvatarBanner ? (user.iconUrl || '') : '') || user.currentAvatarImageUrl || '';
 }
