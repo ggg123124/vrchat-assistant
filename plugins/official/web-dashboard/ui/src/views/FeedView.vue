@@ -126,18 +126,6 @@ function toggleFav() {
 function toggleWatchFilter() {
   store.feedOnlyWatch = !store.feedOnlyWatch;
 }
-function exportRows() {
-  const list = rows.value || [];
-  if (!list.length) { toast('当前无事件可导出', 'warn'); return; }
-  const blob = new Blob([JSON.stringify(list, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'vrchat-events-' + new Date().toISOString().slice(0, 10) + '.json';
-  a.click();
-  URL.revokeObjectURL(url);
-  toast('已导出 ' + list.length + ' 条事件', 'success');
-}
 
 function toggleTrackedFilter() {
   store.feedOnlyTracked = !store.feedOnlyTracked;
@@ -367,7 +355,6 @@ onUnmounted(() => {
 
     <div class="feed-head">
       <h2><i class="pi pi-bolt"></i> 动态</h2>
-      <span class="feed-sub">{{ store.feedTotal ? '数据库共 ' + store.feedTotal + ' 条' : '好友活动实时记录' }}</span>
       <Tag v-if="store.feedLoading" value="同步中…" severity="secondary" rounded />
       <!-- 日期+星标在标题行（双端统一）；弹层锚定到点击的按钮 -->
       <span class="vt-actions">
@@ -376,7 +363,7 @@ onUnmounted(() => {
           {{ dateLabel }}
         </button>
         <button class="chip star-btn" :class="{ 'star-on': store.feedOnlyFav }" @click="toggleFav" :title="'仅显示星标好友'" aria-label="仅显示星标好友">
-          <i :class="store.feedOnlyFav ? 'pi pi-star-fill' : 'pi pi-star'"></i><span v-if="store.favFriendIds && store.favFriendIds.size"> ({{ store.favFriendIds.size }})</span>
+          <i :class="store.feedOnlyFav ? 'pi pi-star-fill' : 'pi pi-star'"></i>
         </button>
         <button class="chip star-btn" :class="{ 'star-on': store.feedOnlyWatch }" @click="toggleWatchFilter" :title="'仅显示关注名单'" aria-label="仅显示关注名单">
           <i :class="store.feedOnlyWatch ? 'pi pi-eye' : 'pi pi-eye-slash'"></i>
@@ -384,7 +371,6 @@ onUnmounted(() => {
         <button class="chip star-btn" :class="{ 'star-on': store.feedOnlyMe }" @click="toggleMeFilter" :title="'仅显示我的事件'" aria-label="仅显示我的事件">
           <i :class="store.feedOnlyMe ? 'pi pi-verified' : 'pi pi-user'"></i>
         </button>
-        <button class="chip star-btn" title="导出当前筛选结果（JSON）" aria-label="导出当前筛选结果" @click="exportRows"><i class="pi pi-download"></i></button>
         <button v-if="hasAnyFilter" class="chip star-btn" title="清除全部筛选" aria-label="清除全部筛选" @click="clearAllFilters"><i class="pi pi-filter-slash"></i> 清除全部</button>
         <button v-if="store.feedOnlyWorld" class="chip star-btn star-on" @click="clearWorldFilter" :title="'清除「只看此世界」筛选'" aria-label="清除只看此世界筛选">
           <i class="pi pi-globe"></i> 只看此世界{{ worldNameOf() ? '：' + worldNameOf().slice(0, 16) : '' }}
@@ -393,7 +379,7 @@ onUnmounted(() => {
           <i class="pi pi-filter"></i> 此人 {{ store.feedOnlyUser.slice(0, 8) }}…
         </button>
         <button class="chip star-btn" :class="{ 'star-on': store.feedOnlyTracked }" @click="toggleTrackedFilter" :title="'仅显示追踪非好友的事件'" aria-label="仅显示追踪非好友的事件">
-          <i class="pi pi-users"></i><span v-if="store.trackedIds.size"> ({{ store.trackedIds.size }})</span>
+          <i class="pi pi-users"></i>
         </button>
       </span>
       <span class="feed-count" :title="'当前筛选 ' + rows.length + ' / 已加载 ' + store.feedEvents.length + ' / 数据库共 ' + store.feedTotal + ' 条'">{{ rows.length }} / {{ store.feedEvents.length }} / {{ store.feedTotal }}</span>
@@ -706,6 +692,9 @@ onUnmounted(() => {
 
 <style scoped>
 .feed-view { padding: 4px; }
+/* 标题行：让 .feed-count 的 margin-left:auto 生效（上游此前没有这条规则 ⇒ 计数贴不到右） */
+.feed-head { display: flex; align-items: center; gap: 6px; }
+
 .feed-toolbar {
   margin-bottom: 12px;
   /* 长列表滚动时筛选工具栏吸顶（相对 .main-viewport 滚动容器），随时切换筛选不用滚回顶部 */
@@ -739,7 +728,6 @@ onUnmounted(() => {
 .ft-search > .pi-search { font-size: 11px; color: var(--text-dim); flex: none; }
 .search-clear { font-size: 10px; color: var(--text-dim); cursor: pointer; padding: 2px; flex: none; }
 .search-clear:hover { color: var(--text); }
-.feed-sub { font-size: 11px; color: var(--text-dim); flex: 1; min-width: 80px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .feed-count { margin-left: auto; color: var(--text-dim); font-size: 11px; font-variant-numeric: tabular-nums; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* C4 窄窗口：计数保持行内、贴最右（不换行独占） */
 @media (min-width: 900px) and (max-width: 1280px) {
