@@ -123,6 +123,9 @@ async function _updateFriendState(event) {
 // 网页/移动端在线是否计入「在线好友数」（默认计入；VRC_MONITOR_ONLINE_INCLUDE_WEB=0 只算游戏内）
 const ONLINE_INCLUDE_WEB = Number(process.env.VRC_MONITOR_ONLINE_INCLUDE_WEB) !== 0;
 
+// 对账定时器：模块级（不用 globalThis —— 那是临时/取巧的写法，且会污染全局）
+let onlineReconcileTimer = null;
+
 async function _refreshOnlineState() {
   const { api, friendState, storage } = ctx;
   try {
@@ -926,7 +929,7 @@ setOpsLogSink((kind, level, message) => {
         // 连接后延迟对账：先让重连突发的实时推送（上线/下线）落地，再对账补漏，避免双记
         // 首轮延迟（等重连突发的实时推送落地）+ 之后每 5 分钟一次（WS 连接间隙错过的事件靠它补）
         setTimeout(() => { _refreshOnlineState().catch(() => {}); }, 25_000);
-        if (!globalThis.__onlineReconcileTimer) { globalThis.__onlineReconcileTimer = setInterval(() => { _refreshOnlineState().catch(() => {}); }, 5 * 60_000); }
+        if (!onlineReconcileTimer) onlineReconcileTimer = setInterval(() => { _refreshOnlineState().catch(() => {}); }, 5 * 60_000);
         // WS 重连成功但启动登录可能失败(如 OTP 错位)，此处复查认证并同步 authUser
         ctx.api.checkAuth().then((res) => {
           if (res.valid) {
