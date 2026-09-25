@@ -375,7 +375,9 @@ export function registerDashboardServices(loader, ctx) {
       //  也躲过前端 x.location === 'traveling' 的判断 ⇒ 位置行会渲染成荒谬的「公开 · traveling」。
       //  在 DTO 层统一规范化：一处改动，历史事件同样生效，前端无需调整。
       const rawLocation = content.location || '';
-      const location = rawLocation === 'traveling:traveling' ? 'traveling' : rawLocation;
+      // 判据与 event-pipeline / previousLocationOf 保持统一：用【前缀】而不是精确比 ——
+      // 上游若再出现 traveling:<其他> 变体，两边不会出现「pipeline 已放行、DTO 仍漏」的不一致。
+      const location = rawLocation.startsWith('traveling:') ? 'traveling' : rawLocation;
       const locInfo = parseLocInfo(location);
       const prev = (row.type === 'friend-location' || row.type === 'user-location') ? previousLocationOf(row.user_id, row.id) : null;
       // 群组名解析（缓存优先）：group-joined/group-member-updated 平铺 groupId；

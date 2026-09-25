@@ -86,3 +86,21 @@ test('窗口可配：设为 10s 时 30s 后的同实例重复视为新事件', a
   assert.equal(countLoc(), 2, '超出自定义窗口应落事件');
   delete process.env.VRC_MONITOR_DEDUP_SAME_INSTANCE_WINDOW_SECONDS;
 });
+
+test('traveling 变体：traveling:traveling 与纯 traveling 同语义（都不参与同实例去重）', async () => {
+  // 2026-09-25 #261 回归用例（审查 nixi-agent 建议）：
+  //   上游「传送中」实际推的是 traveling:traveling；本 PR 把它对齐到既有「traveling 不参与同实例去重」语义。
+  //   本用例只断言【两种形态等价】（不写死条数），在 base 上会红（base 变体被当成同实例去重）。
+  reset();
+  await pipeline.process(loc('traveling', '', '2026-09-20T07:00:00.000Z'));
+  await pipeline.process(loc('traveling', '', '2026-09-20T07:00:30.000Z'));
+  await pipeline.process(loc('traveling', '', '2026-09-20T07:01:00.000Z'));
+  const pure = countLoc();
+  reset();
+  await pipeline.process(loc('traveling:traveling', '', '2026-09-20T08:00:00.000Z'));
+  await pipeline.process(loc('traveling:traveling', '', '2026-09-20T08:00:30.000Z'));
+  await pipeline.process(loc('traveling:traveling', '', '2026-09-20T08:01:00.000Z'));
+  const variant = countLoc();
+  assert.ok(pure >= 1, '前置：纯 traveling 至少落一条');
+  assert.equal(variant, pure, 'traveling:traveling 应与纯 traveling 同语义（同为不参与同实例去重的特殊值）');
+});

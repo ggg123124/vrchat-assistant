@@ -546,3 +546,20 @@ test('recentWorlds 补名：无占位触发 / TTL 内抑制 / 超 TTL 重试 / �
 after(() => {
   for (const f of [tmpDb, tmpDb + '-wal', tmpDb + '-shm']) { try { rmSync(f, { force: true }); } catch {} }
 });
+
+test('dashboard.events：location=traveling:traveling 在 DTO 层归一为 traveling（实例字段清空）', async () => {
+  // 2026-09-25 #261 回归用例：VRChat 的「传送中」实际推的是 `traveling:traveling`（不是纯 `traveling`）。
+  // 未归一会被 parseLocInfo 判成 public + instanceId='traveling' ⇒ 前端渲染出「公开 · traveling」。
+  const uid = 'usr_test-0000-0000-0000-0000000000t1';
+  ctx.storage.insertEvent({
+    type: 'friend-location', userId: uid, displayName: '转场测试',
+    contentJson: { userId: uid, location: 'traveling:traveling', user: {} },
+    worldId: '', worldName: '', createdAt: new Date().toISOString(), source: 'websocket',
+  });
+  const r = await services.get('dashboard.events')({ limit: 50, offset: 0 });
+  const ev = r.events.find((e) => e.userId === uid);
+  assert.ok(ev, '应能查到该位置事件');
+  assert.equal(ev.location, 'traveling', '应归一为 traveling（前端据此走「传送中」分支）');
+  assert.equal(ev.instanceType, '', '归一后不得再是 public');
+  assert.equal(ev.instanceId, '', '归一后不得再是 traveling');
+});
