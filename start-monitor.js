@@ -122,7 +122,7 @@ async function _updateFriendState(event) {
 
 // ── WebSocket 重连后刷新全量在线状态 ──
 // 网页/移动端在线是否计入「在线好友数」（默认计入；VRC_MONITOR_ONLINE_INCLUDE_WEB=0 只算游戏内）
-const ONLINE_INCLUDE_WEB = readOnlineCountIncludeWeb();
+// ⚠️ 不用模块级常量：与仓库其它开关一致，调用时读取（运行期改 env 能生效）
 
 // 对账定时器：模块级（不用 globalThis —— 那是临时/取巧的写法，且会污染全局）
 let onlineReconcileTimer = null;
@@ -150,7 +150,7 @@ async function _refreshOnlineState() {
       worldId: f.worldId || (f.location || '').split(':')[0],
       // 在线口径与 MCP get_online_friends 一致：仅「有有效 location」计在线（offline=false 返回含
       // active/菜单中用户，location 为空者不算在线——issue #114 ⚠️2 复测遗留修复）
-      isOnline: isOnlineForCount(f, ONLINE_INCLUDE_WEB),
+      isOnline: isOnlineForCount(f, readOnlineCountIncludeWeb()),
     })));
     // 网页端在线自愈（2026-09-10 用户报 bug：转网页在线后 friends 表残留最后进房世界）。
     // REST 在线列表里 location='offline' 的条目=仅网页在线（VRChat 语义），把 platform/location
