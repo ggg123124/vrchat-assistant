@@ -291,10 +291,14 @@ export class EventPipeline {
             previousStatusDescription: prev.status_description || '',
           }});
         }
+        // 载荷里 iconUrl / userIcon 都没有 ⇒ 这条推送【没带图标信息】⇒ 不产出事件（也不动基线）。
+        // 若把这种情况当成「图标被移除」，会产出空图事件并把已存的图标基线清空（#259 复审的防御性缺口）。
+        const newUserIcon = userObj.iconUrl || userObj.userIcon;
         const iconChanged = prev.user_icon
-          && (prev.user_icon || '') !== (userObj.userIcon || '');
+          && newUserIcon !== undefined
+          && (prev.user_icon || '') !== newUserIcon;
         if (iconChanged) {
-          changes.push({ type: 'user_icon', payload: { userIcon: userObj.userIcon || '', previousUserIcon: prev.user_icon || '' } });
+          changes.push({ type: 'user_icon', payload: { userIcon: newUserIcon, previousUserIcon: prev.user_icon || '' } });
         }
         const pronounsChanged = prev.pronouns
           && (prev.pronouns || '') !== (userObj.pronouns || '');
@@ -373,7 +377,7 @@ export class EventPipeline {
         statusDescription: userObj.statusDescription || '',
         avatarImageUrl: userObj.currentAvatarImageUrl || '',
         bio: userObj.bio || '',
-        userIcon: userObj.userIcon || '',
+        userIcon: userObj.iconUrl || userObj.userIcon || '',
         pronouns: userObj.pronouns || '',
         ...(trust ? { trustLevel: trust } : {}),
         lastSeen: event.receivedAt,
@@ -411,7 +415,7 @@ export class EventPipeline {
     put('statusDescription', userObj.statusDescription);
     put('bio', userObj.bio);
     put('avatarImageUrl', userObj.currentAvatarImageUrl || userObj.currentAvatarThumbnailImageUrl);
-    put('userIcon', userObj.userIcon);
+    put('userIcon', userObj.iconUrl || userObj.userIcon);
     put('pronouns', userObj.pronouns);
     if (Object.keys(patch).length > 1) {
       try {
