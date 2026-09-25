@@ -124,6 +124,9 @@ QQ 群：**851865556** — 欢迎加入，交流使用问题、功能建议与�
 
 如果你觉得这个项目有用，欢迎请我喝杯咖啡：
 
+- ☕ **Ko-fi**（海外 / 信用卡 / PayPal）：<https://ko-fi.com/kcmnixi>
+- 国内：微信 / 支付宝扫码（见下）
+
 ![收款码](assets/sponsor-qrcodes.png)
 
 **请给我报销 token** 🙏

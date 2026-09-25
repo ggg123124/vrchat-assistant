@@ -110,6 +110,9 @@ QQ グループ：**851865556** — 利用方法の質問、機能提案、フ�
 
 このプロジェクトが役に立ったら、コーヒーをごちそうしてください：
 
+- ☕ **Ko-fi**（海外 / クレジットカード / PayPal）：<https://ko-fi.com/kcmnixi>
+- 中国国内：WeChat Pay / Alipay（下記 QR コード）
+
 ![QRコード](assets/sponsor-qrcodes.png)
 
 **トークンの費用をサポートしてください** 🙏
