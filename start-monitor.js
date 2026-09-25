@@ -13,6 +13,7 @@ import net from 'node:net';
 
 import { ctx, log, refreshWatchlistCache } from './core/server-context.js';
 import { isWebPresence } from './core/event-pipeline.js';
+import { readOnlineCountIncludeWeb, isOnlineForCount } from './core/online-count-policy.js';
 import { refreshFriendList } from './core/friend-refresh.js';
 import { avatarFileId, parseAvatarName } from './core/img-util.js';   // 2026-09-22 #225：fileId 提取统一走它（支持 /image/ 形态 + 代理 URL 还原）；#233 由 parseAvatarName 解析模型名
 import { initLogger, getLevelName, getLogger } from './core/logger.js';
@@ -126,6 +127,11 @@ async function _updateFriendState(event) {
 //    所以只有跨轮保留的值才能作为 pickOfflineWindowStart 的 lastOnlineSeen 候选真正生效
 //    （此前它是每次调用新建的局部 Map，那个候选恒为 undefined —— review 指出）。
 const lastOnlineAt = new Map();
+// 网页/移动端在线是否计入「在线好友数」（默认计入；VRC_MONITOR_ONLINE_INCLUDE_WEB=0 只算游戏内）
+// ⚠️ 不用模块级常量：与仓库其它开关一致，调用时读取（运行期改 env 能生效）
+
+// 对账定时器：模块级（不用 globalThis —— 那是临时/取巧的写法，且会污染全局）
+let onlineReconcileTimer = null;
 
 async function _refreshOnlineState() {
   const { api, friendState, storage } = ctx;
@@ -150,7 +156,7 @@ async function _refreshOnlineState() {
       worldId: f.worldId || (f.location || '').split(':')[0],
       // 在线口径与 MCP get_online_friends 一致：仅「有有效 location」计在线（offline=false 返回含
       // active/菜单中用户，location 为空者不算在线——issue #114 ⚠️2 复测遗留修复）
-      isOnline: !!(f.location && f.location !== 'offline'),
+      isOnline: isOnlineForCount(f, readOnlineCountIncludeWeb()),
     })));
     // 网页端在线自愈（2026-09-10 用户报 bug：转网页在线后 friends 表残留最后进房世界）。
     // REST 在线列表里 location='offline' 的条目=仅网页在线（VRChat 语义），把 platform/location
@@ -936,7 +942,9 @@ setOpsLogSink((kind, level, message) => {
       log(`[连接] WebSocket: ${status}`);
       if (status === 'connected') {
         // 连接后延迟对账：先让重连突发的实时推送（上线/下线）落地，再对账补漏，避免双记
+        // 首轮延迟（等重连突发的实时推送落地）+ 之后每 5 分钟一次（WS 连接间隙错过的事件靠它补）
         setTimeout(() => { _refreshOnlineState().catch(() => {}); }, 25_000);
+        if (!onlineReconcileTimer) onlineReconcileTimer = setInterval(() => { _refreshOnlineState().catch(() => {}); }, 5 * 60_000);
         // WS 重连成功但启动登录可能失败(如 OTP 错位)，此处复查认证并同步 authUser
         ctx.api.checkAuth().then((res) => {
           if (res.valid) {
