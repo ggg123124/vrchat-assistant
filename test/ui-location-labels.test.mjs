@@ -18,6 +18,12 @@ const utils = readFileSync(path.join(UI, 'utils.js'), 'utf8');
 
 test('① 位置行必须调用 specialLocationLabel —— 取不到世界名时给人话（用户 2026-09-22 定案）', () => {
   assert.match(feed, /specialLocationLabel\s*\(/, 'FeedView 必须调用 specialLocationLabel');
+  // 到达行必须用「人话」兜底，而不是直接给原始值（审查方 2026-09-25 指出：这条接线此前没有护栏）
+  assert.match(
+    feed,
+    /specialLocationLabel\(x\.location\)\s*\|\|\s*locLabel\(x\.location\)/,
+    '到达行必须写 specialLocationLabel(x.location) || locLabel(x.location)（回退成只用 locLabel 会重新显示英文 private）',
+  );
 });
 
 test('② specialLocationLabel 必须按解析结果判断，不得只做整串相等', () => {
