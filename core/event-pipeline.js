@@ -13,8 +13,9 @@ const log = getLogger('event');
  * 从 WS 的 user 载荷取「当前模型图 URL」。
  *
  * 新版资料系统里 currentAvatarImageUrl / currentAvatarThumbnailImageUrl 已被移除，实际字段是 iconUrl ——
- * 但 **只有 bannerType === 'avatarBanner' 时它才指向模型图**（bannerType 会变：实测近 3 天
- * avatarBanner 267 / null 106 / color 87，约 42% 的推送里 iconUrl 并不是模型图）。
+ * 但 **只有 bannerType === 'avatarBanner' 时它才指向模型图**。
+ * bannerType 会变、各档占比也随账号与时间漂移 ⇒ **这里不写死比例**，判据只看 bannerType 本身
+ * （写死的数字容易互相矛盾、也容易过期 —— 上一轮审查即指出过这一点）。
  * ⇒ 没有可信的模型图信息时【返回 undefined，不要返回空串】：
  *   空串在调用方会被当成"新值是空的"，与旧值 diff 出【空图的「更换模型」事件】、
  *   并在 upsert 里把模型图基线清空。undefined 表示"这条载荷没带模型信息"⇒ 调用方保持原值。
@@ -24,9 +25,16 @@ export function avatarImageUrlFromUser(user) {
   if (String(u.bannerType || '') === 'avatarBanner') {
     return u.iconUrl || u.currentAvatarImageUrl || undefined;
   }
-  // 非 avatarBanner：iconUrl 不是模型图（实测 avatarBanner 84% / color 16% / customImage 0.4%）
+  // 非 avatarBanner：iconUrl 不是模型图 ⇒ 只用仍在的旧字段兜底（不写死比例，判据同上）
   // ⇒ 只用仍在的旧字段兜底；两者都没有 ⇒ undefined
   return u.currentAvatarImageUrl || undefined;
+}
+
+// 用户图标（资料里自己设的那张方图）取值：iconUrl 优先、旧字段 userIcon 兜底。
+// 与 avatarImageUrlFromUser 同一纪律：取不到返回 undefined（表示「没有信息」），不返回空串 ——
+// 空串会被下游当成「有值且为空」，与真实的「字段缺失」混在一起（#251 审查抓到的形态）。
+export function userIconUrlFromUser(user) {
+  return user?.iconUrl || user?.userIcon || undefined;
 }
 
 // 码点安全截断（review #166：UTF-16 slice 会把 emoji 切半成 U+FFFD 替换符）。
@@ -283,10 +291,15 @@ export class EventPipeline {
             previousStatusDescription: prev.status_description || '',
           }});
         }
+        // 同 newAvatarUrl：用纯函数取值，undefined = 没有图标信息（不产出事件）
+        // 不能 diff userObj.userIcon —— 该字段已被上游移除、恒 undefined，
+        // 基线一旦非空就会每次推送都判为「图标变了」（#251 第二轮审查的阻断项）
+        const newUserIcon = userIconUrlFromUser(userObj);
         const iconChanged = prev.user_icon
-          && (prev.user_icon || '') !== (userObj.userIcon || '');
+          && newUserIcon !== undefined
+          && (prev.user_icon || '') !== newUserIcon;
         if (iconChanged) {
-          changes.push({ type: 'user_icon', payload: { userIcon: userObj.userIcon || '', previousUserIcon: prev.user_icon || '' } });
+          changes.push({ type: 'user_icon', payload: { userIcon: newUserIcon, previousUserIcon: prev.user_icon || '' } });
         }
         const pronounsChanged = prev.pronouns
           && (prev.pronouns || '') !== (userObj.pronouns || '');

@@ -469,7 +469,10 @@ export function registerDashboardServices(loader, ctx) {
           } catch { /* ignore */ }
           return '';
         })(),
-        avatarImageUrl: imgProxy(content.avatarImageUrl || user.currentAvatarImageUrl || user.iconUrl || ''),
+        // 模型图：只用事件载荷（已过 bannerType 门禁）或仍在的旧字段 ——
+        // 不能再回落 user.iconUrl（那是 users 表的原始值，非 avatarBanner 时不是模型图；
+        // 写入侧 event-pipeline 已按门禁存进 avatar_image_url，读取侧应与它统一口径）。
+        avatarImageUrl: imgProxy(content.avatarImageUrl || user.currentAvatarImageUrl || ''),
         avatarThumbnailUrl: imgProxy(content.avatarThumbnailUrl || user.currentAvatarThumbnailImageUrl || (content.avatarImageUrl ? avatarThumb(content.avatarImageUrl) : '')),
         avatarTags: Array.isArray(content.avatarTags) ? content.avatarTags : (Array.isArray(user.currentAvatarTags) ? user.currentAvatarTags : []),
         previousAvatarImageUrl: imgProxy(content.previousAvatarImageUrl || ''),
