@@ -469,13 +469,13 @@ export function registerDashboardServices(loader, ctx) {
           } catch { /* ignore */ }
           return '';
         })(),
-        avatarImageUrl: imgProxy(content.avatarImageUrl || user.currentAvatarImageUrl || ''),
+        avatarImageUrl: imgProxy(content.avatarImageUrl || user.currentAvatarImageUrl || user.iconUrl || ''),
         avatarThumbnailUrl: imgProxy(content.avatarThumbnailUrl || user.currentAvatarThumbnailImageUrl || (content.avatarImageUrl ? avatarThumb(content.avatarImageUrl) : '')),
         avatarTags: Array.isArray(content.avatarTags) ? content.avatarTags : (Array.isArray(user.currentAvatarTags) ? user.currentAvatarTags : []),
         previousAvatarImageUrl: imgProxy(content.previousAvatarImageUrl || ''),
         bio: content.bio || user.bio || '',
         previousBio: content.previousBio || '',
-        userIcon: imgProxy(content.userIcon || user.userIcon || ''),
+        userIcon: imgProxy(content.userIcon || user.userIcon || user.iconUrl || ''),
         // 2026-09-22 用户报障「为什么会有没头像的（散华ln 非好友）」——实测：该用户 status 事件的载荷里
         // `avatarImageUrl` **就是空串** ✗（WS 没带图），所以本块即使拼了 avatarUrl 也不会有图 ✓。
         // 正解：回退到「该 userId **最近一次带图的事件**」（数据就在 events 表里 ✓ 不需要发 API ✓），带进程内缓存 + 负缓存 ✓。

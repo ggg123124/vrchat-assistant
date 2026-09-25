@@ -230,15 +230,20 @@ export class EventPipeline {
       // 库里停在 Known User，而事件里已升 Trusted User）。⇒ 只认 tags 推导；无 tags 视为
       // 未知：既不 diff 也不回写，避免把好数据写坏。
       const trust = trustFromTags(userObj.tags) || '';
+      // 新版资料系统：currentAvatar* 已被上游移除，实际字段是 iconUrl（bannerType=avatarBanner 时指向模型图）
+      // ⇒ 用旧字段会让 avatarChanged 恒假、永远没有模型变动事件。注意 bannerType 会变：非 avatarBanner 时视为无模型信息。
+      const isAvatarBanner = String(userObj.bannerType || '') === 'avatarBanner';
+      const newAvatarUrl = (isAvatarBanner ? (userObj.iconUrl || '') : '')
+        || userObj.currentAvatarImageUrl || '';
       const prev = this.storage.getFriend(userId);
       if (prev && prev.user_id) {
         const changes = [];
         const avatarChanged = prev.avatar_image_url
-          && (prev.avatar_image_url || '') !== (userObj.currentAvatarImageUrl || '');
+          && (prev.avatar_image_url || '') !== newAvatarUrl;
         if (avatarChanged) {
           changes.push({ type: 'avatar', payload: {
             avatarName: userObj.currentAvatarName || '',
-            avatarImageUrl: userObj.currentAvatarImageUrl || '',
+            avatarImageUrl: newAvatarUrl || userObj.currentAvatarImageUrl || '',
             avatarThumbnailUrl: userObj.currentAvatarThumbnailImageUrl || '',
             previousAvatarImageUrl: prev.avatar_image_url || '',
             // previousAvatarThumbnailUrl 省略：缩略图无独立存储列，无法取到正确旧缩略图，
@@ -379,8 +384,11 @@ export class EventPipeline {
     put('status', userObj.status);
     put('statusDescription', userObj.statusDescription);
     put('bio', userObj.bio);
-    put('avatarImageUrl', userObj.currentAvatarImageUrl || userObj.currentAvatarThumbnailImageUrl);
-    put('userIcon', userObj.userIcon);
+    // 同上：新版资料系统用 iconUrl（bannerType=avatarBanner 时指向模型图），旧字段已被上游移除
+    const syncAvatarUrl = (String(userObj.bannerType || '') === 'avatarBanner' ? (userObj.iconUrl || '') : '')
+      || userObj.currentAvatarImageUrl || userObj.currentAvatarThumbnailImageUrl;
+    put('avatarImageUrl', syncAvatarUrl);
+    put('userIcon', userObj.iconUrl || userObj.userIcon);
     put('pronouns', userObj.pronouns);
     if (Object.keys(patch).length > 1) {
       try {
