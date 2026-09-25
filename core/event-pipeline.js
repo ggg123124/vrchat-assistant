@@ -261,9 +261,9 @@ export class EventPipeline {
           }});
         }
         const iconChanged = prev.user_icon
-          && (prev.user_icon || '') !== (userObj.userIcon || '');
+          && (prev.user_icon || '') !== (userObj.iconUrl || userObj.userIcon || '');
         if (iconChanged) {
-          changes.push({ type: 'user_icon', payload: { userIcon: userObj.userIcon || '', previousUserIcon: prev.user_icon || '' } });
+          changes.push({ type: 'user_icon', payload: { userIcon: userObj.iconUrl || userObj.userIcon || '', previousUserIcon: prev.user_icon || '' } });
         }
         const pronounsChanged = prev.pronouns
           && (prev.pronouns || '') !== (userObj.pronouns || '');
@@ -342,7 +342,7 @@ export class EventPipeline {
         statusDescription: userObj.statusDescription || '',
         avatarImageUrl: userObj.currentAvatarImageUrl || '',
         bio: userObj.bio || '',
-        userIcon: userObj.userIcon || '',
+        userIcon: userObj.iconUrl || userObj.userIcon || '',
         pronouns: userObj.pronouns || '',
         ...(trust ? { trustLevel: trust } : {}),
         lastSeen: event.receivedAt,
@@ -380,7 +380,7 @@ export class EventPipeline {
     put('statusDescription', userObj.statusDescription);
     put('bio', userObj.bio);
     put('avatarImageUrl', userObj.currentAvatarImageUrl || userObj.currentAvatarThumbnailImageUrl);
-    put('userIcon', userObj.userIcon);
+    put('userIcon', userObj.iconUrl || userObj.userIcon);
     put('pronouns', userObj.pronouns);
     if (Object.keys(patch).length > 1) {
       try {
