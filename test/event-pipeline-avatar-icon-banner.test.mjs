@@ -55,13 +55,17 @@ function makeUpdate({ bannerType, iconUrl }) {
 }
 
 const iconEvents = () => storage.getFriendProfileChanges(UID, { types: 'user_icon' });
+const resetEvents = () => storage.run("DELETE FROM events WHERE user_id = $u", { $u: UID });
+
 
 test('bannerType=avatarBanner：iconUrl 变化不产出 user_icon 事件（该字段此时即模型图）', async () => {
+  resetEvents();
   await pipeline.process(makeUpdate({ bannerType: 'avatarBanner', iconUrl: ICON_NEW }));
   assert.equal(iconEvents().length, 0, 'avatarBanner 档不得产出「更新了头像图标」（换模型会重复）');
 });
 
 test('防误伤：非 avatarBanner（真·用户图标）仍照常产出 user_icon 事件', async () => {
+  resetEvents();
   storage.upsertFriend({ userId: UID, displayName: '图标门禁测试', userIcon: ICON_OLD });
   await pipeline.process(makeUpdate({ bannerType: 'color', iconUrl: ICON_NEW }));
   assert.equal(iconEvents().length, 1, '非 avatarBanner 档应恰好 1 条 user_icon（门禁不得过宽）');
