@@ -49,6 +49,7 @@ import { parseTotpSecret, generateTotp } from './core/totp.js';
 import { notifier } from './core/notifier.js';
 import { buildChannels } from './core/notify-channels.js';
 import { decideTrackedFail } from './core/tracked-fail-policy.js';
+import { pickOfflineWindowStart } from './core/offline-window.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -159,15 +160,24 @@ async function _refreshOnlineState() {
     // 断线窗口对账：WS 断开期间的好友下线事件会错过（下线不再广播），本地状态会卡在「在线」。
     // 好友表标记在线、但不在真实在线集合中的 → 置离线 + 补记 friend-offline 事件（动态流可见）。
     // 准确下线时刻在断线窗口内无法得知，记对账时刻。
+    // 最近一次对账确认他在「在线集合」里的时刻（≤ 一个对账周期，比 WS 断开更紧）
+    const lastOnlineAt = new Map();
     const onlineIds = new Set(online.map(f => f.id));
     const stale = storage.query(`SELECT user_id, display_name, last_seen FROM friends WHERE is_online = 1`);
     const nowIso = new Date().toISOString();
+    for (const f of online) lastOnlineAt.set(f.id, nowIso);
     // API 掉线窗口起点 = WS 最近一次断开时刻（重连对账的「期间」语义）
     const disconnectedAt = ctx.wsManager && ctx.wsManager.disconnectedAt
       ? new Date(ctx.wsManager.disconnectedAt).toISOString() : '';
     let fixed = 0;
     for (const row of stale) {
       if (onlineIds.has(row.user_id)) continue;
+      // 窗口下界 = 最后一次能证明他在线的时刻（三者取最大；纯函数见 core/offline-window.js）
+      const anchorIso = pickOfflineWindowStart({
+        lastSeen: row.last_seen || '',
+        lastOnlineSeen: lastOnlineAt.get(row.user_id),
+        disconnectedAt,
+      });
       storage.upsertFriend({
         userId: row.user_id,
         isOnline: false,
@@ -177,7 +187,7 @@ async function _refreshOnlineState() {
       });
       // 去重：重连风暴期 WS 实时下线可能已先入账（窗口内已有该好友的 offline 事件）→ 只修状态不补事件
       try {
-        const since = disconnectedAt || new Date(Date.now() - 10 * 60_000).toISOString();
+        const since = anchorIso || disconnectedAt || new Date(Date.now() - 10 * 60_000).toISOString();
         const dup = storage.query(
           `SELECT id FROM events WHERE type = 'friend-offline' AND user_id = $uid AND created_at >= $since LIMIT 1`,
           { $uid: row.user_id, $since: since }
@@ -192,7 +202,7 @@ async function _refreshOnlineState() {
           contentJson: {
             userId: row.user_id, location: 'offline',
             reconcile: true,
-            offlineWindowStart: disconnectedAt,   // API 掉线起点（WS 断开时刻）
+            offlineWindowStart: anchorIso || disconnectedAt,   // 最后一次确认他在线的时刻（窗口下界）
             detectedAt: nowIso,                    // 对账确认离线时刻
             lastSeen: row.last_seen || '',         // 好友最后活动时刻（更紧的下界）
           },
