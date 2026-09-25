@@ -836,7 +836,7 @@ onUnmounted(() => {
 .dim { color: var(--text-dim); white-space: nowrap; }
 .arr { color: var(--text-dim); opacity: 0.6; font-size: 11px; }
 .world-link {
-.uicon { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; flex: none; cursor: pointer; }
+.uicon { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; flex: none; }
   color: var(--accent-2);
   cursor: pointer;
   padding: 1px 5px;
