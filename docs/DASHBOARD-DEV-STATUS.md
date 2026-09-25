@@ -927,3 +927,51 @@ git diff --check
   - core 新增 `groups.resolve` 服务（group_cache 缓存优先 TTL 7 天 + API 回填）；events 挖掘改 consume 该服务，maxMine 默认 60→30
   - core 新增 `dashboard.isSelfOnline` 服务（events 表 user-location 最新一条判定；超 1h 无新事件的在线记录保守返回 null）
   - events 插件每日离线刷新调度器：首次 1h 后检查，在线/无法判定推迟 30min，离线重挖 week/month/tonight（maxMine=30）+ 清理 `start_iso < now` 过期活动；setTimeout 链 + unref + dispose 清理
+
+## 2026-09-25 动态页三处修复 + 头像优先级改版（上游 PR #249~#259）
+
+**问题（用户报障 → 根因）**：
+
+1. **事件行头像偶发「雷霆大头像」** —— `.world-link {` **少了一个闭合 `}`**，紧随其后的
+   `.uicon { width: 26px; … }` 被 CSS 嵌套解析成 `.world-link .uicon` ⇒ 那条 26px 只在"世界名链接内部"生效
+   ⇒ 事件行里的头像不受任何尺寸约束、按原图撑开。
+   ⚠️ **坑**：花括号全局是配平的（390/390，少的一个与别处多出的正好抵消）⇒ **"配平"不能当判据**；
+   判据是**构建产物里那条规则的选择器形态**（`.world-link .uicon[data-v-…]` = 被吞 / `.uicon[data-v-…]` = 独立）。
+   修法是**把规则搬出去**，不是补一个 `}`（那个位置不缺，补了会构建失败）。
+2. **三个按钮是空白** —— `pi-binoculars` / `pi-user-check` / `pi-check-double` 在 primeicons 里
+   **不存在**（`.pi-xxx:before` 规则数 = 0）⇒ 渲染成空白，看起来像"坏掉的空按钮"。
+   判据：**CSS 里有没有 `.pi-xxx:before`**；全仓扫描法：列出用到的全部 `pi-*` 类逐个查规则数
+   （本次 77 个里只有这 3 个缺；`pi-spin` 是动画类、会误报）。
+3. **事件行左侧位置信息不显示** —— 自造函数引用了未导入的 `parseLoc` ⇒ ReferenceError；后被重写吃掉。
+
+**改动**：
+
+- 位置行显示「**状态 → 状态**」（左端优先状态中文名如"私人房间/传送中"、右端世界名）；
+  取不到世界名时给人话而不是裸 ID；左端补「图 + 世界名 + 实例信息」。
+- **头像显示改为「用户图标优先、无则回落模型图」**（用户定案）—— 上游原为 `avatarUrl || userIcon`
+  ⇒ **用户设了自己的图标也看不到**。全站 8 文件 15 处调换；两个字段独立，一个变另一个不跟着变。
+- 顶栏去噪：删「导出当前筛选结果」按钮与 `exportRows()`、删「数据库共 N 条」、去掉纯图标按钮的 `(N)`；
+  补 `.feed-head { display:flex; align-items:center }` —— 上游给 `.feed-count` 写了 `margin-left:auto`
+  但**标题行没有 flex 容器** ⇒ 计数贴不到最右。
+- `user_icon` 事件文案「更新头像图标」→「**更新用户头像**」（与「更换模型」明确区分）。
+- 三处不存在的图标类换成语义等价的现有类。
+
+**后端同批（由同一批报障引出）**：
+
+- `event-pipeline.js`：`avatarChanged` 判据读的是**上游自己已移除**的 `currentAvatarImageUrl` ⇒ 恒假
+  ⇒ **永远检测不到「更换模型」**；事件 payload 与回写同样恒空 ⇒ 动态流显示「未知模型」。
+  改用 `iconUrl`，并**把它依赖的前置条件写进代码**：`bannerType === 'avatarBanner'` 时 `iconUrl` 才是模型图
+  （实测近 3 天分布 avatarBanner 267 / null 106 / color 87 ⇒ 约 42% 的推送里它不是模型图）。
+  抽 `avatarImageUrlFromUser()` 供两处共用，配 6 条行为断言。
+- 用户图标字段改名后仍有 5 处读旧名（`event-pipeline` 4 + `friend-refresh` 1）⇒ 写入恒空；
+  改 `iconUrl || userIcon` 兜底。
+- 对账补记离线的窗口下界改用 `pickOfflineWindowStart()`（= max(他最后一次活动, 最近一次对账确认他在线,
+  WS 断开时刻)）⇒ 修「一次 2 秒瞬断被放大成 4.5 小时」的窗口。
+- 在线计数**含「网页在线」** + 开关 `VRC_MONITOR_ONLINE_INCLUDE_WEB`；重连后对账**周期化**（5 分钟一次）
+  ⇒ 修"首轮之后再漂移就修不回来"。口径抽成 `core/online-count-policy.js`，配 7 条断言。
+- **同世界同实例的重复 `friend-location` 去重**（`VRC_MONITOR_DEDUP_SAME_INSTANCE_LOCATION` 默认开、
+  `_WINDOW_SECONDS` 默认 300s；窗口外的重复仍落一条"心跳"）⇒ 修「好友改模型被呈现成一直在换世界」。
+
+**验证**：`npm test` 全量 **275/275** 通过 · `test-registry` **PASS**（122 工具 order+defs OK）·
+`check-doc-drift --json` 干净 · ui/ `vite build` 通过 + `vitest run` **44/44** ·
+已部署并验证容器 healthy（带 token 打 `/health`：auth=true / ws=connected / plugins=15）。
