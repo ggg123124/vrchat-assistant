@@ -121,6 +121,12 @@ async function _updateFriendState(event) {
 }
 
 // ── WebSocket 重连后刷新全量在线状态 ──
+// 每个好友「最近一次对账确认他在在线集合里」的时刻。
+// ⚠️ 必须模块级、跨轮保留：对账要处理的 stale 行必然【不在本轮】在线集合里（在即 continue），
+//    所以只有跨轮保留的值才能作为 pickOfflineWindowStart 的 lastOnlineSeen 候选真正生效
+//    （此前它是每次调用新建的局部 Map，那个候选恒为 undefined —— review 指出）。
+const lastOnlineAt = new Map();
+
 async function _refreshOnlineState() {
   const { api, friendState, storage } = ctx;
   try {
@@ -160,8 +166,7 @@ async function _refreshOnlineState() {
     // 断线窗口对账：WS 断开期间的好友下线事件会错过（下线不再广播），本地状态会卡在「在线」。
     // 好友表标记在线、但不在真实在线集合中的 → 置离线 + 补记 friend-offline 事件（动态流可见）。
     // 准确下线时刻在断线窗口内无法得知，记对账时刻。
-    // 最近一次对账确认他在「在线集合」里的时刻（≤ 一个对账周期，比 WS 断开更紧）
-    const lastOnlineAt = new Map();
+    // lastOnlineAt 是模块级、跨轮保留的（见文件上方）——本轮只负责写入"此刻他在在线集合里"
     const onlineIds = new Set(online.map(f => f.id));
     const stale = storage.query(`SELECT user_id, display_name, last_seen FROM friends WHERE is_online = 1`);
     const nowIso = new Date().toISOString();

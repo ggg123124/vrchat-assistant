@@ -20,10 +20,17 @@
  * @returns {string} ISO 时间串（最紧的窗口下界），或 '' 表示无可用下界
  */
 export function pickOfflineWindowStart(input = {}) {
-  const candidates = [input.lastSeen, input.lastOnlineSeen, input.disconnectedAt]
-    .map((v) => (typeof v === 'string' ? v.trim() : ''))
-    .filter((v) => v.length > 0);
-  if (!candidates.length) return '';
-  // ISO 8601（同格式/同区）可直接按字典序比较时间先后
-  return candidates.reduce((a, b) => (b > a ? b : a));
+  // ⚠️ 用 Date.parse 的数值比较，不用字典序：ISO 串的精度可能不同（如 '…:43Z' 与 '…:43.000Z'），
+  //   而 'Z'(0x5A) > '.'(0x2E) ⇒ 字典序会把"无毫秒"的那串判成更晚（<1s 误差）。
+  //   顺带：非法值（Date.parse ⇒ NaN）直接忽略——旧实现按字符串比会把垃圾值选出来。
+  let best = '';
+  let bestMs = -Infinity;
+  for (const raw of [input.lastSeen, input.lastOnlineSeen, input.disconnectedAt]) {
+    const v = typeof raw === 'string' ? raw.trim() : '';
+    if (!v) continue;
+    const ms = Date.parse(v);
+    if (!Number.isFinite(ms)) continue;
+    if (ms > bestMs) { bestMs = ms; best = v; }
+  }
+  return best;
 }

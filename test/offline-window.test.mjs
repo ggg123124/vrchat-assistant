@@ -35,3 +35,28 @@ test('无可用下界时返回空串（由调用方决定兜底文案）', () =>
   assert.equal(pickOfflineWindowStart({}), '');
   assert.equal(pickOfflineWindowStart({ lastSeen: '   ', lastOnlineSeen: undefined }), '');
 });
+
+// ── review #252 追加：比较必须是「数值」而不是「字典序」 ──
+test('毫秒精度不同但同一时刻 ⇒ 不得把"无毫秒"的那串判成更晚', () => {
+  // '2026-09-21T07:50:00Z' 与 '2026-09-21T07:50:00.000Z' 是【同一时刻】
+  // 旧实现按字典序：'Z'(0x5A) > '.'(0x2E) ⇒ 会把无毫秒的判成更晚（<1s 误差）
+  const a = '2026-09-21T07:50:00Z';
+  const b = '2026-09-21T07:50:00.000Z';
+  const got = pickOfflineWindowStart({ lastSeen: a, disconnectedAt: b });
+  assert.equal(Date.parse(got), Date.parse(a), '同一时刻应等价，不得因字符串形态判先后');
+});
+
+test('毫秒更晚的那串必须胜出（数值比较真的在生效）', () => {
+  const early = '2026-09-21T07:50:00.100Z';
+  const late = '2026-09-21T07:50:00.900Z';
+  assert.equal(pickOfflineWindowStart({ lastSeen: early, disconnectedAt: late }), late);
+  assert.equal(pickOfflineWindowStart({ lastSeen: late, disconnectedAt: early }), late);
+});
+
+test('非法时间串必须被忽略（旧实现按字典序会把垃圾值选出来）', () => {
+  const real = '2026-09-21T07:50:00.000Z';
+  // 'zzz-not-a-date' 字典序大于 '2…' ⇒ 旧实现会选中它
+  assert.equal(pickOfflineWindowStart({ lastSeen: 'zzz-not-a-date', disconnectedAt: real }), real);
+  assert.equal(pickOfflineWindowStart({ lastSeen: real, disconnectedAt: 'zzz-not-a-date' }), real);
+  assert.equal(pickOfflineWindowStart({ lastSeen: 'nope', lastOnlineSeen: 'nope2' }), '');
+});
