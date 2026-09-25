@@ -154,7 +154,7 @@ onUnmounted(() => clearInterval(timer));
     <div class="nt-head">
       <h2><i class="pi pi-bell"></i> 通知</h2>
       <span class="nt-count">当前 {{ currentShown.length }} · 历史 {{ historyShown.length }}</span>
-      <Button size="small" icon="pi pi-check-double" :loading="seeingAll" label="全部已读" title="标记当前未读通知为已读（最多 15 条）" @click="markAllSeen" />
+      <Button size="small" icon="pi pi-check" :loading="seeingAll" label="全部已读" title="标记当前未读通知为已读（最多 15 条）" @click="markAllSeen" />
       <Button size="small" text icon="pi pi-refresh" title="刷新" @click="reload" />
     </div>
 
