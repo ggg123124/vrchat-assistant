@@ -836,7 +836,6 @@ onUnmounted(() => {
 .dim { color: var(--text-dim); white-space: nowrap; }
 .arr { color: var(--text-dim); opacity: 0.6; font-size: 11px; }
 .world-link {
-.uicon { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; flex: none; cursor: pointer; }
   color: var(--accent-2);
   cursor: pointer;
   padding: 1px 5px;
@@ -844,6 +843,7 @@ onUnmounted(() => {
   background: color-mix(in srgb, var(--accent-2) 10%, transparent);
   white-space: nowrap;
 }
+.uicon { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; flex: none; cursor: pointer; }
 .world-link:hover { background: color-mix(in srgb, var(--accent-2) 22%, transparent); }
 .inst { color: var(--text-dim); font-size: 10.5px; background: var(--surface-3); padding: 1px 6px; border-radius: 5px; flex: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 
