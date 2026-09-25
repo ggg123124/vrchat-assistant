@@ -546,3 +546,29 @@ test('recentWorlds 补名：无占位触发 / TTL 内抑制 / 超 TTL 重试 / �
 after(() => {
   for (const f of [tmpDb, tmpDb + '-wal', tmpDb + '-shm']) { try { rmSync(f, { force: true }); } catch {} }
 });
+
+test('previousWorldName：左端世界名走 world_cache（私人房不载荷 world 也能显示）', async () => {
+  // 2026-09-25 审查 #262 的回归用例：两条事件的世界名列【故意留空】——
+  // 模拟 VRChat 对私人房 / hidden 房不下发 content.world 的推送；名字只能来自 world_cache。
+  const uid = 'usr_test-0000-0000-0000-0000000000b1';
+  const widPrev = 'wrld_test-1111-1111-1111-111111111111';
+  const widCur = 'wrld_test-2222-2222-2222-222222222222';
+  ctx.storage.run(
+    `INSERT OR REPLACE INTO world_cache (world_id, name, image_url) VALUES ($w, $n, '')`,
+    { $w: widPrev, $n: '缓存世界名' });
+  ctx.storage.insertEvent({
+    type: 'friend-location', userId: uid, displayName: '左端测试',
+    contentJson: { userId: uid, location: widPrev + ':12345~hidden(usr_aaaaaaaa-0000-0000-0000-000000000001)', user: {} },
+    worldId: widPrev, worldName: '', createdAt: new Date(Date.now() - 60000).toISOString(), source: 'websocket',
+  });
+  ctx.storage.insertEvent({
+    type: 'friend-location', userId: uid, displayName: '左端测试',
+    contentJson: { userId: uid, location: widCur + ':6789~hidden(usr_aaaaaaaa-0000-0000-0000-000000000001)', user: {} },
+    worldId: widCur, worldName: '', createdAt: new Date().toISOString(), source: 'websocket',
+  });
+  const r = await services.get('dashboard.events')({ limit: 50, offset: 0 });
+  const cur = r.events.find((e) => e.worldId === widCur);
+  assert.ok(cur, '应能查到当前世界那条事件');
+  assert.equal(cur.previousWorldName, '缓存世界名', '左端世界名应取自 world_cache（与右端同口径）');
+  assert.equal(cur.previousWorldId, widPrev, '左端世界 id 应指向上一位置');
+});
