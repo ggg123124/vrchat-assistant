@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { store, setView, openUser, openWorld, openPreview, loadMoreFeed, copyText, openGroup, resetFeed } from '../store.js';
-import { time, date, locLabel, statusLabels, trustColor, instanceLabel, avatarLabel } from '../utils.js';
+import { time, date, locLabel, specialLocationLabel, statusLabels, trustColor, instanceLabel, avatarLabel } from '../utils.js';
 import { post } from '../api.js';
 import { toast } from '../toast.js';
 import { statusColor } from '../composables/useFriendGroups.js';
@@ -23,6 +23,15 @@ function sourceLabel(s) {
   if (s === 'poll') return '轮询';
   if (s === 'api') return 'API';
   return s || '—';
+}
+
+function prevLabelOf(e) { return specialLocationLabel(e.previousLocation) || e.previousWorldName || ''; }
+function curIsWorld(e) { return String(e.worldId || '').startsWith('wrld_'); }
+
+function prevInstLabel(e) {
+  const p = parseLoc(e.previousLocation || '');
+  if (!p || !p.type) return '';
+  return [instanceLabel(p.type), p.region ? p.region.toUpperCase() : '', p.instanceId || ''].filter(Boolean).join(' · ');
 }
 
 /* ── 类型定义（对齐 VRCX Feed filters：GPS/Online/Offline/Status/Avatar/Bio）── */
@@ -452,17 +461,17 @@ onUnmounted(() => {
               <span class="dim">传送中</span>
             </template>
             <template v-else>
-            <template v-if="x.previousWorldName && x.previousWorldName !== x.worldName">
+            <template v-if="prevLabelOf(x) && (curIsWorld(x) ? prevLabelOf(x) !== x.worldName : true)">
               <img v-if="x.previousWorldImageUrl" class="wthumb" :src="x.previousWorldImageUrl" alt="" loading="lazy" />
               <span v-if="x.previousWorldId" class="world-link" @click="openWorld(x.previousWorldId)" role="button" tabindex="0" @keydown.enter="openWorld(x.previousWorldId)">{{ x.previousWorldName }}</span>
-              <span v-else class="dim">{{ x.previousWorldName }}</span>
+              <span v-else class="dim">{{ prevLabelOf(x) }}</span>
+              <span v-if="prevInstLabel(x)" class="inst mono">{{ prevInstLabel(x) }}</span>
               <span class="arr">→</span>
             </template>
             <img v-if="x.worldImageUrl" class="wthumb" :src="x.worldImageUrl" alt="" loading="lazy" />
             <span v-if="x.worldName" class="world-link" @click="openWorld(x.worldId)" role="button" tabindex="0" @keydown.enter="openWorld(x.worldId)">{{ x.worldName }}</span>
-            <span v-else-if="x.location" class="dim">{{ locLabel(x.location) || x.location }}</span>
+            <span v-else-if="x.location" class="dim">{{ specialLocationLabel(x.location) || locLabel(x.location) || x.location }}</span>
             <span v-if="x.instanceType || x.region || x.instanceId" class="inst mono">{{ instanceLabel(x.instanceType) }}{{ x.region ? ' · ' + x.region.toUpperCase() : '' }}{{ x.instanceId ? ' · ' + x.instanceId : '' }}</span>
-            <span v-if="x.travelingToLocation" class="dim">传送中</span>
             </template>
           </template>
 
