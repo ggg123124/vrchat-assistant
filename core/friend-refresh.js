@@ -109,9 +109,9 @@ export async function refreshFriendList(ctx, log) {
       ...(u.displayName ? { displayName: u.displayName } : {}),
       ...(u.status ? { status: u.status } : {}),
       ...(u.statusDescription ? { statusDescription: u.statusDescription } : {}),
-      ...(u.currentAvatarImageUrl ? { avatarImageUrl: u.currentAvatarImageUrl } : {}),
+      ...(u.iconUrl || u.currentAvatarImageUrl ? { avatarImageUrl: u.iconUrl || u.currentAvatarImageUrl } : {}),
       ...(u.bio ? { bio: u.bio } : {}),
-      ...(u.userIcon ? { userIcon: u.userIcon } : {}),
+      ...(u.iconUrl || u.userIcon ? { userIcon: u.iconUrl || u.userIcon } : {}),
       ...(u.pronouns ? { pronouns: u.pronouns } : {}),
       ...(trust ? { trustLevel: trust } : {}),
     });

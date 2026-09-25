@@ -15,11 +15,18 @@ const log = getLogger('event');
  * 新版资料系统里 currentAvatarImageUrl / currentAvatarThumbnailImageUrl 已被移除，实际字段是 iconUrl ——
  * 但 **只有 bannerType === 'avatarBanner' 时它才指向模型图**（bannerType 会变：实测近 3 天
  * avatarBanner 267 / null 106 / color 87，约 42% 的推送里 iconUrl 并不是模型图）。
- * ⇒ 非 avatarBanner 时视为没有模型信息（弱源不产出），再由旧字段兜底。
+ * ⇒ 没有可信的模型图信息时【返回 undefined，不要返回空串】：
+ *   空串在调用方会被当成"新值是空的"，与旧值 diff 出【空图的「更换模型」事件】、
+ *   并在 upsert 里把模型图基线清空。undefined 表示"这条载荷没带模型信息"⇒ 调用方保持原值。
  */
 export function avatarImageUrlFromUser(user) {
-  const isAvatarBanner = String(user.bannerType || '') === 'avatarBanner';
-  return (isAvatarBanner ? (user.iconUrl || '') : '') || user.currentAvatarImageUrl || '';
+  const u = user || {};
+  if (String(u.bannerType || '') === 'avatarBanner') {
+    return u.iconUrl || u.currentAvatarImageUrl || undefined;
+  }
+  // 非 avatarBanner：iconUrl 不是模型图（实测 avatarBanner 84% / color 16% / customImage 0.4%）
+  // ⇒ 只用仍在的旧字段兜底；两者都没有 ⇒ undefined
+  return u.currentAvatarImageUrl || undefined;
 }
 
 // 码点安全截断（review #166：UTF-16 slice 会把 emoji 切半成 U+FFFD 替换符）。
@@ -249,12 +256,12 @@ export class EventPipeline {
       const prev = this.storage.getFriend(userId);
       if (prev && prev.user_id) {
         const changes = [];
-        const avatarChanged = prev.avatar_image_url
+        const avatarChanged = newAvatarUrl !== undefined && prev.avatar_image_url
           && (prev.avatar_image_url || '') !== newAvatarUrl;
         if (avatarChanged) {
           changes.push({ type: 'avatar', payload: {
             avatarName: userObj.currentAvatarName || '',
-            avatarImageUrl: newAvatarUrl || userObj.currentAvatarImageUrl || '',
+            avatarImageUrl: newAvatarUrl,
             avatarThumbnailUrl: userObj.currentAvatarThumbnailImageUrl || '',
             previousAvatarImageUrl: prev.avatar_image_url || '',
             // previousAvatarThumbnailUrl 省略：缩略图无独立存储列，无法取到正确旧缩略图，
@@ -356,9 +363,9 @@ export class EventPipeline {
         displayName,
         status: userObj.status || '',
         statusDescription: userObj.statusDescription || '',
-        avatarImageUrl: userObj.currentAvatarImageUrl || '',
+        ...(newAvatarUrl ? { avatarImageUrl: newAvatarUrl } : {}),   // 取不到就不写该列（partial，不清空已存基线）
         bio: userObj.bio || '',
-        userIcon: userObj.userIcon || '',
+        ...(userObj.iconUrl || userObj.userIcon ? { userIcon: userObj.iconUrl || userObj.userIcon } : {}),
         pronouns: userObj.pronouns || '',
         ...(trust ? { trustLevel: trust } : {}),
         lastSeen: event.receivedAt,
@@ -397,7 +404,7 @@ export class EventPipeline {
     put('bio', userObj.bio);
     // 同上：新版资料系统用 iconUrl（bannerType=avatarBanner 时指向模型图），旧字段已被上游移除
     const syncAvatarUrl = avatarImageUrlFromUser(userObj)
-      || userObj.currentAvatarThumbnailImageUrl;
+      || userObj.currentAvatarThumbnailImageUrl || '';
     put('avatarImageUrl', syncAvatarUrl);
     put('userIcon', userObj.iconUrl || userObj.userIcon);
     put('pronouns', userObj.pronouns);
