@@ -294,7 +294,13 @@ export class EventPipeline {
         // 载荷里 iconUrl / userIcon 都没有 ⇒ 这条推送【没带图标信息】⇒ 不产出事件（也不动基线）。
         // 若把这种情况当成「图标被移除」，会产出空图事件并把已存的图标基线清空（#259 复审的防御性缺口）。
         const newUserIcon = userObj.iconUrl || userObj.userIcon;
-        const iconChanged = prev.user_icon
+        // bannerType === 'avatarBanner' 时 iconUrl 指向的【就是当前模型图】（新版资料系统）——
+        // 换模型必然改它 ⇒ 若这里再判一次，换一次模型会同时产出「更换模型」+「更新了头像图标」
+        // 两条事件，且后者前后常是同一张图（用户实测截图里出现过「更新了头像图标 🍮 → 🍮」）。
+        // 该形态下图标变化已由 avatarChanged 覆盖，故不在此重复判。
+        const isAvatarBanner = String(userObj.bannerType || '') === 'avatarBanner';
+        const iconChanged = !isAvatarBanner
+          && prev.user_icon
           && newUserIcon !== undefined
           && (prev.user_icon || '') !== newUserIcon;
         if (iconChanged) {
