@@ -311,7 +311,16 @@ export function registerDashboardServices(loader, ctx) {
       let prev = null;
       try {
         const r = ctx.storage.query(
-          `SELECT content_json FROM events WHERE user_id = $uid AND type IN ('friend-location', 'user-location') AND id < $id ORDER BY id DESC LIMIT 25`,
+          // 与右端（目的地）统一口径：世界名/图优先取 world_cache —— VRChat 对私人房 / hidden 房的
+          // friend-location 推送经常不下发 content.world，只读载荷会让左端「从哪」只剩实例信息、
+          // 显示不出世界名与缩略图（用户反馈「我自己的房间也看不到是什么图吗」）。
+          // world_id 优先用事件列（写入时已规范化），旧数据缺失时回落到载荷里的 world.id。
+          `SELECT e.content_json AS content_json, wc.name AS wc_name, wc.image_url AS wc_image
+           FROM events e
+           LEFT JOIN world_cache wc
+             ON wc.world_id = COALESCE(NULLIF(e.world_id, ''), json_extract(e.content_json, '$.world.id'))
+           WHERE e.user_id = $uid AND e.type IN ('friend-location', 'user-location')
+             AND e.id < $id ORDER BY e.id DESC LIMIT 25`,
           { $uid: userId, $id: eventId });
         for (const row of r) {
           let cj = {};
@@ -319,13 +328,16 @@ export function registerDashboardServices(loader, ctx) {
           const loc = cj.location || '';
           if (!loc || loc === 'traveling' || loc === 'offline' || loc === 'offline:offline') continue;
           const worldId = cj.world?.id || (loc.startsWith('wrld_') ? loc.split(':')[0] : '');
-          const worldName = cj.world?.name || cj.worldName || '';
+          // 缓存优先（与右端同口径）⇒ 私人房也能显示世界名与缩略图
+          const cachedName = row.wc_name || '';
+          const cachedImage = row.wc_image || '';
+          const worldName = cachedName || cj.world?.name || cj.worldName || '';
           if (!worldName && !worldId) continue;
           prev = {
             location: loc,
             worldName,
             worldId,
-            worldImageUrl: imgProxy(cj.world?.imageUrl || cj.world?.thumbnailImageUrl || ''),
+            worldImageUrl: imgProxy(cachedImage || cj.world?.imageUrl || cj.world?.thumbnailImageUrl || ''),
           };
           break;
         }
