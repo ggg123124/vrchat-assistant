@@ -61,7 +61,7 @@ function pick(u) {
       <div v-if="local.length" class="qs-sec">
         <div class="qs-label">好友</div>
         <div v-for="f in local" :key="f.userId" class="qs-item" @click="pick(f)" role="button" tabindex="0" @keydown.enter="pick(f)">
-          <Avatar :image="imgUrl(f.avatarUrl || f.userIcon)" shape="circle" size="small" :label="imgUrl(f.avatarUrl || f.userIcon) ? '' : (f.displayName || '?').charAt(0).toUpperCase()" />
+          <Avatar :image="imgUrl(f.userIcon || f.avatarUrl)" shape="circle" size="small" :label="imgUrl(f.userIcon || f.avatarUrl) ? '' : (f.displayName || '?').charAt(0).toUpperCase()" />
           <span class="qs-name">{{ f.displayName }}</span>
           <span class="qs-sub">{{ f.isOnline ? '在线' : '离线' }}</span>
         </div>

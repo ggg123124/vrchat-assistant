@@ -39,7 +39,7 @@ const coSecOpen = ref(true);
 const coAll = ref(false);
 const coShown = computed(() => { const l = store.coPlay || []; return coAll.value ? l : l.slice(0, 8); });
 const friendMap = computed(() => { const m = new Map(); for (const f of friends.value) m.set(f.userId, f); return m; });
-function coAvatar(c) { const f = friendMap.value.get(c.userId); return (f && (f.avatarUrl || f.userIcon)) || c.avatarUrl || c.userIcon || ''; }
+function coAvatar(c) { const f = friendMap.value.get(c.userId); return (f && (f.userIcon || f.avatarUrl)) || c.userIcon || c.avatarUrl || ''; }
 function coName(c) { return store.nicknameMap[c.userId] || c.displayName || '?'; }
 function meStatusText() {
   const me = store.me;
@@ -120,7 +120,7 @@ async function submitStatus() {
     <!-- 我（含状态设置） -->
     <div v-if="store.me" class="me-item">
       <div class="me-top" @click="openUser(store.me.userId)" role="button" tabindex="0" @keydown.enter="openUser(store.me.userId)">
-        <Avatar :image="store.me.avatarUrl || store.me.userIcon" shape="circle" :label="avatarLabel(store.me.avatarUrl || store.me.userIcon, store.me.displayName)" />
+        <Avatar :image="store.me.userIcon || store.me.avatarUrl" shape="circle" :label="avatarLabel(store.me.userIcon || store.me.avatarUrl, store.me.displayName)" />
         <div class="me-text">
           <b :style="{ color: trustColor(store.me.trustLevel) }">{{ store.me.displayName || store.me.userId }}</b>
           <small><span class="me-dot" :style="{ background: statusColor(store.me.status) }"></span>{{ meStatusText() }}<span v-if="meLocText()"> · {{ meLocText() }}</span></small>

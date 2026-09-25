@@ -87,7 +87,7 @@ watch(() => store.instanceModal, async (m) => {
       </div>
       <div v-else-if="inst.members.length" class="inst-members">
         <div v-for="f in inst.members" :key="f.userId" class="inst-member" @click="openUser(f.userId)" role="button" tabindex="0" @keydown.enter="openUser(f.userId)">
-          <Avatar :image="f.avatarUrl || f.userIcon" shape="circle" size="small" :label="avatarLabel(f.avatarUrl || f.userIcon, f.displayName)" />
+          <Avatar :image="f.userIcon || f.avatarUrl" shape="circle" size="small" :label="avatarLabel(f.userIcon || f.avatarUrl, f.displayName)" />
           <div class="im-text">
             <b :style="{ color: trustColor(f.trustLevel) }">{{ store.nicknameMap[f.userId] || f.displayName || '?' }}</b>
             <small>{{ f.statusDescription || statusLabels[f.status] || '在线' }}</small>

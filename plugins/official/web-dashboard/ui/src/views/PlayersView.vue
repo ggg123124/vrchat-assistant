@@ -73,7 +73,7 @@ onUnmounted(() => { if (timer) clearInterval(timer); });
         <button v-for="p in players" :key="p.userId" class="pl-row" @click="openUser(p.userId)">
           <Button v-if="String(p.userId || '').startsWith('usr_')" class="pl-copy" icon="pi pi-link" text size="small" rounded :aria-label="'复制玩家链接 ' + (p.displayName || '')" title="复制玩家链接" @click.stop="copyPlayerLink(p)" />
           <span class="pl-dot" v-bind="trustDot(p.trustLevel)" :title="p.trustLevel || ''"></span>
-          <Avatar :image="p.avatarUrl || p.userIcon || ''" :label="(p.displayName || '?').charAt(0).toUpperCase()" shape="circle" size="normal" />
+          <Avatar :image="p.userIcon || p.avatarUrl || ''" :label="(p.displayName || '?').charAt(0).toUpperCase()" shape="circle" size="normal" />
           <div class="pl-info">
             <b class="pl-name">{{ p.displayName }}</b>
             <small class="pl-sub">{{ p.statusDescription || statusText(p.status) || p.userId }}</small>
