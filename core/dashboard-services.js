@@ -317,7 +317,9 @@ export function registerDashboardServices(loader, ctx) {
           let cj = {};
           try { cj = JSON.parse(row.content_json || '{}'); } catch { /* malformed */ }
           const loc = cj.location || '';
-          if (!loc || loc === 'traveling' || loc === 'offline' || loc === 'offline:offline') continue;
+          // 用 startsWith 而不是 === ：线上「传送中」的形态是 traveling:traveling（2026-09-25 实测），
+          // 精确匹配会漏 ⇒ prev 落在没有 world 对象的那条上 ⇒ 左端「从哪」的世界名/图全空。
+          if (!loc || loc.startsWith('traveling') || loc === 'offline' || loc === 'offline:offline') continue;
           const worldId = cj.world?.id || (loc.startsWith('wrld_') ? loc.split(':')[0] : '');
           const worldName = cj.world?.name || cj.worldName || '';
           if (!worldName && !worldId) continue;
@@ -368,7 +370,12 @@ export function registerDashboardServices(loader, ctx) {
       const world = content.world || {};
       const worldId = row.world_id || content.worldId || world.id || '';
       const worldName = row.world_name || world.name || '';
-      const location = content.location || '';
+      // VRChat 的「传送中」实际推的是 location = traveling:traveling（不是纯 traveling，2026-09-25 生产实测）：
+      //  它既躲过 parseLocInfo 的特殊值特判（instType 回落成 public、instId 变成 traveling），
+      //  也躲过前端 x.location === 'traveling' 的判断 ⇒ 位置行会渲染成荒谬的「公开 · traveling」。
+      //  在 DTO 层统一规范化：一处改动，历史事件同样生效，前端无需调整。
+      const rawLocation = content.location || '';
+      const location = rawLocation === 'traveling:traveling' ? 'traveling' : rawLocation;
       const locInfo = parseLocInfo(location);
       const prev = (row.type === 'friend-location' || row.type === 'user-location') ? previousLocationOf(row.user_id, row.id) : null;
       // 群组名解析（缓存优先）：group-joined/group-member-updated 平铺 groupId；

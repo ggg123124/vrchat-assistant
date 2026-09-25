@@ -172,7 +172,9 @@ export class EventPipeline {
     const { enabled: dedupOn, windowMs: dedupWindowMs } = sameInstanceDedupConfig();
     const isSameInstanceRepeat = dedupOn
       && !!location && location === prevLocation
-      && location !== 'offline' && location !== 'traveling'
+      // 用 startsWith：线上「传送中」的形态是 traveling:traveling（2026-09-25 生产实测），
+      // 精确匹配会把它当成「到达某世界」，从而在这条上做世界判定并落事件。
+      && location !== 'offline' && !String(location).startsWith('traveling')
       && prevSeenMs > 0 && nowMs - prevSeenMs <= dedupWindowMs;
 
     this.storage.upsertFriend({
