@@ -11,6 +11,22 @@ const log = getLogger('event');
 
 // 码点安全截断（review #166：UTF-16 slice 会把 emoji 切半成 U+FFFD 替换符）。
 // 仅日志展示层用，不影响落库数据。
+// ── 同世界同实例的重复 location 去重 ───────────────────────────────────
+// 背景：VRChat 在好友改 Avatar / 客户端重新同步时会重发 world+instance 完全相同的
+// friend-location。逐条落库后，看板动态流里会呈现成「一直在换世界」（同一世界名刷屏），
+// 实际并没有换——用户报障即为此（好友在 Avatar 搜索图里挑模型）。
+// 开关：VRC_MONITOR_DEDUP_SAME_INSTANCE_LOCATION（默认 1=去重；0=保留逐条原始事件，排查用）
+// 窗口：VRC_MONITOR_DEDUP_SAME_INSTANCE_WINDOW_SECONDS（默认 300s；窗口外的重复仍落一条心跳，
+//       便于观察「长期待在同一实例」；调用时读 env，便于测试切换）
+// 只影响 events 表落库与日志；好友状态（location / lastSeen）照常刷新。
+function sameInstanceDedupConfig() {
+  const windowRaw = Number(process.env.VRC_MONITOR_DEDUP_SAME_INSTANCE_WINDOW_SECONDS);
+  return {
+    enabled: Number(process.env.VRC_MONITOR_DEDUP_SAME_INSTANCE_LOCATION) !== 0,
+    windowMs: Number.isFinite(windowRaw) && windowRaw > 0 ? windowRaw * 1000 : 300 * 1000,
+  };
+}
+
 function truncateCodePoints(str, max) {
   const s = String(str ?? '');
   const chars = Array.from(s);
@@ -150,6 +166,14 @@ export class EventPipeline {
 
     const prev = this.storage.getFriend(userId);
     const prevWorldId = prev?.world_id || '';
+    const prevLocation = prev?.location || '';
+    const prevSeenMs = Date.parse(prev?.last_seen || '') || 0;
+    const nowMs = Date.parse(event.receivedAt || '') || Date.now();
+    const { enabled: dedupOn, windowMs: dedupWindowMs } = sameInstanceDedupConfig();
+    const isSameInstanceRepeat = dedupOn
+      && !!location && location === prevLocation
+      && location !== 'offline' && location !== 'traveling'
+      && prevSeenMs > 0 && nowMs - prevSeenMs <= dedupWindowMs;
 
     this.storage.upsertFriend({
       userId,
@@ -164,6 +188,13 @@ export class EventPipeline {
     // 世界名缓存由 handleGetWorldName 的 API fallback 维护（含 TTL 过期），
     // 这里不写回缓存——否则会把陈旧的缓存名字（如世界改名前的旧名）不断刷新，
     // 导致 updated_at 永远新鲜、TTL 失效。
+
+    if (isSameInstanceRepeat) {
+      // 同世界同实例重复（典型来源：好友改 Avatar / 客户端重新同步）→ 只刷新好友状态，
+      // 不落事件、不刷动态流：避免把「换模型」呈现成「一直换世界」。
+      log.debug(`${displayName} 同实例重复位置，已去重: ${truncateCodePoints(location, 60)}`);
+      return;
+    }
 
     this._storeEvent(event, worldName);
 
