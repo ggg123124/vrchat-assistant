@@ -546,3 +546,40 @@ test('recentWorlds 补名：无占位触发 / TTL 内抑制 / 超 TTL 重试 / �
 after(() => {
   for (const f of [tmpDb, tmpDb + '-wal', tmpDb + '-shm']) { try { rmSync(f, { force: true }); } catch {} }
 });
+
+test('dashboard.events：无模型图的 avatar 事件【不得】用跨事件的旧模型名回填', async () => {
+  // 2026-09-25 审查 #264 的回归用例（阻断项）：
+  //   旧实现回落到 lastKnownAvatarUrl（该好友全局最近一条带图事件）⇒ 对「本事件」而言是更早/更晚的模型，
+  //   会把「未知模型」写成「确定但错误」的名；本用例钉住：只允许用【同事件】的 thumbnail 回落。
+  const uid = 'usr_test-0000-0000-0000-0000000000d1';
+  const fidOld = 'file_dddd1111-0000-0000-0000-000000000001';
+  const fidThumb = 'file_dddd2222-0000-0000-0000-000000000002';
+  ctx.storage.setPlanetCache('avatar_name:' + fidOld, { name: '旧事件模型名', at: Date.now() });
+  ctx.storage.setPlanetCache('avatar_name:' + fidThumb, { name: '同事件模型名', at: Date.now() });
+  loader._avatarNameCache = new Map();
+  loader._avatarNameCacheLoaded = false;
+  ctx.storage.insertEvent({
+    type: 'friend-update', userId: uid, displayName: '回落测试',
+    contentJson: {
+      userId: uid, displayName: '回落测试', type: 'avatar', avatarName: '旧事件模型名',
+      avatarImageUrl: 'https://api.vrchat.cloud/api/1/file/' + fidOld + '/1/file',
+    },
+    worldId: '', worldName: '', createdAt: new Date(Date.now() - 120000).toISOString(), source: 'ws',
+  });
+  ctx.storage.insertEvent({
+    type: 'friend-update', userId: uid, displayName: '回落测试',
+    contentJson: {
+      userId: uid, displayName: '回落测试', type: 'avatar',
+      avatarImageUrl: '',
+      avatarThumbnailUrl: 'https://api.vrchat.cloud/api/1/image/' + fidThumb + '/1/256',
+    },
+    worldId: '', worldName: '', createdAt: new Date().toISOString(), source: 'ws',
+  });
+  await services.get('dashboard.events')({ limit: 50, offset: 0 });
+  const r = await services.get('dashboard.events')({ limit: 50, offset: 0 });
+  const evs = r.events.filter((e) => e.userId === uid && e.updateType === 'avatar');
+  assert.ok(evs.length >= 2, '应能查到两条 avatar 事件，实际 ' + evs.length);
+  const newest = evs[0];
+  assert.notEqual(newest.avatarName, '旧事件模型名', '【阻断项】不得用跨事件的旧模型名回填');
+  assert.equal(newest.avatarName, '同事件模型名', '应使用【同事件】thumbnail 回落到本次新模型名');
+});

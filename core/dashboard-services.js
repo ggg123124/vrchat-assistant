@@ -583,13 +583,14 @@ export function registerDashboardServices(loader, ctx) {
         { url: ev.avatarImageUrl, key: 'avatarName' },
         { url: ev.previousAvatarImageUrl, key: 'previousAvatarName' },
       ];
-      // 载荷没带模型图时，回落到该好友【最近一次带图的事件】——
-      // 私人房 / 部分客户端的 friend-update 推送常常不含 avatarImageUrl（实测近 2 天 392 条 avatar
-      // 事件仅 13 条带图），此时 jobs 里两个 url 都为空 ⇒ if (!j.url) continue ⇒ 这些行永远停在「未知模型」；
-      // 而数据其实就在本库 events 表里（该好友上一次换模型时带过图），不必额外发请求。
-      if (!ev.avatarImageUrl) {
-        const lk = lastKnownAvatarUrl(ev.userId);
-        if (lk) jobs.push({ url: lk, key: 'avatarName' });
+      // 载荷没带新模型图时，只回落到【同一条事件】里已有的模型图字段（avatarThumbnailUrl）——
+      // ⚠️ 绝不跨事件取「该好友最近一次带图的那条」（2026-09-25 审查 EMeowAGENT 实测指出）：
+      //    那条对本事件而言是【更早或更晚】的模型（lastKnownAvatarUrl = ORDER BY created_at DESC，
+      //    无「created_at < 本事件」下界）⇒ 会把「未知模型」写成「确定但错误」的名（实测渲染成「模型B → 模型B」），
+      //    比留空更误导；且它带 6h 正缓存，新图到达不失效 ⇒ 回落名最多滞后 6 小时。
+      // 另：仅在 avatarName 为空时回落，避免覆盖本已正确的名字（有名字但无图的推送）。
+      if (!ev.avatarImageUrl && !ev.avatarName && ev.avatarThumbnailUrl) {
+        jobs.push({ url: ev.avatarThumbnailUrl, key: 'avatarName' });
       }
       for (const j of jobs) {
         if (!j.url) continue;
