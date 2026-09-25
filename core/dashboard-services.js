@@ -583,6 +583,14 @@ export function registerDashboardServices(loader, ctx) {
         { url: ev.avatarImageUrl, key: 'avatarName' },
         { url: ev.previousAvatarImageUrl, key: 'previousAvatarName' },
       ];
+      // 载荷没带模型图时，回落到该好友【最近一次带图的事件】——
+      // 私人房 / 部分客户端的 friend-update 推送常常不含 avatarImageUrl（实测近 2 天 392 条 avatar
+      // 事件仅 13 条带图），此时 jobs 里两个 url 都为空 ⇒ if (!j.url) continue ⇒ 这些行永远停在「未知模型」；
+      // 而数据其实就在本库 events 表里（该好友上一次换模型时带过图），不必额外发请求。
+      if (!ev.avatarImageUrl) {
+        const lk = lastKnownAvatarUrl(ev.userId);
+        if (lk) jobs.push({ url: lk, key: 'avatarName' });
+      }
       for (const j of jobs) {
         if (!j.url) continue;
         // j.url 已过 imgProxy 代理（/api/dashboard/image-proxy?url=<encodeURIComponent(原URL)>），
