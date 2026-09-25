@@ -126,7 +126,7 @@ async function act(x, action) {
 
 function friendAvatarOf(userId) {
   const f = (store.friends || []).find(fr => fr.userId === userId);
-  return (f && (f.avatarUrl || f.userIcon)) || '';
+  return (f && (f.userIcon || f.avatarUrl)) || '';
 }
 function nameOf(x) {
   const f = (store.friends || []).find(fr => fr.userId === (x.senderUserId || x.userId));

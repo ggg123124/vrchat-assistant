@@ -209,13 +209,13 @@ function playerNameOf(x) {
   return x.notiGroupName || '通知';
 }
 function playerAvatarOf(x) {
-  if (!isNoti(x)) return x.avatarUrl || x.userIcon || '';
+  if (!isNoti(x)) return x.userIcon || x.avatarUrl || '';
   if (typeOf(x) === 'group') return x.notiImageUrl || '';
   if (x.senderUserId) {
     const f = store.friends.find((f) => f.userId === x.senderUserId);
-    if (f) return f.avatarUrl || f.userIcon || '';
+    if (f) return f.userIcon || f.avatarUrl || '';
   }
-  return x.avatarUrl || x.userIcon || '';
+  return x.userIcon || x.avatarUrl || '';
 }
 function playerOpen(x) {
   if (isNoti(x)) {
