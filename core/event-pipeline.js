@@ -9,6 +9,19 @@ import { getLogger } from './logger.js';
 
 const log = getLogger('event');
 
+/**
+ * 从 WS 的 user 载荷取「当前模型图 URL」。
+ *
+ * 新版资料系统里 currentAvatarImageUrl / currentAvatarThumbnailImageUrl 已被移除，实际字段是 iconUrl ——
+ * 但 **只有 bannerType === 'avatarBanner' 时它才指向模型图**（bannerType 会变：实测近 3 天
+ * avatarBanner 267 / null 106 / color 87，约 42% 的推送里 iconUrl 并不是模型图）。
+ * ⇒ 非 avatarBanner 时视为没有模型信息（弱源不产出），再由旧字段兜底。
+ */
+function avatarImageUrlFromUser(user) {
+  const isAvatarBanner = String(user.bannerType || '') === 'avatarBanner';
+  return (isAvatarBanner ? (user.iconUrl || '') : '') || user.currentAvatarImageUrl || '';
+}
+
 // 码点安全截断（review #166：UTF-16 slice 会把 emoji 切半成 U+FFFD 替换符）。
 // 仅日志展示层用，不影响落库数据。
 function truncateCodePoints(str, max) {
@@ -232,9 +245,7 @@ export class EventPipeline {
       const trust = trustFromTags(userObj.tags) || '';
       // 新版资料系统：currentAvatar* 已被上游移除，实际字段是 iconUrl（bannerType=avatarBanner 时指向模型图）
       // ⇒ 用旧字段会让 avatarChanged 恒假、永远没有模型变动事件。注意 bannerType 会变：非 avatarBanner 时视为无模型信息。
-      const isAvatarBanner = String(userObj.bannerType || '') === 'avatarBanner';
-      const newAvatarUrl = (isAvatarBanner ? (userObj.iconUrl || '') : '')
-        || userObj.currentAvatarImageUrl || '';
+      const newAvatarUrl = avatarImageUrlFromUser(userObj);
       const prev = this.storage.getFriend(userId);
       if (prev && prev.user_id) {
         const changes = [];
@@ -385,8 +396,8 @@ export class EventPipeline {
     put('statusDescription', userObj.statusDescription);
     put('bio', userObj.bio);
     // 同上：新版资料系统用 iconUrl（bannerType=avatarBanner 时指向模型图），旧字段已被上游移除
-    const syncAvatarUrl = (String(userObj.bannerType || '') === 'avatarBanner' ? (userObj.iconUrl || '') : '')
-      || userObj.currentAvatarImageUrl || userObj.currentAvatarThumbnailImageUrl;
+    const syncAvatarUrl = avatarImageUrlFromUser(userObj)
+      || userObj.currentAvatarThumbnailImageUrl;
     put('avatarImageUrl', syncAvatarUrl);
     put('userIcon', userObj.iconUrl || userObj.userIcon);
     put('pronouns', userObj.pronouns);
