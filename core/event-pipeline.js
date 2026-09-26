@@ -293,12 +293,18 @@ export class EventPipeline {
       const trust = trustFromTags(userObj.tags) || '';
       // 新版资料系统：currentAvatar* 已被上游移除，实际字段是 iconUrl（bannerType=avatarBanner 时指向模型图）
       // ⇒ 用旧字段会让 avatarChanged 恒假、永远没有模型变动事件。注意 bannerType 会变：非 avatarBanner 时视为无模型信息。
-      const newAvatarUrl = avatarImageUrlFromUser(userObj);
+      let newAvatarUrl = avatarImageUrlFromUser(userObj);   // let：重分类路径要把它置为同文件的模型图 URL（写回基线用）
       const prev = this.storage.getFriend(userId);
       if (prev && prev.user_id) {
         const changes = [];
+        // ⭐ 2026-09-26（审查 🔴 同类问题）：同一个文件的不同 URL 形态（…/1/256 ↔ …/1/512）不应算作「换了模型」——
+        //   否则每次推送都会再产一条 avatar 事件 ⇒ 优先按 file id 比较；解析不出 id 时才退回字符串比较（不放大语义）。
+        const prevAvatarFileId = avatarFileId(prev.avatar_image_url || '');
+        const newAvatarFileId = avatarFileId(newAvatarUrl || '');
         const avatarChanged = newAvatarUrl !== undefined && prev.avatar_image_url
-          && (prev.avatar_image_url || '') !== newAvatarUrl;
+          && (newAvatarFileId && prevAvatarFileId
+            ? newAvatarFileId !== prevAvatarFileId
+            : (prev.avatar_image_url || '') !== newAvatarUrl);
         if (avatarChanged) {
           changes.push({ type: 'avatar', payload: {
             avatarName: userObj.currentAvatarName || '',
@@ -345,12 +351,19 @@ export class EventPipeline {
         const iconIsModelImage = !!iconFileId && modelFileIds.includes(iconFileId);
         // ⭐ 同一条定案的另一半：图标其实就是模型图（同文件）但模型图基线当时为空 ⇒ 该次换模型原本【一条事件都没有】
         //   （只有那条错的「更新了头像图标」）⇒ 这里按【模型变更】补一条 avatar 事件，标签才是「模型变动」✓。
-        //   仅在「本次图标与已存模型图基线不同」时补，避免每轮推送重复产出 ✓。
-        if (!avatarChanged && iconIsModelImage && (prev.avatar_image_url || '') !== newUserIcon) {
+        //   仅在「本次图标与已存模型图基线不同」时补；**判据必须也是【文件级】**（审查 🔴 实测：分类按 file id 而去重按字符串 ⇒
+        //   同一文件换 URL 形态（…/1/256 ↔ …/1/512）连推时会每次多补一条）⇒ 用 avatarFileId 比较 ✓。
+        //   ⚠️ 已知局限（审查 ⚠️ 要求写明）：文件同一性只能由【模型图字段】建立 ——
+        //   若 bannerType 非 avatarBanner **且载荷不带任何 currentAvatar***，仅凭 iconUrl 无法判定它是不是模型图 ⇒
+        //   该形态仍会记成 user_icon（本层无更强证据，宁可按字段名语义处理，不猜）。
+        //   与 iconChanged 的关系：两者共用 iconIsModelImage —— 这里把「同源图标变化」升格为模型变更，
+        //   iconChanged 那边则据此排除它，语义互补、不会双记 ✓。
+        if (!avatarChanged && iconIsModelImage && avatarFileId(prev.avatar_image_url || '') !== iconFileId) {
+          newAvatarUrl = newUserIcon;   // ★ 写回基线：同一文件的下一次推送不再重复补事件（审查 🔴）
           changes.push({ type: 'avatar', payload: {
-            avatarName: '',
+            avatarName: userObj.currentAvatarName || '',
             avatarImageUrl: newUserIcon,
-            avatarThumbnailUrl: '',
+            avatarThumbnailUrl: userObj.currentAvatarThumbnailImageUrl || '',
             previousAvatarImageUrl: prev.avatar_image_url || '',
           }});
         }
@@ -446,7 +459,7 @@ export class EventPipeline {
         displayName,
         status: userObj.status || '',
         statusDescription: userObj.statusDescription || '',
-        ...(newAvatarUrl ? { avatarImageUrl: newAvatarUrl } : {}),   // 取不到就不写该列（partial，不清空已存基线）
+        ...(newAvatarUrl ? { avatarImageUrl: newAvatarUrl } : {}),   // 取不到就不写该列（partial，不清空已存基线）；重分类时上面已把 newAvatarUrl 置为模型图 ⇒ 幂等
         bio: userObj.bio || '',
         ...(userObj.iconUrl || userObj.userIcon ? { userIcon: userObj.iconUrl || userObj.userIcon } : {}),
         pronouns: userObj.pronouns || '',

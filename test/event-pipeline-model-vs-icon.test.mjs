@@ -66,3 +66,18 @@ test('只换头像（iconUrl 与任何模型图字段都不同文件）⇒ 记�
   assert.equal(n.icon, 1, '真·只换头像时仍须产出 user_icon');
   assert.equal(n.avatar, 0, '没换模型时不得产出 avatar 事件');
 });
+
+test('幂等：同一文件反复推送（含 URL 形态不同）⇒ 仍只有 1 条 avatar 事件（审查 🔴 回归）', async () => {
+  clear();
+  storage.upsertFriend({ userId: UID, displayName: '分类测试', userIcon: OLD_ICON, avatarImageUrl: '', bio: '', status: 'active' });
+  const MODEL_512 = MODEL.replace('/1/256', '/1/512');   // 同文件、不同 URL 形态
+  for (const [i, url] of [MODEL, MODEL, MODEL_512, MODEL].entries()) {
+    await pipeline.process({
+      type: 'friend-update', userId: UID, displayName: '分类测试', receivedAt: '2026-09-26T04:10:0' + i + '.000Z',
+      content: { user: { bannerType: 'color', iconUrl: url, currentAvatarImageUrl: url, bio: '', status: 'active' } },
+    });
+  }
+  const n = types();
+  assert.equal(n.avatar, 1, '同一文件的重复推送不得重复产出 avatar 事件（应按文件级去重）');
+  assert.equal(n.icon, 0, '换模型不得产出 user_icon');
+});
