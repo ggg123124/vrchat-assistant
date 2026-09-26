@@ -1,4 +1,4 @@
-import { avatarThumb, avatarOf } from './img-util.js';
+import { avatarThumb, avatarOf, avatarFileId } from './img-util.js';
 
 // 网页端在线判据（单一来源：WS friend-active 与 start-monitor 快照对账共用，防漂移）。
 // 当前仅 'web'——nativemobile 语义待确认后纳入（见 _handleActive 注释与跟进 issue）。
@@ -293,12 +293,18 @@ export class EventPipeline {
       const trust = trustFromTags(userObj.tags) || '';
       // 新版资料系统：currentAvatar* 已被上游移除，实际字段是 iconUrl（bannerType=avatarBanner 时指向模型图）
       // ⇒ 用旧字段会让 avatarChanged 恒假、永远没有模型变动事件。注意 bannerType 会变：非 avatarBanner 时视为无模型信息。
-      const newAvatarUrl = avatarImageUrlFromUser(userObj);
+      let newAvatarUrl = avatarImageUrlFromUser(userObj);   // let：重分类路径要把它置为同文件的模型图 URL（写回基线用）
       const prev = this.storage.getFriend(userId);
       if (prev && prev.user_id) {
         const changes = [];
+        // ⭐ 2026-09-26（审查 🔴 同类问题）：同一个文件的不同 URL 形态（…/1/256 ↔ …/1/512）不应算作「换了模型」——
+        //   否则每次推送都会再产一条 avatar 事件 ⇒ 优先按 file id 比较；解析不出 id 时才退回字符串比较（不放大语义）。
+        const prevAvatarFileId = avatarFileId(prev.avatar_image_url || '');
+        const newAvatarFileId = avatarFileId(newAvatarUrl || '');
         const avatarChanged = newAvatarUrl !== undefined && prev.avatar_image_url
-          && (prev.avatar_image_url || '') !== newAvatarUrl;
+          && (newAvatarFileId && prevAvatarFileId
+            ? newAvatarFileId !== prevAvatarFileId
+            : (prev.avatar_image_url || '') !== newAvatarUrl);
         if (avatarChanged) {
           changes.push({ type: 'avatar', payload: {
             avatarName: userObj.currentAvatarName || '',
@@ -325,11 +331,45 @@ export class EventPipeline {
           }});
         }
         // 同 newAvatarUrl：用纯函数取值，undefined = 没有图标信息（不产出事件）
-        // 不能 diff userObj.userIcon —— 该字段已被上游移除、恒 undefined，
+        // 不能 diff 上游已移除的 userIcon 字段 —— 它恒 undefined，
         // 基线一旦非空就会每次推送都判为「图标变了」（#251 第二轮审查的阻断项）
         // 载荷里 iconUrl / userIcon 都没有 ⇒ 这条推送【没带图标信息】⇒ 不产出事件（也不动基线）。
         // 若把这种情况当成「图标被移除」，会产出空图事件并把已存的图标基线清空（#259 复审的防御性缺口）。
         const newUserIcon = userIconUrlFromUser(userObj);
+        // ⭐ 用户 2026-09-26 定案：「换模型就显示换模型啊。只有只换头像才显示换头像」——
+        //   实测（生产 id 17146/17147 同一秒）**换模型**时本层会同时产出 avatar 与 user_icon 两条事件，
+        //   且 user_icon 携带的 `userIcon` 与 avatar 的 `avatarImageUrl` **是同一个文件** ⇒ 动态流显示成
+        //   「更新了头像图标」（用户截图里的错行）。#263 的 `!isAvatarBanner` 门禁只覆盖 avatarBanner 那一档，
+        //   而 `bannerType` 非 avatarBanner 时 `iconUrl` 仍可能是模型图 ⇒ 罩不住。
+        //   ⇒ 判据改为【按文件同一性】：本次 `iconUrl` 与任一「模型图字段」指向同一文件时，它是模型图、不是用户图标。
+        const iconFileId = avatarFileId(newUserIcon || '');
+        const modelFileIds = [
+          avatarFileId(newAvatarUrl || ''),
+          avatarFileId(userObj.currentAvatarImageUrl || ''),
+          avatarFileId(userObj.currentAvatarThumbnailImageUrl || ''),
+          // ⚠️1（审查 nixi-agent 指出）：**已存模型图基线**也是证据，且下面重分类分支本来就在用它 ——
+          //   两处用不同证据集判定同一件事，正是覆盖缺口的根源（该形态会产出携带模型图的 user_icon）。
+          avatarFileId(prev.avatar_image_url || ''),
+        ].filter(Boolean);
+        const iconIsModelImage = !!iconFileId && modelFileIds.includes(iconFileId);
+        // ⭐ 同一条定案的另一半：图标其实就是模型图（同文件）但模型图基线当时为空 ⇒ 该次换模型原本【一条事件都没有】
+        //   （只有那条错的「更新了头像图标」）⇒ 这里按【模型变更】补一条 avatar 事件，标签才是「模型变动」✓。
+        //   仅在「本次图标与已存模型图基线不同」时补；**判据必须也是【文件级】**（审查 🔴 实测：分类按 file id 而去重按字符串 ⇒
+        //   同一文件换 URL 形态（…/1/256 ↔ …/1/512）连推时会每次多补一条）⇒ 用 avatarFileId 比较 ✓。
+        //   ⚠️ 已知局限（审查 ⚠️ 要求写明）：文件同一性只能由【模型图字段】建立 ——
+        //   若 bannerType 非 avatarBanner **且载荷不带任何 currentAvatar***，仅凭 iconUrl 无法判定它是不是模型图 ⇒
+        //   该形态仍会记成 user_icon（本层无更强证据，宁可按字段名语义处理，不猜）。
+        //   与 iconChanged 的关系：两者共用 iconIsModelImage —— 这里把「同源图标变化」升格为模型变更，
+        //   iconChanged 那边则据此排除它，语义互补、不会双记 ✓。
+        if (!avatarChanged && iconIsModelImage && avatarFileId(prev.avatar_image_url || '') !== iconFileId) {
+          newAvatarUrl = newUserIcon;   // ★ 写回基线：同一文件的下一次推送不再重复补事件（审查 🔴）
+          changes.push({ type: 'avatar', payload: {
+            avatarName: userObj.currentAvatarName || '',
+            avatarImageUrl: newUserIcon,
+            avatarThumbnailUrl: userObj.currentAvatarThumbnailImageUrl || '',
+            previousAvatarImageUrl: prev.avatar_image_url || '',
+          }});
+        }
         // bannerType === 'avatarBanner' 时 iconUrl 指向的【就是当前模型图】（新版资料系统）——
         // 换模型必然改它 ⇒ 若这里再判一次，换一次模型会同时产出「更换模型」+「更新了头像图标」
         // 两条事件，且后者前后常是同一张图（用户实测截图里出现过「更新了头像图标 🍮 → 🍮」）。
@@ -340,10 +380,16 @@ export class EventPipeline {
         //   且若 prev.avatar_image_url 基线为空，该次换模型连 avatar 事件也没有（要等基线补上后的下一次才触发）。
         // 为何仍选更宽的判据：该档 iconUrl 与模型图【同源】，本层无法区分「用户改了图标」与「换模型」；
         //   而误报（每次换模型都多一条「更新了头像图标」）是用户明确报障，误漏（改图标不报）无用户可见影响。
-        const iconChanged = !isAvatarBanner
+        // ⚠️2（审查 nixi-agent 指出）：姊妹路径判据必须一致 —— `avatarChanged` 已升格为文件级，
+        //   这里若仍用字符串比较，同一张图换 URL 形态（…/1/256 ↔ …/1/512）仍会被记成「更新了头像图标」✗。
+        const prevIconFileId = avatarFileId(prev.user_icon || '');
+        const newIconFileId = avatarFileId(newUserIcon || '');
+        const iconChanged = !isAvatarBanner && !iconIsModelImage
           && prev.user_icon
           && newUserIcon !== undefined
-          && (prev.user_icon || '') !== newUserIcon;
+          && (prevIconFileId && newIconFileId
+            ? prevIconFileId !== newIconFileId
+            : (prev.user_icon || '') !== newUserIcon);
         if (iconChanged) {
           changes.push({ type: 'user_icon', payload: { userIcon: newUserIcon, previousUserIcon: prev.user_icon || '' } });
         }
@@ -422,7 +468,7 @@ export class EventPipeline {
         displayName,
         status: userObj.status || '',
         statusDescription: userObj.statusDescription || '',
-        ...(newAvatarUrl ? { avatarImageUrl: newAvatarUrl } : {}),   // 取不到就不写该列（partial，不清空已存基线）
+        ...(newAvatarUrl ? { avatarImageUrl: newAvatarUrl } : {}),   // 取不到就不写该列（partial，不清空已存基线）；重分类时上面已把 newAvatarUrl 置为模型图 ⇒ 幂等
         bio: userObj.bio || '',
         ...(userObj.iconUrl || userObj.userIcon ? { userIcon: userObj.iconUrl || userObj.userIcon } : {}),
         pronouns: userObj.pronouns || '',
