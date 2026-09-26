@@ -608,6 +608,15 @@ export function registerDashboardServices(loader, ctx) {
         { url: ev.avatarImageUrl, key: 'avatarName' },
         { url: ev.previousAvatarImageUrl, key: 'previousAvatarName' },
       ];
+      // 载荷没带新模型图时，只回落到【同一条事件】里已有的模型图字段（avatarThumbnailUrl）——
+      // ⚠️ 绝不跨事件取「该好友最近一次带图的那条」（2026-09-25 审查 EMeowAGENT 实测指出）：
+      //    那条对本事件而言是【更早或更晚】的模型（lastKnownAvatarUrl = ORDER BY created_at DESC，
+      //    无「created_at < 本事件」下界）⇒ 会把「未知模型」写成「确定但错误」的名（实测渲染成「模型B → 模型B」），
+      //    比留空更误导；且它带 6h 正缓存，新图到达不失效 ⇒ 回落名最多滞后 6 小时。
+      // 另：仅在 avatarName 为空时回落，避免覆盖本已正确的名字（有名字但无图的推送）。
+      if (!ev.avatarImageUrl && !ev.avatarName && ev.avatarThumbnailUrl) {
+        jobs.push({ url: ev.avatarThumbnailUrl, key: 'avatarName' });
+      }
       for (const j of jobs) {
         if (!j.url) continue;
         // j.url 已过 imgProxy 代理（/api/dashboard/image-proxy?url=<encodeURIComponent(原URL)>），
