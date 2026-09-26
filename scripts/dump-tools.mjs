@@ -41,6 +41,25 @@ for (const n of whitelist) {
 }
 await loader.loadAll();
 
+// ── 插件没全加载 = 工具清单**残缺**，必须响亮失败，绝不输出短清单 ──
+// 实测 2026-09-26：隔离 worktree 里只挂了顶层 node_modules、漏了插件自己的
+//   plugins/official/emoji-notes/node_modules（该插件自带依赖 pinyin-pro），
+//   emoji-notes 加载失败 ⇒ dump 少 3 个工具 ⇒ check-doc-drift.py 把它报成
+//   「skill 引用了不存在的工具」（假漂移，真因是环境）——排查方向被整个带偏。
+// 下游拿到残缺清单只会去改文档；宁可在这里 exit != 0，让它直接报「清单不可信」。
+// 注意：故意禁用的插件 status 是 'disabled'，不在此列，不会误伤。
+const failedPlugins = loader.getStatus().filter((p) => p.status === 'error');
+if (failedPlugins.length) {
+  for (const p of failedPlugins) {
+    console.error(`[dump-tools] 插件加载失败: ${p.name} — ${p.error || '未知原因'}`);
+  }
+  console.error(
+    `[dump-tools] ${failedPlugins.length} 个插件未加载，工具清单不完整 → 终止。` +
+    `（不是文档漂移；先修环境：依赖是否装齐、每个插件子目录的 node_modules 是否就位）`
+  );
+  process.exit(2);
+}
+
 const tools = registry.listTools();
 for (const t of tools) console.log(t.name);
 
