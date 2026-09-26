@@ -200,7 +200,9 @@ export class EventPipeline {
     const { enabled: dedupOn, windowMs: dedupWindowMs } = sameInstanceDedupConfig();
     const isSameInstanceRepeat = dedupOn
       && !!location && location === prevLocation
-      && location !== 'offline' && location !== 'traveling'
+      // 用 startsWith：线上「传送中」的形态是 traveling:traveling（2026-09-25 生产实测），
+      // 精确匹配会把它当成「到达某世界」，从而在这条上做世界判定并落事件。
+      && location !== 'offline' && !String(location).startsWith('traveling')
       && prevSeenMs > 0 && nowMs - prevSeenMs <= dedupWindowMs;
 
     this.storage.upsertFriend({
@@ -325,8 +327,21 @@ export class EventPipeline {
         // 同 newAvatarUrl：用纯函数取值，undefined = 没有图标信息（不产出事件）
         // 不能 diff userObj.userIcon —— 该字段已被上游移除、恒 undefined，
         // 基线一旦非空就会每次推送都判为「图标变了」（#251 第二轮审查的阻断项）
+        // 载荷里 iconUrl / userIcon 都没有 ⇒ 这条推送【没带图标信息】⇒ 不产出事件（也不动基线）。
+        // 若把这种情况当成「图标被移除」，会产出空图事件并把已存的图标基线清空（#259 复审的防御性缺口）。
         const newUserIcon = userIconUrlFromUser(userObj);
-        const iconChanged = prev.user_icon
+        // bannerType === 'avatarBanner' 时 iconUrl 指向的【就是当前模型图】（新版资料系统）——
+        // 换模型必然改它 ⇒ 若这里再判一次，换一次模型会同时产出「更换模型」+「更新了头像图标」
+        // 两条事件，且后者前后常是同一张图（用户实测截图里出现过「更新了头像图标 🍮 → 🍮」）。
+        // 该形态下图标变化已由 avatarChanged 覆盖，故不在此重复判。
+        const isAvatarBanner = String(userObj.bannerType || '') === 'avatarBanner';
+        // 取舍（2026-09-25 审查 💡 指出，如实记录）：本门禁比「同载荷已报 avatar 才跳过」更宽 ——
+        //   只要 bannerType=avatarBanner 就永不产 user_icon，副作用是该档下【真实用户图标变更】也不报；
+        //   且若 prev.avatar_image_url 基线为空，该次换模型连 avatar 事件也没有（要等基线补上后的下一次才触发）。
+        // 为何仍选更宽的判据：该档 iconUrl 与模型图【同源】，本层无法区分「用户改了图标」与「换模型」；
+        //   而误报（每次换模型都多一条「更新了头像图标」）是用户明确报障，误漏（改图标不报）无用户可见影响。
+        const iconChanged = !isAvatarBanner
+          && prev.user_icon
           && newUserIcon !== undefined
           && (prev.user_icon || '') !== newUserIcon;
         if (iconChanged) {
