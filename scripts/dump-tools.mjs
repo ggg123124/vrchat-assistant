@@ -76,7 +76,11 @@ const tools = registry.listTools();
 
 // 形态 C：数量自校验。CI 已有同款断言（行数 == core/tool-order.json 的 tool_order），
 //   内置进来是为了让**本地/开发环境**的 check-doc-drift 也拿到硬门禁，而不只依赖 CI。
-//   读不到 tool-order.json 只告警不终止：这层是加固，不该自己变成新的失败点。
+//   边界（审核实测后订正，勿再写成「读不到就跳过」）：本文件**整体缺失**时走不到下面的
+//   catch —— core/registry.js:39 在**模块导入期**就 readFileSync 它，而本脚本第 28 行
+//   已经 import 了 registry ⇒ 会先在那里以非零退出。JSON 非法同理。
+//   好在两条都仍是 fail-closed：下游拿到非零退出就会拒绝使用残缺清单，不会静默。
+//   ⇒ 这个 catch 只兜「能读到、但结构不对」的残留形态，不是「文件不存在」的兜底。
 try {
   const expected = JSON.parse(
     readFileSync(path.join(__dirname, '..', 'core', 'tool-order.json'), 'utf8')
@@ -88,7 +92,7 @@ try {
     process.exit(2);
   }
 } catch (err) {
-  console.error(`[dump-tools] 跳过数量自校验（读不到 core/tool-order.json: ${err.message}）`);
+  console.error(`[dump-tools] 跳过数量自校验（core/tool-order.json 结构异常: ${err.message}）`);
 }
 for (const t of tools) console.log(t.name);
 
