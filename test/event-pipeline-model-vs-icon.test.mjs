@@ -81,3 +81,29 @@ test('幂等：同一文件反复推送（含 URL 形态不同）⇒ 仍只有 1
   assert.equal(n.avatar, 1, '同一文件的重复推送不得重复产出 avatar 事件（应按文件级去重）');
   assert.equal(n.icon, 0, '换模型不得产出 user_icon');
 });
+
+// ── #265 第二轮（审查 nixi-agent ⚠️1/⚠️2）──
+test('⚠️1：图标等于【已存模型图基线】时不得产出 user_icon（证据集须含基线）', async () => {
+  clear();
+  // 基线里已有模型图；载荷只给 iconUrl（不带任何 currentAvatar*），且与基线同文件
+  storage.upsertFriend({ userId: UID, displayName: '分类测试', userIcon: OLD_ICON, avatarImageUrl: MODEL, bio: '', status: 'active' });
+  await pipeline.process({
+    type: 'friend-update', userId: UID, displayName: '分类测试', receivedAt: '2026-09-26T05:00:00.000Z',
+    content: { user: { bannerType: 'color', iconUrl: MODEL, bio: '', status: 'active' } },
+  });
+  const n = types();
+  assert.equal(n.icon, 0, '与已存模型图同文件 ⇒ 不是用户图标变化，不得产 user_icon');
+  assert.equal(n.avatar, 0, '模型图未变 ⇒ 也不产 avatar 事件');
+});
+
+test('⚠️2：用户图标同一文件换 URL 形态 ⇒ 不产 user_icon（姊妹路径判据一致）', async () => {
+  clear();
+  const ICON_512 = ICON_ONLY.replace('/1/256', '/1/512');
+  storage.upsertFriend({ userId: UID, displayName: '分类测试', userIcon: ICON_ONLY, avatarImageUrl: '', bio: '', status: 'active' });
+  await pipeline.process({
+    type: 'friend-update', userId: UID, displayName: '分类测试', receivedAt: '2026-09-26T05:05:00.000Z',
+    content: { user: { bannerType: 'color', iconUrl: ICON_512, bio: '', status: 'active' } },
+  });
+  const n = types();
+  assert.equal(n.icon, 0, '同一文件不同 URL 形态不算图标变化（应与 avatarChanged 同口径）');
+});
