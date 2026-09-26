@@ -563,3 +563,118 @@ test('dashboard.events：location=traveling:traveling 在 DTO 层归一为 trave
   assert.equal(ev.instanceType, '', '归一后不得再是 public');
   assert.equal(ev.instanceId, '', '归一后不得再是 traveling');
 });
+
+test('previousWorldName：左端世界名走 world_cache（私人房不载荷 world 也能显示）', async () => {
+  // 2026-09-25 审查 #262 的回归用例：两条事件的世界名列【故意留空】——
+  // 模拟 VRChat 对私人房 / hidden 房不下发 content.world 的推送；名字只能来自 world_cache。
+  const uid = 'usr_test-0000-0000-0000-0000000000b1';
+  const widPrev = 'wrld_test-1111-1111-1111-111111111111';
+  const widCur = 'wrld_test-2222-2222-2222-222222222222';
+  ctx.storage.run(
+    `INSERT OR REPLACE INTO world_cache (world_id, name, image_url) VALUES ($w, $n, '')`,
+    { $w: widPrev, $n: '缓存世界名' });
+  ctx.storage.insertEvent({
+    type: 'friend-location', userId: uid, displayName: '左端测试',
+    contentJson: { userId: uid, location: widPrev + ':12345~hidden(usr_aaaaaaaa-0000-0000-0000-000000000001)', user: {} },
+    worldId: widPrev, worldName: '', createdAt: new Date(Date.now() - 60000).toISOString(), source: 'websocket',
+  });
+  ctx.storage.insertEvent({
+    type: 'friend-location', userId: uid, displayName: '左端测试',
+    contentJson: { userId: uid, location: widCur + ':6789~hidden(usr_aaaaaaaa-0000-0000-0000-000000000001)', user: {} },
+    worldId: widCur, worldName: '', createdAt: new Date().toISOString(), source: 'websocket',
+  });
+  const r = await services.get('dashboard.events')({ limit: 50, offset: 0 });
+  const cur = r.events.find((e) => e.worldId === widCur);
+  assert.ok(cur, '应能查到当前世界那条事件');
+  assert.equal(cur.previousWorldName, '缓存世界名', '左端世界名应取自 world_cache（与右端同口径）');
+  assert.equal(cur.previousWorldId, widPrev, '左端世界 id 应指向上一位置');
+});
+
+test('previousWorldName：同一世界时左端名与右端名一致（消除「从 X → 到 Y」幻影行）', async () => {
+  // 2026-09-25 审查 nixi-agent 建议（#262）：
+  //   前端 views.js 以 `previousWorldName !== worldName` 判定是否渲染「从 X → 到 Y」；
+  //   修前左端只读载荷 ⇒ 同一世界若载荷无 world（私人房常见）而缓存有名字，就会显示成【幻影世界切换】。
+  //   他本机 30 天实测：修前 115 行、修后 0 行。本用例把该不变量钉死。
+  const uid = 'usr_test-0000-0000-0000-0000000000e1';
+  const wid = 'wrld_test-3333-3333-3333-333333333333';
+  ctx.storage.run(
+    `INSERT OR REPLACE INTO world_cache (world_id, name, image_url) VALUES ($w, $n, '')`,
+    { $w: wid, $n: '缓存世界名' });
+  ctx.storage.insertEvent({
+    type: 'friend-location', userId: uid, displayName: '幻影测试',
+    contentJson: { userId: uid, location: wid + ':11111~hidden(usr_bbbbbbbb-0000-0000-0000-000000000002)', user: {} },
+    worldId: wid, worldName: '', createdAt: new Date(Date.now() - 60000).toISOString(), source: 'websocket',
+  });
+  ctx.storage.insertEvent({
+    type: 'friend-location', userId: uid, displayName: '幻影测试',
+    contentJson: { userId: uid, location: wid + ':11111~hidden(usr_bbbbbbbb-0000-0000-0000-000000000002)', user: {} },
+    worldId: wid, worldName: '', createdAt: new Date().toISOString(), source: 'websocket',
+  });
+  const r = await services.get('dashboard.events')({ limit: 50, offset: 0 });
+  const cur = r.events.find((e) => e.userId === uid);
+  assert.ok(cur, '应能查到该事件');
+  assert.equal(cur.worldName, '缓存世界名', '右端名取自 world_cache');
+  assert.equal(cur.previousWorldName, cur.worldName, '同一世界时左端名必须与右端一致（否则前端渲染出幻影世界切换）');
+});
+
+test('dashboard.events：无模型图的 avatar 事件【不得】用跨事件的旧模型名回填', async () => {
+  // 2026-09-25 审查 #264 的回归用例（阻断项）：
+  //   旧实现回落到 lastKnownAvatarUrl（该好友全局最近一条带图事件）⇒ 对「本事件」而言是更早/更晚的模型，
+  //   会把「未知模型」写成「确定但错误」的名；本用例钉住：只允许用【同事件】的 thumbnail 回落。
+  const uid = 'usr_test-0000-0000-0000-0000000000d1';
+  const fidOld = 'file_dddd1111-0000-0000-0000-000000000001';
+  const fidThumb = 'file_dddd2222-0000-0000-0000-000000000002';
+  ctx.storage.setPlanetCache('avatar_name:' + fidOld, { name: '旧事件模型名', at: Date.now() });
+  ctx.storage.setPlanetCache('avatar_name:' + fidThumb, { name: '同事件模型名', at: Date.now() });
+  loader._avatarNameCache = new Map();
+  loader._avatarNameCacheLoaded = false;
+  ctx.storage.insertEvent({
+    type: 'friend-update', userId: uid, displayName: '回落测试',
+    contentJson: {
+      userId: uid, displayName: '回落测试', type: 'avatar', avatarName: '旧事件模型名',
+      avatarImageUrl: 'https://api.vrchat.cloud/api/1/file/' + fidOld + '/1/file',
+    },
+    worldId: '', worldName: '', createdAt: new Date(Date.now() - 120000).toISOString(), source: 'ws',
+  });
+  ctx.storage.insertEvent({
+    type: 'friend-update', userId: uid, displayName: '回落测试',
+    contentJson: {
+      userId: uid, displayName: '回落测试', type: 'avatar',
+      avatarImageUrl: '',
+      avatarThumbnailUrl: 'https://api.vrchat.cloud/api/1/image/' + fidThumb + '/1/256',
+    },
+    worldId: '', worldName: '', createdAt: new Date().toISOString(), source: 'ws',
+  });
+  await services.get('dashboard.events')({ limit: 50, offset: 0 });
+  const r = await services.get('dashboard.events')({ limit: 50, offset: 0 });
+  const evs = r.events.filter((e) => e.userId === uid && e.updateType === 'avatar');
+  assert.ok(evs.length >= 2, '应能查到两条 avatar 事件，实际 ' + evs.length);
+  const newest = evs[0];
+  assert.notEqual(newest.avatarName, '旧事件模型名', '【阻断项】不得用跨事件的旧模型名回填');
+  assert.equal(newest.avatarName, '同事件模型名', '应使用【同事件】thumbnail 回落到本次新模型名');
+});
+
+// ── #264（审查 nixi-agent 建议②）：用【真实载荷形态】把限度钉死 ──
+test('dashboard.events：载荷无新模型图时保持「未知模型」（不得跨事件猜测当前模型名）', async () => {
+  // 上游这批推送 avatarImageUrl / avatarThumbnailUrl 同为空串、且无 user.currentAvatar*（生产实测形态）。
+  // 本用例钉住：这种情况下【保持未知】，绝不用「好友当前模型名」猜测（那会把更早的行写成当前模型名，张冠李戴）。
+  const uid = 'usr_test-0000-0000-0000-0000000000f3';
+  const fidCur = 'file_ffff5555-0000-0000-0000-000000000005';
+  const curImg = 'https://api.vrchat.cloud/api/1/file/' + fidCur + '/1/file';
+  ctx.storage.upsertFriend({ userId: uid, displayName: '限度测试', avatarImageUrl: curImg, bio: '', status: 'active' });
+  ctx.storage.setPlanetCache('avatar_name:' + fidCur, { name: '当前模型名', at: Date.now() });
+  loader._avatarNameCache = new Map();
+  loader._avatarNameCacheLoaded = false;
+  ctx.storage.insertEvent({
+    type: 'friend-update', userId: uid, displayName: '限度测试',
+    contentJson: { userId: uid, displayName: '限度测试', type: 'avatar', avatarImageUrl: '', avatarThumbnailUrl: '',
+      previousAvatarImageUrl: 'https://api.vrchat.cloud/api/1/image/file_ffff6666-0000-0000-0000-000000000006/1/256' },
+    worldId: '', worldName: '', createdAt: new Date(Date.now() + 10800000).toISOString(), source: 'ws',
+  });
+  await services.get('dashboard.events')({ limit: 50, offset: 0 });
+  const r = await services.get('dashboard.events')({ limit: 50, offset: 0 });
+  const ev = r.events.find((e) => e.userId === uid);
+  assert.ok(ev, '应能查到该事件');
+  assert.notEqual(ev.avatarName, '当前模型名', '不得跨事件用「好友当前模型」回填（会张冠李戴）');
+  assert.equal(ev.avatarName, '', '载荷没有新模型图时保持未知（本 PR 的已知限度）');
+});
