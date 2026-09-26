@@ -41,14 +41,26 @@ for (const n of whitelist) {
 }
 await loader.loadAll();
 
-// ── 插件没全加载 = 工具清单**残缺**，必须响亮失败，绝不输出短清单 ──
-// 实测 2026-09-26：隔离 worktree 里只挂了顶层 node_modules、漏了插件自己的
-//   plugins/official/emoji-notes/node_modules（该插件自带依赖 pinyin-pro），
-//   emoji-notes 加载失败 ⇒ dump 少 3 个工具 ⇒ check-doc-drift.py 把它报成
-//   「skill 引用了不存在的工具」（假漂移，真因是环境）——排查方向被整个带偏。
-// 下游拿到残缺清单只会去改文档；宁可在这里 exit != 0，让它直接报「清单不可信」。
-// 注意：故意禁用的插件 status 是 'disabled'，不在此列，不会误伤。
-const failedPlugins = loader.getStatus().filter((p) => p.status === 'error');
+// ── 工具清单**残缺**时必须响亮失败，绝不输出短清单（三种形态都实测过）──
+// 为什么：下游 check-doc-drift.py 把 stdout 当权威清单。清单短了它不会说「清单不可信」，
+//   而会去报「skill 引用了不存在的工具」—— **环境坏了却让文档背锅**，排查方向被整个带偏。
+//   宁可在这里 exit != 0，让它直接报真因。
+const status = loader.getStatus();
+
+// 形态 B（审核指出后实测复现）：plugins/ 目录整体缺失或路径不对 ⇒ getStatus() 连一个插件
+//   都扫不到 ⇒ 下面那条「逐个查插件状态」的守卫天然为空、不会触发，照旧静默吐短清单
+//   （实测：dump 46 行、exit 0，下游报 80 处假死引用）。
+//   ⇒ 必须先判「有没有扫到插件」，再判「扫到的插件里有没有失败的」。
+if (!status.length) {
+  console.error('[dump-tools] 一个插件都没扫到（plugins/ 目录缺失或路径不对？）→ 工具清单不完整，终止');
+  process.exit(2);
+}
+
+// 形态 A（实测：隔离 worktree 漏挂 plugins/official/emoji-notes/node_modules，
+//   该插件自带依赖 pinyin-pro ⇒ 少 3 个工具 ⇒ 下游报 3 处假死引用）。
+//   注意：'disabled' 只在**运行时卸载插件**时出现（core/plugin-loader.js:535），
+//   新起进程里每个插件非 loaded 即 error ⇒ 按 'error' 过滤不会误伤。
+const failedPlugins = status.filter((p) => p.status === 'error');
 if (failedPlugins.length) {
   for (const p of failedPlugins) {
     console.error(`[dump-tools] 插件加载失败: ${p.name} — ${p.error || '未知原因'}`);
@@ -61,6 +73,23 @@ if (failedPlugins.length) {
 }
 
 const tools = registry.listTools();
+
+// 形态 C：数量自校验。CI 已有同款断言（行数 == core/tool-order.json 的 tool_order），
+//   内置进来是为了让**本地/开发环境**的 check-doc-drift 也拿到硬门禁，而不只依赖 CI。
+//   读不到 tool-order.json 只告警不终止：这层是加固，不该自己变成新的失败点。
+try {
+  const expected = JSON.parse(
+    readFileSync(path.join(__dirname, '..', 'core', 'tool-order.json'), 'utf8')
+  ).tool_order?.length;
+  if (Number.isInteger(expected) && tools.length !== expected) {
+    console.error(
+      `[dump-tools] 工具数 ${tools.length} != core/tool-order.json 的 ${expected} → 清单不完整，终止`
+    );
+    process.exit(2);
+  }
+} catch (err) {
+  console.error(`[dump-tools] 跳过数量自校验（读不到 core/tool-order.json: ${err.message}）`);
+}
 for (const t of tools) console.log(t.name);
 
 try { rmSync(tmpDb + '-wal', { force: true }); rmSync(tmpDb + '-shm', { force: true }); rmSync(tmpDb, { force: true }); } catch {}
