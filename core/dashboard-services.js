@@ -88,6 +88,49 @@ export function getSelfUserId(storage) {
   } catch { return ''; }
 }
 
+/**
+ * 看板动态流「类型筛选」→ SQL 条件（2026-10-07 用户报障「筛选简介加载慢 / signal timed out」）
+ *
+ * 背景：前端的类型筛选是**纯客户端**的——先按 50 条一页拉全量、再在浏览器里过滤，并且
+ * `fillFeed()` 会为凑够 50 条匹配一路翻页。稀有类型（简介/模型变动/等级变动）几乎必然
+ * 翻到数据库底部（本库 1.8 万+ 事件 ⇒ 数百个请求；公网链路 400-500ms/请求 ⇒ 很慢、最终超时）。
+ * 故把**可由 content_json.type 判定**的筛选值下沉到 SQL。
+ *
+ * ⚠️ 映射必须与前端 `ui/src/constants/event-types.js` 的 `typeOf()` **完全一致**——
+ * `test/dashboard-events-type-filter.test.mjs` 用同一批样本对两者做等价性断言（防漂移）。
+ * 未列出的筛选值（位置/上下线/通知/群组等）**不支持服务端过滤**，前端仍走客户端过滤。
+ */
+export const UI_UPDATE_TYPE_SQL = {
+  // ⚠️ 逐字对齐前端 typeOf()（含它几个"非直觉"分支，不一致就会与服务端筛选分叉）：
+  // ① status：friend-active（转网页/App 在线）算状态变动；user-update 分支**除显式列出的
+  //    avatar/bio/user_icon/pronouns/displayName 之外一律归 status**（含无子类型的旧格式）
+  //    ⇒ 注意 user-update + trust_level 在前端也是 status（不是等级变动），此处必须照搬。
+  status: "((e.type = 'friend-active') OR (e.type = 'friend-update' AND json_extract(e.content_json,'$.type') = 'status') OR (e.type = 'user-update' AND COALESCE(json_extract(e.content_json,'$.type'),'') NOT IN ('avatar','bio','user_icon','pronouns','displayName')))",
+  avatar: "(e.type IN ('friend-update','user-update') AND json_extract(e.content_json,'$.type') = 'avatar')",
+  bio: "(e.type IN ('friend-update','user-update') AND json_extract(e.content_json,'$.type') = 'bio')",
+  // trustLevel：前端只把 **friend-update** 的 trust_level 归为等级变动（user-update 那支落 status）
+  trustLevel: "(e.type = 'friend-update' AND json_extract(e.content_json,'$.type') = 'trust_level')",
+};
+
+/**
+ * 把 UI 类型筛选值列表编译成一条 SQL 条件（多选=OR；未知值忽略）。
+ * 入参只用于查表，**不做字符串插值**（值不进 SQL），故无注入面。
+ * @param {string[]|string|null} uiTypes
+ * @returns {string} SQL 条件片段（无可识别项时返回 ''）
+ */
+export function updateTypeConds(uiTypes) {
+  const list = Array.isArray(uiTypes) ? uiTypes : String(uiTypes || '').split(',');
+  const seen = new Set();
+  const frags = [];
+  for (const raw of list) {
+    const key = String(raw || '').trim();
+    if (!key || seen.has(key) || !UI_UPDATE_TYPE_SQL[key]) continue;
+    seen.add(key);
+    frags.push(UI_UPDATE_TYPE_SQL[key]);
+  }
+  return frags.length ? '(' + frags.join(' OR ') + ')' : '';
+}
+
 export function registerDashboardServices(loader, ctx) {
   // Dashboard 只通过只读服务取数，插件不直接触碰核心 ctx 或数据库文件。
   loader.services.set('dashboard.snapshot', () => ({
@@ -269,7 +312,7 @@ export function registerDashboardServices(loader, ctx) {
     return url;
   };
 
-  loader.services.set('dashboard.events', async ({ limit = 50, offset = 0, dateFrom = '', dateTo = '' } = {}) => {
+  loader.services.set('dashboard.events', async ({ limit = 50, offset = 0, dateFrom = '', dateTo = '', updateTypes = null } = {}) => {
     // 日期范围过滤（VRCX 式日历范围选择）：只查首尾范围内的数据，分页也按范围
     const conds = [];
     const params = {};
@@ -278,6 +321,11 @@ export function registerDashboardServices(loader, ctx) {
     // 无子类型的原始重推副本必须在 SQL 层过滤：JS 层过滤会让每页不足 limit 条，
     // 前端 `length >= limit` 判定"数据库到底"→ 加载更多/自动加载消失（回归：用户反馈）
     conds.push(`NOT (e.type IN ('friend-update','user-update') AND json_extract(e.content_json,'$.type') IS NULL)`);
+    // 类型筛选服务端化（2026-10-07 用户报障「筛选简介加载慢」）：前端原先是纯客户端过滤 + 自动补齐，
+    // 稀有类型（简介/模型/等级）会一路翻到库底（实测数百请求 ⇒ 公网链路上很慢/超时）。
+    // 这里把可由 content_json.type 判定的筛选值下沉到 SQL（映射见 updateTypeConds，与前端 typeOf 等价）。
+    const utCond = updateTypeConds(updateTypes);
+    if (utCond) conds.push(utCond);
     const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
     const rows = ctx.storage.query(`SELECT e.*, f.display_name AS friendDisplayName,
       f.avatar_image_url AS avatarUrl, f.user_icon AS userIcon, f.trust_level AS trustLevel,
@@ -708,16 +756,11 @@ export function registerDashboardServices(loader, ctx) {
         }
       })();
     }
-    // 数据库事件总数（同日期范围条件，供前端"已加载/总数"显示）
+    // 数据库事件总数（**同一套条件**，含类型筛选 ⇒ 前端"已加载/总数"显示的是筛选后的总数）
     let total = 0;
     try {
-      const tc = [];
-      const tp = {};
-      if (dateFrom) { tc.push('created_at >= $from'); tp.$from = dateFrom; }
-      if (dateTo) { tc.push('created_at <= $to'); tp.$to = dateTo; }
-      tc.push(`NOT (type IN ('friend-update','user-update') AND json_extract(content_json,'$.type') IS NULL)`);
-      const tw = tc.length ? 'WHERE ' + tc.join(' AND ') : '';
-      const trow = ctx.storage.query(`SELECT COUNT(*) AS c FROM events ${tw}`, tp);
+      const tw = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
+      const trow = ctx.storage.query(`SELECT COUNT(*) AS c FROM events e ${tw}`, params);
       total = trow[0] ? trow[0].c : 0;
     } catch { total = 0; }
     // 💡1（审查 EMeowAGENT）：本出口只回填 userIcon；avatarUrl 仍走「好友当前值」⇒ 同一行两字段可能指向不同图。

@@ -1,6 +1,15 @@
 // 响应式数据层（移植旧 core.js 模式：快/慢路径拆分 + 30s 轮询 + SSE + hash 视图同步）
 import { reactive } from 'vue';
 import { get, post, openSse, getToken } from './api.js';   // 2026-09-22：补 getToken 导入 —— 启动守卫里用了它却没导入 ⇒ ReferenceError 被 catch 吞掉 ⇒ authed 恒 false ⇒ 一个请求都不发（表现与后端挂了完全一样）✗
+import { serverUpdateTypes } from './constants/event-types.js';
+
+// 类型筛选的服务端参数（2026-10-07）：选中的全是「资料变更子类型」时才下发 updateTypes。
+// 否则（如"位置变动"或混选）保持原行为——服务端表达不了，继续客户端过滤。
+// ⚠️ 不加这个参数时，稀有类型的筛选会为凑够 50 条一路翻到库底（数百请求 ⇒ 很慢/超时）。
+function feedUpdateTypesParam() {
+  const t = serverUpdateTypes(store.feedFilter);
+  return t ? `&updateTypes=${encodeURIComponent(t)}` : '';
+}
 
 // 兼容 events 接口的几种历史形状，避免包一层对象后前端当数组用 → 动态整页空
 function parseEvents(d) {
@@ -382,7 +391,7 @@ export async function resetFeed() {
   store.feedHasMore = true;
   store.feedLoading = true;  // 筛选切换期间显示加载态，不再闪"暂无动态"
   try {
-    const parsed = parseEvents(await get(`/api/dashboard/events?limit=50&dateFrom=${encodeURIComponent(store.feedDateFrom || '')}&dateTo=${encodeURIComponent(store.feedDateTo || '')}`));
+    const parsed = parseEvents(await get(`/api/dashboard/events?limit=50&dateFrom=${encodeURIComponent(store.feedDateFrom || '')}&dateTo=${encodeURIComponent(store.feedDateTo || '')}${feedUpdateTypesParam()}`));
     store.feedEvents = parsed.events;
     store.feedTotal = parsed.total || store.feedTotal;
     store.feedHasMore = parsed.events.length >= 50;
@@ -403,7 +412,7 @@ export async function loadMoreFeed({ target = 50, countMatch = null } = {}) {
   try {
     while (store.feedHasMore) {
       const offset = store.feedEvents.length;
-      const d = parseEvents(await get(`/api/dashboard/events?limit=50&offset=${offset}&dateFrom=${encodeURIComponent(store.feedDateFrom || '')}&dateTo=${encodeURIComponent(store.feedDateTo || '')}`));
+      const d = parseEvents(await get(`/api/dashboard/events?limit=50&offset=${offset}&dateFrom=${encodeURIComponent(store.feedDateFrom || '')}&dateTo=${encodeURIComponent(store.feedDateTo || '')}${feedUpdateTypesParam()}`));
       store.feedTotal = d.total || store.feedTotal;
       const more = d.events;
       if (!more.length) {
@@ -487,7 +496,7 @@ function refreshFeed() {
   feedRefreshTimer = setTimeout(async () => {
     try {
       const want = Math.min(Math.max(store.feedEvents.length, 50), 200);
-      const e = parseEvents(await get(`/api/dashboard/events?limit=${want}`));
+      const e = parseEvents(await get(`/api/dashboard/events?limit=${want}${feedUpdateTypesParam()}`));
       if (e.events.length) {
         store.feedTotal = e.total || store.feedTotal;
         mergeFeedEvents(e.events);

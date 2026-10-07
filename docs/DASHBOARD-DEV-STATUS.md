@@ -1,7 +1,7 @@
 # Dashboard 开发状态档案
 
 > 由 filesystem-context 技能（Plan Persistence 模式）维护。跨会话/上下文压缩后先读本文件恢复状态。
-> 最后更新：2026-08-30
+> 最后更新：2026-10-07
 
 ## 当前目标
 
@@ -975,3 +975,32 @@ git diff --check
 **验证**：`npm test` 全量 **275/275** 通过 · `test-registry` **PASS**（122 工具 order+defs OK）·
 `check-doc-drift --json` 干净 · ui/ `vite build` 通过 + `vitest run` **44/44** ·
 已部署并验证容器 healthy（带 token 打 `/health`：auth=true / ws=connected / plugins=15）。
+
+## 2026-10-07 简介变更数据源修复 + 类型筛选服务端化（用户报障「筛选简介加载慢 / 全是已清空」）
+
+**报障**：手机上（公网域名）点「简介变更」筛选 —— ①每一行的详细信息都是「(已清空)」；
+②加载很慢，一半请求 `加载失败：signal timed out`。
+
+**根因 ①（数据）**：VRChat 新版资料系统把 **bio 移出了 user 对象** —— 实测 WS 载荷与
+`GET /users/{id}` **都没有 bio 键**（REST 用户对象 34 个键里没有 bio），简介只剩
+**`GET /profile/{userId}`**（实测 200 + 带 bio）。而 `event-pipeline` 仍在读 `userObj.bio`
+⇒ 恒 undefined ⇒ 旧判据（prev.bio 非空且不等）**恒真** ⇒ 每次资料推送都插一条「简介被清空」
+假事件（前端渲染「(已清空)」），并把 `friends.bio` 写空（生产：40 好友里 37 个 bio 为空）。
+**修法**：①`event-pipeline` **缺字段＝未知**：payload 无 bio 键时不 diff、不写该列；
+②`friend-refresh` 周期刷新里补一次 `GET /profile/{userId}`，**有 bio 键**才 diff/回写、
+有基线且变化时记一条 `content_json.type = bio` 的事件（每周期请求数≈2× 好友数，已登记 AGENTS.md）。
+
+**根因 ②（性能）**：类型筛选是**纯客户端**的 —— 先按 50 条/页拉全量再过滤，且 `fillFeed()`
+会为凑够 50 条匹配**一路翻到库底**（本库 1.8 万+ 事件 ⇒ 数百请求；公网 400-500ms/请求 ⇒ 慢到超时）。
+**修法**：把**可由 `content_json.type` 判定**的筛选值下沉到 SQL ——
+`dashboard.events` 新增 `updateTypes` 参数（`core/dashboard-services.js` 的 `UI_UPDATE_TYPE_SQL`
+/`updateTypeConds`），路由 `/api/dashboard/events?updateTypes=bio,avatar`，
+前端仅在**选中的筛选值全部可服务端过滤**时才下发（其余/混选保持原行为）。
+⚠️ 映射**逐字对齐前端 `typeOf()`**（含它的非直觉分支：`friend-active` 与 `user-update` 的
+非显式子类型都算 status；`user-update + trust_level` 也是 status ⇒ `trustLevel` 只认 friend-update），
+由 `test/dashboard-events-type-filter.test.mjs` 用同一批样本对「SQL 结果 vs `typeOf` 过滤结果」
+做集合等价断言（变异自检：改回错映射即红）。
+
+**验证**：`npm test` **444/444** · `test-registry` PASS（128 工具）· `check-doc-drift` 干净 ·
+ui `vitest run` **50/50** · 两个新用例文件均做变异自检（bio 字段缺失 / 映射错档）。
+生产：部署后首轮刷新把 `friends.bio` 从 3 个恢复到 15 个；部署后 2 小时内**新增假 bio 事件 0 条**。

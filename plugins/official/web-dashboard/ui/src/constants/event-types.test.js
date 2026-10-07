@@ -1,6 +1,6 @@
 // event-types 纯函数单测（重构行为等价锚点）
 import { describe, it, expect } from 'vitest';
-import { typeOf, isNotiUpdate, TYPE_LABELS, TYPE_ICONS, TYPE_SEVERITIES, eventTypeLabel } from './event-types.js';
+import { typeOf, isNotiUpdate, TYPE_LABELS, TYPE_ICONS, TYPE_SEVERITIES, eventTypeLabel, serverUpdateTypes, SERVER_FILTERABLE_TYPES } from './event-types.js';
 
 describe('typeOf 归一化', () => {
   it('位置/上下线/状态', () => {
@@ -64,5 +64,24 @@ describe('isNotiUpdate', () => {
     expect(isNotiUpdate({ type: 'notification-v2-update' })).toBe(true);
     expect(isNotiUpdate({ type: 'notification-update' })).toBe(true);
     expect(isNotiUpdate({ type: 'notification' })).toBe(false);
+  });
+});
+
+// 2026-10-07：类型筛选服务端化的白名单与参数（后端映射见 core/dashboard-services.js 的 UI_UPDATE_TYPE_SQL，
+// 等价性由 test/dashboard-events-type-filter.test.mjs 用同一批样本断言）
+describe('serverUpdateTypes（类型筛选服务端参数）', () => {
+  it('全部为可服务端过滤的值 ⇒ 返回逗号串（去重）', () => {
+    expect(serverUpdateTypes(['bio'])).toBe('bio');
+    expect(serverUpdateTypes(['bio', 'avatar'])).toBe('bio,avatar');
+    expect(serverUpdateTypes(['bio', 'bio'])).toBe('bio');
+  });
+  it('含不可服务端过滤的值（位置/上下线）或混选 ⇒ 返回空串（退回客户端过滤，行为不变）', () => {
+    expect(serverUpdateTypes(['location'])).toBe('');
+    expect(serverUpdateTypes(['bio', 'location'])).toBe('');
+    expect(serverUpdateTypes([])).toBe('');
+    expect(serverUpdateTypes(null)).toBe('');
+  });
+  it('白名单与后端 UI_UPDATE_TYPE_SQL 的键一致（漂移护栏：改了这里就要同步后端）', () => {
+    expect([...SERVER_FILTERABLE_TYPES].sort()).toEqual(['avatar', 'bio', 'status', 'trustLevel']);
   });
 });

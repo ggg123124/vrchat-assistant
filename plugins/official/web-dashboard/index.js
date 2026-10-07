@@ -1332,7 +1332,10 @@ export default function register(api) {
       const offset = Math.max(Number.parseInt(url.searchParams.get('offset') || '0', 10) || 0, 0);
       const dateFrom = url.searchParams.get('dateFrom') || '';
       const dateTo = url.searchParams.get('dateTo') || '';
-      const result = await api.consume('dashboard.events', { limit, offset, dateFrom, dateTo });
+      // 类型筛选（2026-10-07）：只认识 core 侧白名单里的值（UI 值 → content_json.type 由 core 编译），
+      // 未知值被 core 忽略 ⇒ 仍返回未过滤数据，由前端客户端过滤兜底。
+      const updateTypes = (url.searchParams.get('updateTypes') || '').split(',').map((s) => s.trim()).filter(Boolean).slice(0, 8);
+      const result = await api.consume('dashboard.events', { limit, offset, dateFrom, dateTo, updateTypes });
       if (result && Array.isArray(result.events)) {
         sendJson(res, { events: result.events, total: result.total || 0 });
       } else if (Array.isArray(result)) {
