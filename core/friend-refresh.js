@@ -50,7 +50,7 @@ export async function refreshFriendList(ctx, log) {
   const MAX_PER_CYCLE = Math.max(1, Number(process.env.VRC_MONITOR_FRIEND_REFRESH_MAX) || 50);
   let friends;
   try {
-    friends = storage.query('SELECT user_id, display_name, trust_level FROM friends ORDER BY last_seen DESC');
+    friends = storage.query('SELECT user_id, display_name, trust_level, bio FROM friends ORDER BY last_seen DESC');
   } catch {
     friends = [];
   }
@@ -62,6 +62,7 @@ export async function refreshFriendList(ctx, log) {
   if (start > 0) friends = friends.slice(start).concat(friends.slice(0, start));
   let processed = 0;
   let trustChanged = 0;
+  let bioChanged = 0;
   for (const f of friends) {
     if (processed >= MAX_PER_CYCLE) break;
     processed += 1;
@@ -103,18 +104,55 @@ export async function refreshFriendList(ctx, log) {
         trustChanged += 1;
       } catch { /* 记录失败不影响刷新 */ }
     }
-    // ② 回写资料字段（仅非空，partial upsert 不清空）
+    // ② 简介（bio）刷新（2026-10-07 用户报障「简介变更全是已清空」根治）：
+    //    新版资料系统把 bio 移出 user 对象 —— WS 载荷与 GET /users/{id} **都没有 bio 键**
+    //    （生产实测），权威来源是 **GET /profile/{userId}**（实测 200 + 带 bio）。
+    //    故此处补一次 profile 拉取并 diff：**有 bio 键**才比对/回写（缺键＝未知，不动基线）；
+    //    已有基线且变化 ⇒ 记一条 type='bio' 事件（格式与 WS 侧一致，前端「简介变更」筛选即用它）。
+    let profile = null;
+    try {
+      const pr = await rateLimiter.execute(() => api._request('GET', `/profile/${encodeURIComponent(f.user_id)}`));
+      if (pr.status === 200 && pr.data && typeof pr.data === 'object') profile = pr.data;
+      else log(`[警告] 好友简介刷新失败(${f.user_id}): HTTP ${pr.status}`);
+    } catch (e) {
+      log(`[警告] 好友简介刷新失败(${f.user_id}): ${e.message}`);
+    }
+    const hasBioField = !!profile && Object.prototype.hasOwnProperty.call(profile, 'bio')
+      && typeof profile.bio === 'string';
+    if (hasBioField && f.bio && f.bio !== profile.bio) {
+      try {
+        storage.insertEvent({
+          type: 'friend-update',
+          userId: u.id,
+          displayName: u.displayName || f.display_name || '',
+          contentJson: {
+            userId: u.id,
+            displayName: u.displayName || f.display_name || '',
+            type: 'bio',
+            bio: profile.bio,
+            previousBio: f.bio,
+          },
+          worldId: '',
+          worldName: '',
+          createdAt: new Date().toISOString(),
+          source: 'poll',
+        });
+        log(`[追踪] 好友简介变化: ${u.displayName || f.display_name}`);
+        bioChanged += 1;
+      } catch { /* 记录失败不影响刷新 */ }
+    }
+    // ③ 回写资料字段（仅非空，partial upsert 不清空）
     storage.upsertFriend({
       userId: u.id,
       ...(u.displayName ? { displayName: u.displayName } : {}),
       ...(u.status ? { status: u.status } : {}),
       ...(u.statusDescription ? { statusDescription: u.statusDescription } : {}),
       ...(u.iconUrl || u.currentAvatarImageUrl ? { avatarImageUrl: u.iconUrl || u.currentAvatarImageUrl } : {}),
-      ...(u.bio ? { bio: u.bio } : {}),
+      ...(hasBioField ? { bio: profile.bio } : {}),
       ...(u.iconUrl || u.userIcon ? { userIcon: u.iconUrl || u.userIcon } : {}),
       ...(u.pronouns ? { pronouns: u.pronouns } : {}),
       ...(trust ? { trustLevel: trust } : {}),
     });
   }
-  log(`[追踪] 好友资料刷新完成: ${processed}/${friends.length} 位, 等级变化 ${trustChanged} 条`);
+  log(`[追踪] 好友资料刷新完成: ${processed}/${friends.length} 位, 等级变化 ${trustChanged} 条, 简介变化 ${bioChanged} 条`);
 }

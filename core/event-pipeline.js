@@ -312,6 +312,12 @@ export class EventPipeline {
       // 库里停在 Known User，而事件里已升 Trusted User）。⇒ 只认 tags 推导；无 tags 视为
       // 未知：既不 diff 也不回写，避免把好数据写坏。
       const trust = trustFromTags(userObj.tags) || '';
+      // ⚠️ 2026-10-07（用户报障「简介变更全是已清空」）：新版资料系统把 bio 从 user 对象搬到了
+      //   独立端点 GET /profile/{userId}（实测：WS 载荷与 /users/{id} **都没有 bio 键**）。
+      //   缺键时 userObj.bio 恒 undefined ⇒ 旧判据恒真 ⇒ 每次推送都产一条「简介被清空」假事件
+      //   并把 friends.bio 写空。⇒ **缺字段＝未知**：不 diff、不写该列（真值见 friend-refresh 的 /profile 拉取）。
+      //   注意：必须在 if (prev) 块**之外**声明——diff 与主 upsert 两处都要用（块内声明会导致 ReferenceError）。
+      const hasBioField = Object.prototype.hasOwnProperty.call(userObj, 'bio');
       // 新版资料系统：currentAvatar* 已被上游移除，实际字段是 iconUrl（bannerType=avatarBanner 时指向模型图）
       // ⇒ 用旧字段会让 avatarChanged 恒假、永远没有模型变动事件。注意 bannerType 会变：非 avatarBanner 时视为无模型信息。
       let newAvatarUrl = avatarImageUrlFromUser(userObj);   // let：重分类路径要把它置为同文件的模型图 URL（写回基线用）
@@ -336,7 +342,7 @@ export class EventPipeline {
             // 用完整图 URL 冒充会语义错误（PR #56 审查指出）
           }});
         }
-        const bioChanged = prev.bio
+        const bioChanged = hasBioField && prev.bio
           && (prev.bio || '') !== (userObj.bio || '');
         if (bioChanged) {
           changes.push({ type: 'bio', payload: { bio: userObj.bio || '', previousBio: prev.bio || '' } });
@@ -548,7 +554,8 @@ export class EventPipeline {
         status: userObj.status || '',
         statusDescription: userObj.statusDescription || '',
         ...(newAvatarUrl ? { avatarImageUrl: newAvatarUrl } : {}),   // 取不到就不写该列（partial，不清空已存基线）；重分类时上面已把 newAvatarUrl 置为模型图 ⇒ 幂等
-        bio: userObj.bio || '',
+        // bio 同上：载荷无该键即不写（否则每次推送把已存简介清空；真值见 friend-refresh 的 /profile 拉取）
+        ...(hasBioField ? { bio: userObj.bio || '' } : {}),
         ...(userObj.iconUrl || userObj.userIcon ? { userIcon: userObj.iconUrl || userObj.userIcon } : {}),
         pronouns: userObj.pronouns || '',
         ...(trust ? { trustLevel: trust } : {}),

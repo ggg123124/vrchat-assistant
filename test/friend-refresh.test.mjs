@@ -21,7 +21,7 @@ function userObj(id, { trust, tags, name } = {}) {
   };
 }
 
-function makeCtx({ friends, users, failIds = new Set() }) {
+function makeCtx({ friends, users, failIds = new Set(), profiles = new Map(), profileFailIds = new Set() }) {
   const events = [];
   const upserts = [];
   const storage = {
@@ -30,6 +30,13 @@ function makeCtx({ friends, users, failIds = new Set() }) {
     insertEvent(e) { events.push(e); },
   };
   const api = { _request: async (m, url) => {
+    // 简介走独立端点 GET /profile/{id}（2026-10-07：上游把 bio 移出了 user 对象）
+    if (String(url).startsWith('/profile/')) {
+      const pid = decodeURIComponent(String(url).slice('/profile/'.length));
+      if (profileFailIds.has(pid)) return { status: 500, data: null };
+      const p = profiles.get(pid);
+      return p ? { status: 200, data: p } : { status: 404, data: null };
+    }
     const id = decodeURIComponent(url.split('/').pop());
     if (failIds.has(id)) return { status: 500, data: null };
     const u = users.get(id);
@@ -152,4 +159,74 @@ test('tag→名称映射与 VRCX/仓库既有口径一致（#222 审核 ⚠️1�
   for (const [tags, want] of cases) {
     assert.equal(trustFromTags(tags), want, 'tags=' + tags.join(','));
   }
+});
+
+// ── 简介（bio）刷新：2026-10-07 用户报障「简介变更全是已清空」 ──
+// 上游新版资料系统把 bio 移出 user 对象（WS 与 /users/{id} 均无该键，实测），权威来源＝GET /profile/{userId}。
+// 故周期刷新补一次 profile 拉取：**有 bio 键**才 diff/回写；有基线且变化 ⇒ 记 type='bio' 事件。
+const bioEvents = (events) => events.filter((e) => e.type === 'friend-update' && e.contentJson && e.contentJson.type === 'bio');
+
+test('简介变化：/profile 的 bio 与基线不同 ⇒ 记 bio 事件 + 回写（真值来自 profile 端点）', async () => {
+  const id = 'usr_bio_a';
+  const { ctx, events, upserts } = makeCtx({
+    friends: [{ user_id: id, display_name: '好友B', trust_level: '', bio: '老简介' }],
+    users: new Map([[id, userObj(id, { trust: 'Known User', tags: ['system_trust_known'] })]]),
+    profiles: new Map([[id, { id, displayName: '好友B', bio: '新简介' }]]),
+  });
+  await refreshFriendList(ctx, () => {});
+  const be = bioEvents(events);
+  assert.equal(be.length, 1, '简介变化必须记录');
+  assert.equal(be[0].contentJson.bio, '新简介');
+  assert.equal(be[0].contentJson.previousBio, '老简介');
+  assert.equal(be[0].source, 'poll');
+  assert.equal(upserts[0].bio, '新简介', '回写新简介作基线');
+});
+
+test('简介未变 ⇒ 不记事件', async () => {
+  const id = 'usr_bio_b';
+  const { ctx, events } = makeCtx({
+    friends: [{ user_id: id, display_name: 'B', trust_level: '', bio: '一样' }],
+    users: new Map([[id, userObj(id, { trust: 'Known User', tags: ['system_trust_known'] })]]),
+    profiles: new Map([[id, { id, displayName: 'B', bio: '一样' }]]),
+  });
+  await refreshFriendList(ctx, () => {});
+  assert.equal(bioEvents(events).length, 0);
+});
+
+test('profile 响应无 bio 键（兼容/旧账号）⇒ 不记、不写（保留基线，不误判为清空）', async () => {
+  const id = 'usr_bio_c';
+  const { ctx, events, upserts } = makeCtx({
+    friends: [{ user_id: id, display_name: 'C', trust_level: '', bio: '老简介' }],
+    users: new Map([[id, userObj(id, { trust: 'Known User', tags: ['system_trust_known'] })]]),
+    profiles: new Map([[id, { id, displayName: 'C' }]]),
+  });
+  await refreshFriendList(ctx, () => {});
+  assert.equal(bioEvents(events).length, 0, '缺 bio 键＝未知，不得当成变化');
+  assert.equal('bio' in upserts[0], false, '缺 bio 键时不得写 bio 列（否则清空已存基线）');
+});
+
+test('profile 拉取失败 ⇒ 仅 WARN，不影响等级/其它字段刷新', async () => {
+  const id = 'usr_bio_d';
+  const { ctx, logsArr, upserts } = makeCtx({
+    friends: [{ user_id: id, display_name: 'D', trust_level: 'Known User', bio: '老简介' }],
+    users: new Map([[id, userObj(id, { trust: 'Trusted User', tags: ['system_trust_veteran'] })]]),
+    profileFailIds: new Set([id]),
+  });
+  await refreshFriendList(ctx, (m) => logsArr.push(m));
+  assert.ok(logsArr.some((l) => l.includes('好友简介刷新失败')), '应有简介拉取失败告警');
+  assert.equal(upserts[0].trustLevel, 'Trusted User', '简介失败不影响等级回写');
+  assert.equal('bio' in upserts[0], false, '失败时不得写 bio');
+});
+
+test('显式清空（profile 返回 bio:""）⇒ 记录为清空（真实变更）', async () => {
+  const id = 'usr_bio_e';
+  const { ctx, events } = makeCtx({
+    friends: [{ user_id: id, display_name: 'E', trust_level: '', bio: '老简介' }],
+    users: new Map([[id, userObj(id, { trust: 'Known User', tags: ['system_trust_known'] })]]),
+    profiles: new Map([[id, { id, displayName: 'E', bio: '' }]]),
+  });
+  await refreshFriendList(ctx, () => {});
+  const be = bioEvents(events);
+  assert.equal(be.length, 1, 'profile 权威返回空 bio ⇒ 真·清空，应记录');
+  assert.equal(be[0].contentJson.bio, '');
 });
