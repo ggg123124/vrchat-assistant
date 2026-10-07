@@ -12,6 +12,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { rmSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -49,6 +50,9 @@ const samples = [
   // 无子类型的 user-update 会被服务端基础条件（dashboard.events 的 NOT(... IS NULL)）整行排除，
   // 不会出现在动态流里 ⇒ 期望集合也要按同一条件排除它（否则是测试假象，不是口径分叉）。
   { name: 'ud legacy(no type)', type: 'user-update', content: {}, serviceExcluded: true },
+  // 空串子类型：DTO 出口按「无子类型」丢弃（if (!ct.type) return null）⇒ SQL 基础条件也必须排除，
+  // 否则 total 会比可见行数多（2026-10-07 评审 💡2）
+  { name: 'fd empty-type', type: 'friend-update', content: { type: '' }, serviceExcluded: true },
   { name: 'notification', type: 'notification', content: { type: 'friendRequest' } },
   { name: 'notification-v2 group', type: 'notification-v2', content: { type: 'group.announcement' } },
   { name: 'friend-add', type: 'friend-add', content: {} },
@@ -78,7 +82,7 @@ for (const s of samples) {
 const dtoOf = (s) => ({ type: s.type, updateType: s.content.type || '', platform: s.content.platform });
 const idSet = (sql) => new Set(storage.query(sql).map((r) => r.id));
 // 与 dashboard.events 的基础条件保持一致（无子类型的 friend-update/user-update 不进行情流）
-const BASE_COND = "NOT (e.type IN ('friend-update','user-update') AND json_extract(e.content_json,'$.type') IS NULL)";
+const BASE_COND = "NOT (e.type IN ('friend-update','user-update') AND COALESCE(json_extract(e.content_json,'$.type'),'') = '')";
 const sqlForTypes = (types) => {
   const cond = updateTypeConds(types);
   return 'SELECT id FROM events e WHERE ' + BASE_COND + (cond ? ' AND ' + cond : '');
@@ -95,6 +99,17 @@ test('每个可服务端过滤的筛选值：SQL 结果 === 前端 typeOf 过滤
       `筛选值 ${v}：SQL 与 typeOf 必须一致（差集 SQL-only=${[...got].filter((i) => !expect.has(i)).length}, typeOf-only=${[...expect].filter((i) => !got.has(i)).length}）`);
     assert.ok(expect.size > 0, `样本集必须至少命中 1 条 ${v}（否则断言恒真）`);
   }
+});
+
+test('基础条件与 core/dashboard-services.js 的实现逐字一致（防两侧漂移）', async () => {
+  const src = await readFile(new URL('../core/dashboard-services.js', import.meta.url), 'utf8');
+  assert.ok(src.includes(BASE_COND), '测试镜像的基础条件必须与实现一致（改了实现就要同步这里）');
+});
+
+test('空串子类型与缺键同义：被基础条件排除（total 不得虚高）', () => {
+  const got = idSet('SELECT id FROM events e WHERE ' + BASE_COND);
+  assert.ok(!got.has(ids.get('fd empty-type')), 'content.type 为空串的行不应出现在动态流里');
+  assert.ok(!got.has(ids.get('ud legacy(no type)')), '缺 content.type 的行同样不应出现');
 });
 
 test('多选 = OR（与前端 some() 语义一致）', () => {

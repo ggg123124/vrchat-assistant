@@ -320,7 +320,10 @@ export function registerDashboardServices(loader, ctx) {
     if (dateTo) { conds.push('e.created_at <= $to'); params.$to = dateTo; }
     // 无子类型的原始重推副本必须在 SQL 层过滤：JS 层过滤会让每页不足 limit 条，
     // 前端 `length >= limit` 判定"数据库到底"→ 加载更多/自动加载消失（回归：用户反馈）
-    conds.push(`NOT (e.type IN ('friend-update','user-update') AND json_extract(e.content_json,'$.type') IS NULL)`);
+    // 无子类型的原始重推副本 + **空串子类型**（content.type = ''）都必须在 SQL 层排除：
+    // DTO 出口对这两者一视同仁（`if (!ct.type) return null`）⇒ SQL 判据必须同口径，
+    // 否则 total 会比实际可见行数多（2026-10-07 评审 💡2：main 既有的不一致，实测 total=3 / events=1）。
+    conds.push(`NOT (e.type IN ('friend-update','user-update') AND COALESCE(json_extract(e.content_json,'$.type'),'') = '')`);
     // 类型筛选服务端化（2026-10-07 用户报障「筛选简介加载慢」）：前端原先是纯客户端过滤 + 自动补齐，
     // 稀有类型（简介/模型/等级）会一路翻到库底（实测数百请求 ⇒ 公网链路上很慢/超时）。
     // 这里把可由 content_json.type 判定的筛选值下沉到 SQL（映射见 updateTypeConds，与前端 typeOf 等价）。
