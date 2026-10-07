@@ -103,7 +103,8 @@ test('空字段不回写（不清空已有值）', async () => {
     friends: [{ user_id: id, display_name: 'A', trust_level: '' }],
     users: new Map([[id, userObj(id, { trust: 'Trusted User', tags: ['system_trust_veteran'] })]]),
   });
-  // 覆盖为全空 profile（bio/status 等皆空 → 不应写入）
+  // ⚠️ 本用例**不传 profiles** ⇒ /profile 走 404 ⇒ bio 为「未知」；断言的是「未知不写」（评审 💡3 指出注释原说法不准）。
+  // 真正的「200 + bio:」路径由后面的『显式清空』用例覆盖。
   const users = new Map([[id, { id, displayName: 'A', trust_level: 'Trusted User', tags: [], status: '', statusDescription: '', currentAvatarImageUrl: '', bio: '', userIcon: '', pronouns: '' }]]);
   const { ctx: ctx2, upserts: upserts2 } = makeCtx({ friends: [{ user_id: id, display_name: 'A', trust_level: '' }], users });
   await refreshFriendList(ctx2, () => {});
@@ -213,14 +214,14 @@ test('profile 拉取失败 ⇒ 仅 WARN，不影响等级/其它字段刷新', a
     profileFailIds: new Set([id]),
   });
   await refreshFriendList(ctx, (m) => logsArr.push(m));
-  assert.ok(logsArr.some((l) => l.includes('好友简介刷新失败')), '应有简介拉取失败告警');
+  assert.ok(logsArr.some((l) => l.includes('好友简介未取到')), '应有「简介未取到（按未知处理）」告警');
   assert.equal(upserts[0].trustLevel, 'Trusted User', '简介失败不影响等级回写');
   assert.equal('bio' in upserts[0], false, '失败时不得写 bio');
 });
 
 test('显式清空（profile 返回 bio:""）⇒ 记录为清空（真实变更）', async () => {
   const id = 'usr_bio_e';
-  const { ctx, events } = makeCtx({
+  const { ctx, events, upserts } = makeCtx({
     friends: [{ user_id: id, display_name: 'E', trust_level: '', bio: '老简介' }],
     users: new Map([[id, userObj(id, { trust: 'Known User', tags: ['system_trust_known'] })]]),
     profiles: new Map([[id, { id, displayName: 'E', bio: '' }]]),
@@ -229,4 +230,5 @@ test('显式清空（profile 返回 bio:""）⇒ 记录为清空（真实变更�
   const be = bioEvents(events);
   assert.equal(be.length, 1, 'profile 权威返回空 bio ⇒ 真·清空，应记录');
   assert.equal(be[0].contentJson.bio, '');
+  assert.equal(upserts[0].bio, '', '真值就是空 ⇒ 回写空串（与「未知不写」相对）');
 });

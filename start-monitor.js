@@ -508,15 +508,18 @@ function _recordNonFriendChange(userId, displayName, userObj, av, bioText) {
   // 不做核心文字剥离——真实微小变化(标点/emoji 增减)也要记录
   const norm = (x) => String(x || '').replace(/\uFFFD/g, '').normalize('NFC');
 
-  const bioChanged = bioKnown && norm(prevBio) !== norm(curBio);
-  if (bioChanged) {
+  // ⚠️ 2026-10-07 评审 ⚠️2：这里原先在「5 分钟内已有 bio 事件」时 `return` —— 会把**同一函数后半段的
+  // status 判定一起跳过**（同一个刷新里 bio 与 status 都变了就只记 bio）。改为置标记跳过 bio、继续走 status。
+  const bioDiffers = bioKnown && norm(prevBio) !== norm(curBio);
+  let skipBio = false;
+  if (bioDiffers) {
     const recent = lastBio[0] && lastBio[0].created_at;
     if (recent) {
       const dt = (new Date().getTime() - new Date(recent).getTime()) / 1000;
-      if (dt >= 0 && dt < 300) return;  // 5 分钟内已有 bio 事件，跳过本次(仅防 VRChat 编辑中逐字保存连发)
+      if (dt >= 0 && dt < 300) skipBio = true;  // 仅防 VRChat 编辑中逐字保存连发
     }
   }
-  if (bioKnown && (!lastBio.length || bioChanged)) {
+  if (bioKnown && !skipBio && (!lastBio.length || bioDiffers)) {
     storage.insertEvent({
       type: 'friend-update', userId, displayName,
       contentJson: { userId, displayName, type: 'bio', bio: curBio, previousBio: prevBio, avatarImageUrl: av },

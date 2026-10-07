@@ -112,7 +112,8 @@ export async function handleGetFriendInfo({ userId, displayName }) {
   return {
     userId: u.id,
     displayName: u.displayName,
-    bio: bioText === undefined ? '' : bioText,
+    // null = 未知（取不到），'' = 确实没写简介 —— 保留这个区分（评审 💡）
+    bio: bioText === undefined ? null : bioText,
     status: u.status,
     statusDescription: u.statusDescription,
     state: u.state,
@@ -148,6 +149,8 @@ export async function handleSearchUsers({ query, limit = 10 }) {
     .map(u => ({
       userId: u.id,
       displayName: u.displayName,
+      // ⚠️ 已知未覆盖（2026-10-07 评审 💡，main 既有）：搜索结果预览仍读 u.bio（已不在 user 对象里）⇒
+      // 该预览恒空；逐结果补 /profile 会造成 N 次请求，故不纳入，仅登记。
       bio: (u.bio || '').slice(0, 100),
       status: u.status,
       isFriend: u.isFriend,

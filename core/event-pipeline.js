@@ -1,4 +1,5 @@
 import { avatarThumb, avatarOf, avatarFileId } from './img-util.js';
+import { bioChanged } from './profile-bio.js';   // 简介判据唯一来源（未知一律不记，2026-10-07 评审要求真正复用）
 
 // 网页端在线判据（单一来源：WS friend-active 与 start-monitor 快照对账共用，防漂移）。
 // 当前仅 'web'——nativemobile 语义待确认后纳入（见 _handleActive 注释与跟进 issue）。
@@ -342,9 +343,9 @@ export class EventPipeline {
             // 用完整图 URL 冒充会语义错误（PR #56 审查指出）
           }});
         }
-        const bioChanged = hasBioField && prev.bio
-          && (prev.bio || '') !== (userObj.bio || '');
-        if (bioChanged) {
+        // 判据与 core/profile-bio.js 的 bioChanged 同源（缺键＝未知 ⇒ 不记；无基线 ⇒ 只建基线）
+        const bioNow = bioChanged(prev.bio, hasBioField ? (userObj.bio || '') : undefined);
+        if (bioNow) {
           changes.push({ type: 'bio', payload: { bio: userObj.bio || '', previousBio: prev.bio || '' } });
         }
         const statusChanged = (prev.status && (prev.status || '') !== (userObj.status || ''))

@@ -23,7 +23,7 @@
 // 的注释与 start-monitor.js 的 inferTrustFromTags）：**trusted = Known User、known = User**、
 // veteran/legend 才是 Trusted User。2026-09-22 #222 审核 🔴：本表原先整体高了一档（trusted→Trusted User），
 // 导致存量等级被上抬一档、且没有任何 tag 能产出 'User'（与库内实际存在的 'User' 自相矛盾）。
-import { fetchProfileBio } from './profile-bio.js';   // 简介(bio)已移出 user 对象 ⇒ 唯一来源是 GET /profile/{id}（2026-10-07）
+import { fetchProfileBio, bioChanged } from './profile-bio.js';   // 简介(bio)已移出 user 对象 ⇒ 唯一来源是 GET /profile/{id}（2026-10-07）
 
 const TRUST_FROM_TAG = {
   system_trust_basic: 'New User',
@@ -64,7 +64,7 @@ export async function refreshFriendList(ctx, log) {
   if (start > 0) friends = friends.slice(start).concat(friends.slice(0, start));
   let processed = 0;
   let trustChanged = 0;
-  let bioChanged = 0;
+  let bioChangedCount = 0;   // 注意：不能叫 bioChanged（会遮蔽 import 进来判据函数）
   for (const f of friends) {
     if (processed >= MAX_PER_CYCLE) break;
     processed += 1;
@@ -114,8 +114,9 @@ export async function refreshFriendList(ctx, log) {
     // 简介真值统一走 core/profile-bio.js（undefined ＝ 未知：请求失败或响应缺 bio 键）
     const bioText = await rateLimiter.execute(() => fetchProfileBio(api, f.user_id));
     const hasBioField = bioText !== undefined;
-    if (!hasBioField) log(`[警告] 好友简介刷新失败(${f.user_id}): 未取到 profile.bio（按未知处理，不动基线）`);
-    if (hasBioField && f.bio && f.bio !== bioText) {
+    // 措辞中性：这里既可能是请求失败，也可能是响应缺 bio 键（评审 💡3）——两者都按「未知」处理
+    if (!hasBioField) log(`[警告] 好友简介未取到(${f.user_id})：按未知处理（不 diff、不动基线）`);
+    if (bioChanged(f.bio, bioText)) {
       try {
         storage.insertEvent({
           type: 'friend-update',
@@ -134,7 +135,7 @@ export async function refreshFriendList(ctx, log) {
           source: 'poll',
         });
         log(`[追踪] 好友简介变化: ${u.displayName || f.display_name}`);
-        bioChanged += 1;
+        bioChangedCount += 1;
       } catch { /* 记录失败不影响刷新 */ }
     }
     // ③ 回写资料字段（仅非空，partial upsert 不清空）
@@ -150,5 +151,5 @@ export async function refreshFriendList(ctx, log) {
       ...(trust ? { trustLevel: trust } : {}),
     });
   }
-  log(`[追踪] 好友资料刷新完成: ${processed}/${friends.length} 位, 等级变化 ${trustChanged} 条, 简介变化 ${bioChanged} 条`);
+  log(`[追踪] 好友资料刷新完成: ${processed}/${friends.length} 位, 等级变化 ${trustChanged} 条, 简介变化 ${bioChangedCount} 条`);
 }

@@ -1278,6 +1278,7 @@ export default function register(api) {
         } else {
           results = (r.results || []).map(u => ({
             kind: 'user', id: u.userId, name: u.displayName || '?',
+            // ⚠️ 已知未覆盖（main 既有）：u.bio 已不在 user 对象里 ⇒ 该副标题恒空；逐结果补 /profile 会造成 N 次请求，故登记不修
             sub: [u.isFriend ? '好友' : '', (u.bio || '').slice(0, 40)].filter(Boolean).join(' · '),
             image: u.userIcon || u.currentAvatarThumbnailImageUrl || u.profilePicOverride || '',
           }));
