@@ -993,7 +993,7 @@ status；`user-update + trust_level` 也是 status ⇒ `trustLevel` 只认 `frie
 `test/dashboard-events-type-filter.test.mjs` 用同一批样本对「SQL 结果 vs `typeOf` 过滤结果」做集合
 等价断言（变异自检：改回错映射即红）。
 
-**验证**：本 PR 新增用例 4 条（等价性 / 多选 OR / 未知值兜底 / 去重）+ ui 3 条，均带变异自检；
-`npm test`、`test-registry`（128 工具）、`check-doc-drift`、ui `vitest run` 全部通过
+**验证**：新增用例见 `test/dashboard-events-type-filter.test.mjs` 与 ui `event-types.test.js`（均含变异/防漂移断言，条数不写在这里）；
+`npm test`、`test-registry`、`check-doc-drift`、ui `vitest run` 全部通过
 （**具体用例数随仓库演进而变，不写死在这里**）。生产实测：`?updateTypes=bio` 一次请求 196ms 返回
 10 条全为 bio（total 79；未过滤 total 21538）。

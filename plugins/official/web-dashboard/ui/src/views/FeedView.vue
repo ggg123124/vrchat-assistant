@@ -382,7 +382,7 @@ onUnmounted(() => {
           <i class="pi pi-users"></i>
         </button>
       </span>
-      <span class="feed-count" :title="'当前筛选 ' + rows.length + ' / 已加载 ' + store.feedEvents.length + ' / 数据库共 ' + store.feedTotal + ' 条'">{{ rows.length }} / {{ store.feedEvents.length }} / {{ store.feedTotal }}</span>
+      <span class="feed-count" :title="'当前筛选 ' + rows.length + ' / 已加载 ' + store.feedEvents.length + ' / 当前条件下共 ' + store.feedTotal + ' 条'">{{ rows.length }} / {{ store.feedEvents.length }} / {{ store.feedTotal }}</span>
     </div>
 
     <!-- 类型筛选横条 + 搜索（所有元素弹性收缩换行） -->

@@ -1,5 +1,7 @@
 // event-types 纯函数单测（重构行为等价锚点）
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { typeOf, isNotiUpdate, TYPE_LABELS, TYPE_ICONS, TYPE_SEVERITIES, eventTypeLabel, serverUpdateTypes, SERVER_FILTERABLE_TYPES } from './event-types.js';
 
 describe('typeOf 归一化', () => {
@@ -81,7 +83,13 @@ describe('serverUpdateTypes（类型筛选服务端参数）', () => {
     expect(serverUpdateTypes([])).toBe('');
     expect(serverUpdateTypes(null)).toBe('');
   });
-  it('白名单与后端 UI_UPDATE_TYPE_SQL 的键一致（漂移护栏：改了这里就要同步后端）', () => {
+  it('白名单与后端 UI_UPDATE_TYPE_SQL 的键一致（读后端源码，真护栏）', () => {
+    // ⚠️ 2026-10-07 评审 💡2：原断言只是与一份硬编码字面量比较（自证）——后端增删键它不会红。
+    // 现改为**读后端源码**逐个断言键存在：后端改了键、前端没跟 ⇒ 这条变红。
+    const src = readFileSync(fileURLToPath(new URL('../../../../../../core/dashboard-services.js', import.meta.url)), 'utf8');
+    for (const k of SERVER_FILTERABLE_TYPES) {
+      expect(src.includes(k + ':'), `后端 UI_UPDATE_TYPE_SQL 应有键 ${k}`).toBe(true);
+    }
     expect([...SERVER_FILTERABLE_TYPES].sort()).toEqual(['avatar', 'bio', 'status', 'trustLevel']);
   });
 });

@@ -124,7 +124,10 @@ export function updateTypeConds(uiTypes) {
   const frags = [];
   for (const raw of list) {
     const key = String(raw || '').trim();
-    if (!key || seen.has(key) || !UI_UPDATE_TYPE_SQL[key]) continue;
+    // ⚠️ 必须用 Object.hasOwn —— 直接取属性会走原型链：constructor/__proto__/toString 等取到 truthy 的
+    // 原型成员，会被当成已知筛选值拼进 SQL ⇒ 主查询抛错 ⇒ 该路由无 try/catch ⇒ HTTP 500（2026-10-07 评审 ⚠️ 实测）。
+    // 另外语义上：**混入白名单外的值只会按白名单内的过滤**（不是整条拒绝），API 使用者须知。
+    if (!key || seen.has(key) || !Object.hasOwn(UI_UPDATE_TYPE_SQL, key)) continue;
     seen.add(key);
     frags.push(UI_UPDATE_TYPE_SQL[key]);
   }

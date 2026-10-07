@@ -127,6 +127,14 @@ test('未知/不支持的筛选值：返回空条件（不误过滤，交给前�
   assert.equal(updateTypeConds('bio'), `((e.type IN ('friend-update','user-update') AND json_extract(e.content_json,'$.type') = 'bio'))`);
 });
 
+test('原型链键（constructor/__proto__/toString…）不得当成已知筛选值（防畸形 SQL / HTTP 500）', () => {
+  for (const k of ['constructor', '__proto__', 'toString', 'valueOf', 'hasOwnProperty', 'isPrototypeOf', 'propertyIsEnumerable']) {
+    assert.equal(updateTypeConds([k]), '', k + ' 是 Object.prototype 成员，必须被忽略');
+  }
+  // 与合法值混选：只保留合法值（静默部分过滤，已在实现里注释说明）
+  assert.equal(updateTypeConds(['constructor', 'bio']), updateTypeConds(['bio']));
+});
+
 test('重复值去重（同一条 OR 不进两次）', () => {
   const once = updateTypeConds(['bio']);
   assert.equal(updateTypeConds(['bio', 'bio']), once);
