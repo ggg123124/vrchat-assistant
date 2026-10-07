@@ -23,6 +23,8 @@
 // 的注释与 start-monitor.js 的 inferTrustFromTags）：**trusted = Known User、known = User**、
 // veteran/legend 才是 Trusted User。2026-09-22 #222 审核 🔴：本表原先整体高了一档（trusted→Trusted User），
 // 导致存量等级被上抬一档、且没有任何 tag 能产出 'User'（与库内实际存在的 'User' 自相矛盾）。
+import { fetchProfileBio } from './profile-bio.js';   // 简介(bio)已移出 user 对象 ⇒ 唯一来源是 GET /profile/{id}（2026-10-07）
+
 const TRUST_FROM_TAG = {
   system_trust_basic: 'New User',
   system_trust_known: 'User',
@@ -109,17 +111,11 @@ export async function refreshFriendList(ctx, log) {
     //    （生产实测），权威来源是 **GET /profile/{userId}**（实测 200 + 带 bio）。
     //    故此处补一次 profile 拉取并 diff：**有 bio 键**才比对/回写（缺键＝未知，不动基线）；
     //    已有基线且变化 ⇒ 记一条 type='bio' 事件（格式与 WS 侧一致，前端「简介变更」筛选即用它）。
-    let profile = null;
-    try {
-      const pr = await rateLimiter.execute(() => api._request('GET', `/profile/${encodeURIComponent(f.user_id)}`));
-      if (pr.status === 200 && pr.data && typeof pr.data === 'object') profile = pr.data;
-      else log(`[警告] 好友简介刷新失败(${f.user_id}): HTTP ${pr.status}`);
-    } catch (e) {
-      log(`[警告] 好友简介刷新失败(${f.user_id}): ${e.message}`);
-    }
-    const hasBioField = !!profile && Object.prototype.hasOwnProperty.call(profile, 'bio')
-      && typeof profile.bio === 'string';
-    if (hasBioField && f.bio && f.bio !== profile.bio) {
+    // 简介真值统一走 core/profile-bio.js（undefined ＝ 未知：请求失败或响应缺 bio 键）
+    const bioText = await rateLimiter.execute(() => fetchProfileBio(api, f.user_id));
+    const hasBioField = bioText !== undefined;
+    if (!hasBioField) log(`[警告] 好友简介刷新失败(${f.user_id}): 未取到 profile.bio（按未知处理，不动基线）`);
+    if (hasBioField && f.bio && f.bio !== bioText) {
       try {
         storage.insertEvent({
           type: 'friend-update',
@@ -129,7 +125,7 @@ export async function refreshFriendList(ctx, log) {
             userId: u.id,
             displayName: u.displayName || f.display_name || '',
             type: 'bio',
-            bio: profile.bio,
+            bio: bioText,
             previousBio: f.bio,
           },
           worldId: '',
@@ -148,7 +144,7 @@ export async function refreshFriendList(ctx, log) {
       ...(u.status ? { status: u.status } : {}),
       ...(u.statusDescription ? { statusDescription: u.statusDescription } : {}),
       ...(u.iconUrl || u.currentAvatarImageUrl ? { avatarImageUrl: u.iconUrl || u.currentAvatarImageUrl } : {}),
-      ...(hasBioField ? { bio: profile.bio } : {}),
+      ...(hasBioField ? { bio: bioText } : {}),
       ...(u.iconUrl || u.userIcon ? { userIcon: u.iconUrl || u.userIcon } : {}),
       ...(u.pronouns ? { pronouns: u.pronouns } : {}),
       ...(trust ? { trustLevel: trust } : {}),

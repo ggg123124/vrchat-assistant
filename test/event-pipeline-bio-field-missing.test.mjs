@@ -3,7 +3,7 @@
  *
  * 用户 2026-10-07 报障：「筛选简介……为什么全是已清空，这个功能好像坏了吧」。
  * 生产实测根因：新版资料系统把 bio 移出 user 对象 —— **WS 载荷与 GET /users/{id} 都没有 bio 键**
- * （POST /profile/{userId} 才有）。旧判据 `prev.bio && prev.bio !== ''` 在载荷缺键时恒真
+ * （GET /profile/{userId} 才有）。旧判据 `prev.bio && prev.bio !== ''` 在载荷缺键时恒真
  * ⇒ 每次资料推送都插一条「简介被清空」假事件（前端渲染「(已清空)」），并把 friends.bio 写空。
  * 修复：**缺字段＝未知** ⇒ 不 diff、不写该列（真值改由 friend-refresh 走 /profile 拉取后 diff）。
  */

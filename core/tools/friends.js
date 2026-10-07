@@ -5,6 +5,7 @@
 import { ctx, log, parseLocation } from '../server-context.js';
 import { resolveWorldNames } from '../world-names.js';
 import { isOnlineForCount, readOnlineCountIncludeWeb } from '../online-count-policy.js';
+import { fetchProfileBio } from '../profile-bio.js';   // 简介(bio)已移出 user 对象（2026-10-07）
 
 export async function handleGetOnlineFriends() {
   const { storage, api } = ctx;
@@ -106,10 +107,12 @@ export async function handleGetFriendInfo({ userId, displayName }) {
   const r = await api._request('GET', `/users/${targetId}`);
   if (r.status !== 200) throw new Error(`API error: ${r.status}`);
   const u = r.data;
+  // 简介真值单独取：新版资料系统已把 bio 移出 user 对象 ⇒ 直接读 u.bio 会让该键整条消失 ✗（2026-10-07）
+  const bioText = await fetchProfileBio(api, u.id);
   return {
     userId: u.id,
     displayName: u.displayName,
-    bio: u.bio,
+    bio: bioText === undefined ? '' : bioText,
     status: u.status,
     statusDescription: u.statusDescription,
     state: u.state,

@@ -15,7 +15,8 @@ import { ctx, log, refreshWatchlistCache } from './core/server-context.js';
 import { isWebPresence } from './core/event-pipeline.js';
 import { readOnlineCountIncludeWeb, isOnlineForCount } from './core/online-count-policy.js';
 import { refreshFriendList } from './core/friend-refresh.js';
-import { avatarFileId, parseAvatarName } from './core/img-util.js';   // 2026-09-22 #225：fileId 提取统一走它（支持 /image/ 形态 + 代理 URL 还原）；#233 由 parseAvatarName 解析模型名
+import { avatarFileId, parseAvatarName } from './core/img-util.js';
+import { fetchProfileBio } from './core/profile-bio.js';   // 简介真值只能从 GET /profile/{id} 取（user 对象已无 bio 键，2026-10-07）   // 2026-09-22 #225：fileId 提取统一走它（支持 /image/ 形态 + 代理 URL 还原）；#233 由 parseAvatarName 解析模型名
 import { initLogger, getLevelName, getLogger } from './core/logger.js';
 import { recordOpsLog, setOpsLogSink } from './core/ops-log.js';
 import * as registry from './core/registry.js';
@@ -463,7 +464,9 @@ async function _refreshTrackedNonFriends() {
           }
         } catch { /* 记录失败不影响刷新 */ }
       }
-      _recordNonFriendChange(u.user_id, dn, userObj, av);
+      // 简介真值单独取一次：/users/{id} 的 user 对象已无 bio 键 ⇒ 直接读会把「拿不到」当成「被清空」✗
+      const bioText = await rateLimiter.execute(() => fetchProfileBio(api, u.user_id));
+      _recordNonFriendChange(u.user_id, dn, userObj, av, bioText);
       // 回填历史事件头像（之前没存头像的事件，如 VRCX 迁移数据）
       if (av) {
         try {
@@ -484,9 +487,13 @@ async function _refreshTrackedNonFriends() {
 }
 
 // 对照 events 表该用户最新 bio/status 事件，变化则记录（事件带头像）
-function _recordNonFriendChange(userId, displayName, userObj, av) {
+function _recordNonFriendChange(userId, displayName, userObj, av, bioText) {
   const { storage } = ctx;
-  const curBio = userObj.bio || '';
+  // 简介真值来自 GET /profile/{id}（见 core/profile-bio.js）。bioText === undefined ＝ **未知**
+  // （请求失败 / 响应缺 bio 键）⇒ 整段 bio 逻辑跳过：既不 diff 也不落库，否则会把
+  // 「拿不到」写成「简介被清空」（前端渲染成「(已清空)」）✗ —— 与 event-pipeline 的 hasBioField 同口径。
+  const bioKnown = bioText !== undefined;
+  const curBio = bioKnown ? bioText : '';
   const lastBio = storage.query(
     `SELECT content_json, created_at FROM events WHERE user_id=$u AND type='friend-update'
      AND json_extract(content_json,'$.type')='bio' ORDER BY id DESC LIMIT 1`, { $u: userId });
@@ -501,7 +508,7 @@ function _recordNonFriendChange(userId, displayName, userObj, av) {
   // 不做核心文字剥离——真实微小变化(标点/emoji 增减)也要记录
   const norm = (x) => String(x || '').replace(/\uFFFD/g, '').normalize('NFC');
 
-  const bioChanged = norm(prevBio) !== norm(curBio);
+  const bioChanged = bioKnown && norm(prevBio) !== norm(curBio);
   if (bioChanged) {
     const recent = lastBio[0] && lastBio[0].created_at;
     if (recent) {
@@ -509,7 +516,7 @@ function _recordNonFriendChange(userId, displayName, userObj, av) {
       if (dt >= 0 && dt < 300) return;  // 5 分钟内已有 bio 事件，跳过本次(仅防 VRChat 编辑中逐字保存连发)
     }
   }
-  if (!lastBio.length || bioChanged) {
+  if (bioKnown && (!lastBio.length || bioChanged)) {
     storage.insertEvent({
       type: 'friend-update', userId, displayName,
       contentJson: { userId, displayName, type: 'bio', bio: curBio, previousBio: prevBio, avatarImageUrl: av },

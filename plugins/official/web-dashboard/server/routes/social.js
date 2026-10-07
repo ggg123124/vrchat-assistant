@@ -251,13 +251,20 @@ export function registerSocialRoutes(api, dashboardState) {
       if (!userId) return sendJson(res, {});
       try {
         const user = await api.vrchat.fetch(`/users/${userId}`);
+        // 简介真值来自 GET /profile/{id}（新版资料系统已把 bio 移出 user 对象，2026-10-07 实测）；
+        // 取不到就留空、不阻塞资料返回（此前该字段恒空 ⇒ 资料弹窗简介永远空白）
+        let bio = '';
+        try {
+          const p = await api.vrchat.fetch(`/profile/${encodeURIComponent(userId)}`);
+          if (p && typeof p.bio === 'string') bio = p.bio;
+        } catch { /* 未知 ⇒ 留空 */ }
         sendJson(res, {
           userId: user.id || '',
           displayName: user.displayName || '',
           pastDisplayNames: Array.isArray(user.pastDisplayNames) ? user.pastDisplayNames : [],
           statusHistory: Array.isArray(user.statusHistory) ? user.statusHistory : [],
           statusDescription: user.statusDescription || '',
-          bio: user.bio || '',
+          bio,
           pronouns: user.pronouns || '',
           dateJoined: user.date_joined || '',
           lastLogin: user.last_login || '',
