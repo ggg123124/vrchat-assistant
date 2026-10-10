@@ -935,9 +935,10 @@ export function extractWorldsFromTweetText(text) {
   // 且文本带 #VRChat_world紹介
   const looksLikeWorldIntro = /#VRChat_world紹介|#VRChat_world紹介|ワールド紹介|World.*紹介/i.test(fullText);
   if (looksLikeWorldIntro && worldNames.length === 0 && worldIds.length === 0) {
-    const inline = fullText.match(/([^\n#|]{2,60}?)\s+([A-Za-z0-9_\-\.]{2,40})\s+--\s+/);
+    // 作者行允许非 ASCII（日/中/韩作者名，如「よけいっ」「八谷凛奈」「虚拟电波猫」），仅禁空白与换行
+    const inline = fullText.match(/([^\n#|]{2,60}?)\s+([^\s\n]{2,40})\s+--\s+/);
     const threeLine = !inline
-      ? fullText.match(/([^\n]{2,60})\n\s*([A-Za-z0-9_\-\.]{2,40})\n\s*--/)
+      ? fullText.match(/([^\n]{2,60})\n\s*([^\s\n]{2,40})\n\s*--/)
       : null;
     const matched = inline || threeLine;
     if (matched) {

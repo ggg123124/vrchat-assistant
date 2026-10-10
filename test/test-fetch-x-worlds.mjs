@@ -34,6 +34,18 @@ assert('launch worldId 提取', r.worldIds.includes('wrld_b1992535-7aca-4cbb-844
 r = extractWorldsFromTweetText('World name: Freedom.\nBy: Ina Crow\nPlatform: PC');
 assert('特殊字符世界名 Freedom.', r.worldNames.some(n => n.includes('Freedom')));
 
+// 三行格式（八谷凛奈）：世界名\n作者名\n--
+r = extractWorldsFromTweetText('巨大樹の森\nkumanekonoko\n--\n巨木が連なる森\n#VRChat_world紹介');
+assert('三行格式世界名（ASCII 作者）', r.worldNames.includes('巨大樹の森'));
+// 三行格式 + 日文作者名（非 ASCII，曾因字符类 [A-Za-z0-9_.-] 漏抓）
+r = extractWorldsFromTweetText('退勤\nよけいっ\n--\n深夜残業の帰り道\n#VRChat_world紹介');
+assert('三行格式世界名（日文作者名，非 ASCII）', r.worldNames.includes('退勤'));
+r = extractWorldsFromTweetText('【MMDPV】エレクトロサチュレイタ（电子饱和器）\nyaohu\n--\n初音ミクVRMV\n#VRChat_world紹介');
+assert('三行格式世界名（长名+中文括号）', r.worldNames.some(n => n.includes('エレクトロサチュレイタ')));
+// 无 #VRChat_world紹介 标签时不走三行分支（防误抓）
+r = extractWorldsFromTweetText('只是一个三行文本\n某作者名\n--\n随便写点东西');
+assert('无 world紹介 标签不走三行分支', r.worldNames.length === 0);
+
 console.log('\n=== 2. t.co 短链解包函数单元测试（纯本地） ===');
 
 // extractTcoLinks：提取全部 t.co 短链（去重）
