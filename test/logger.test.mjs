@@ -7,7 +7,7 @@
  */
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { rmSync, readdirSync, readFileSync } from 'node:fs';
+import { rmSync, readdirSync, readFileSync, rmdirSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
@@ -24,10 +24,23 @@ before(() => {
   dir = path.join(__dirname, 'logger-test-rundir');
   rmSync(dir, { recursive: true, force: true });
 });
+// <仓库>/logs 的清理必须**非递归**（issue #280）：未设 VRC_MONITOR_LOGGER_DIR 时它就是
+// 默认配置下**正在写日志的生产目录**，递归删除会在跑着服务的机器上删掉线上 monitor.log
+// （曾实测触发「文件日志永久停写 + 每行刷一条 ENOENT」）。本测试对该目录的唯一副作用是
+// initLogger({}) 建出的**空目录**，所以用 rmdirSync：目录非空（= 服务在写）时抛
+// ENOTEMPTY，静默跳过——结构性保证不可能误删非空目录。
+const cleanupDefaultLogDir = () => {
+  try {
+    rmdirSync(path.join(REPO, 'logs'));
+  } catch {
+    // 非空或不存在：绝不动它
+  }
+};
+
 after(() => {
   rmSync(dir, { recursive: true, force: true });
-  // 兜底清理：默认目录用例可能向 <仓库>/logs 写入，测试进程离开时一并清除
-  rmSync(path.join(REPO, 'logs'), { recursive: true, force: true });
+  // 兜底清理：默认目录用例可能创建 <仓库>/logs（空目录）
+  cleanupDefaultLogDir();
 });
 
 test('脱敏：authToken/cookie/邮箱/password/授权码 全部替换且零泄漏', () => {
@@ -241,7 +254,7 @@ test('默认目录：无任何 env 时落到仓库根/logs（非 cwd 父目录�
     if (savedM !== undefined) process.env.VRC_MONITOR_DIR = savedM;
     if (savedCtx !== undefined) process.env.NODE_TEST_CONTEXT = savedCtx;
     initLogger({ dir: path.join(dir, 'reset') });
-    rmSync(path.join(REPO, 'logs'), { recursive: true, force: true }); // 清掉断言时创建的目录
+    cleanupDefaultLogDir(); // 清掉断言时创建的空目录（非空则不动，见 #280）
   }
 });
 
