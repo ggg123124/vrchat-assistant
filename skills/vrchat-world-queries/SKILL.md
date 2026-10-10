@@ -110,6 +110,45 @@ metadata:
 
 部分博主（探跡家もっけい mokkei_VE、fox_yata9 等）的世界推荐**不是写在推文文本 `World: X By: Y` 里，而是附带 `https://t.co/XXXX` 短链指向 vrchat 世界页**。t.co 现返回 **200 HTML + `<meta http-equiv=refresh content="0;URL=...">`**（非 HTTP 302），必须抓 body 解析 `URL=` 拿真实 wrld_。服务端 `fetchCreatorTweets` 已内置批量解包（`VRC_MONITOR_X_RESOLVE_TCO=0` 关闭）；**若发现某博主"0 推荐"但用户坚持有，先检查推文是否全是 t.co 短链型**，勿用文本匹配结果反驳。
 
+### ⚠️ 各博主推文格式差异（2026-10 实测，防漏抓核心）
+
+四位常用博主的推荐推文格式**各不相同**，解析器必须逐格式兼容（`core/fetch-x-worlds.js` 的 `extractWorldRefs`）：
+
+| 博主 | 格式 | 解析要点 |
+|---|---|---|
+| Bradlee1011 | `World name: X` / `By: Y` / `Platform: …` | 标准 By 格式 |
+| fox_yata9 | `World:X` / `By:Y`（冒号**无空格**） | 正则 `World\s*(?:name)?\s*:?`（`name?` 要求 "nam" 字样，`World:` 会漏 → 必须写 `(?:name)?`） |
+| n4rGm5DmrVXXz6I（八谷凛奈） | `世界名\n作者名\n--\n简介`**三行格式** | 前两行分别是名/作者，`--` 分隔描述 |
+| mokkei_VE（探跡家もっけい） | `『日文世界名』`+正文+`https://t.co/xxx` | 名字在『』内，链接全靠 t.co 解包 |
+
+**通用标记**：四位博主的世界推荐几乎都带 **`#VRChat_world紹介`** 标签——**判断「某条推文是不是世界推荐」用它最可靠**（比名字/链接正则更稳）。服务端三行格式识别即以此标签为前置条件（`looksLikeWorldIntro`）。
+
+> **教训**：曾因解析器只认 `World: X By: Y`，把整批不兼容格式的博主推荐漏抓（八谷三行格式、mokkei 『』格式各漏 20+ 世界），用户拿具体世界名质疑才发现。**「某博主 N 天 0 推荐」≠ 数据真相，先核对推文格式是否被解析器覆盖**。
+
+### ⚠️ 世界名解析/筛选：名字+作者搜索兜底（2026-10 实测）
+
+t.co 解包偶尔失败（反爬/超时）或博主只发文字名不给链接时，用 **VRChat 官方 API 名字+作者搜索**找回世界（用户实测验证：**地图名去掉多余标点就能搜到，作者名也能对上**）：
+
+1. **标点清洗（search 前必做）**：去掉 `［Spookality 2026］`/`(IOS対応)`/`（Beta）` 等括号内容、去平台标记（IOS/QUEST/Android対応）、去装饰标点（`․ ˸ ǃ ！ ⁄ ｜ · ・ ．`），再用核心名搜。**带这些符号直接搜搜不到**。
+   - 例：`The Dead Forest ［Spookality 2026］(IOS対応)` → 搜 `The Dead Forest`；`Take me away․` → 搜 `Take me away`
+2. **名字搜索**：`GET /worlds?search=<清洗后名字>&n=50&sort=popularity`，逐个比对归一化名（去空格+标点+转小写），要求**精确或长度相近的子串**匹配。⚠️ 长度差大不算命中（避免 `Stalker 2` 误配 `Stalker`——归一化后 `stalker` ⊂ `stalker2` 会假阳，需加长度/尾部数字约束）
+3. **作者世界列表法（最可靠，尤其日文/特殊字符名）**：`GET /users?search=<作者名>` → 取 `userId` → `GET /worlds?userId=<uid>&n=100&sort=popularity` 逐页翻，在作者全部作品里按名匹配。作者名能对上时优先用这条（实测恢复了一大批日文世界）
+4. **宁缺毋滥**：名字搜索+作者列表都找不到 → 诚实标「待查/NEW」（刚发布的世界 VRChat 索引延迟，属客观查不到），**绝不盲取搜索结果第一条**（用户明确要求防误报）
+
+### ⚠️ VRChat API 认证陷阱（2026-10 实测，静默误判源）
+
+排查「为什么一堆世界待查」时的教训：
+
+- **cookie 过期 → 401 静默误判**：`data/auth_cookie.txt` 的 auth cookie 过期后 API 全部返回 **401**；脚本若把 401/空结果当「世界不存在/未索引」，会把**真实存在的世界整批误判为「待查」**（实测 70 个「待查」里 30+ 是 401 造成的假阴性）
+- **自检方法**：拿一个**已知存在**的世界（如 Stalker）直查 `/worlds/<id>`——若连它都 401/404，就是认证问题，不是世界不存在
+  ```bash
+  COOKIE=$(tr -d '\r\n' < data/auth_cookie.txt)   # 去尾部换行
+  curl -s -m 15 "https://api.vrchat.cloud/api/1/worlds/<已知wrld_id>" \
+    -H "Cookie: auth=$COOKIE" -H "User-Agent: VRCX-0-Actions-MCP/1.0"
+  ```
+- **UA 建议**：请求带服务同款 `User-Agent: VRCX-0-Actions-MCP/1.0`（裸 `urllib` 默认 UA 曾被 WAF 拦）；排查时先固定 UA 变量，避免与 cookie 问题混淆
+- **修复**：重启服务走 OTP 自动登录拿新 cookie（`node start-monitor.js`；服务进程 PATH 无 python 时 OTP 脚本会失败 → 设 env `VRC_MONITOR_PYTHON` 指向 python.exe），或手动 `python scripts/fetch-otp.py <邮箱> <IMAP授权码>` 拿验证码 + 客户端 `_verify2fa` 登录写回 cookie
+
 ## 6. 地图列表展示格式（通用推荐）
 
 展示地图列表时按此格式（6 列）：
