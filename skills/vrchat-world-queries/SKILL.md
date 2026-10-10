@@ -112,14 +112,14 @@ metadata:
 
 ### ⚠️ 各博主推文格式差异（2026-10 实测，防漏抓核心）
 
-四位常用博主的推荐推文格式**各不相同**，解析器必须逐格式兼容（`core/fetch-x-worlds.js` 的 `extractWorldRefs`）：
+四位常用博主的推荐推文格式**各不相同**，解析器必须逐格式兼容（`core/fetch-x-worlds.js:899` 的 `extractWorldsFromTweetText`）：
 
 | 博主 | 格式 | 解析要点 |
 |---|---|---|
 | Bradlee1011 | `World name: X` / `By: Y` / `Platform: …` | 标准 By 格式 |
 | fox_yata9 | `World:X` / `By:Y`（冒号**无空格**） | 名字正则见下方「世界名正则」 |
 | n4rGm5DmrVXXz6I（八谷凛奈） | `世界名\n作者名\n--\n简介`**三行格式** | 前两行分别是名/作者，`--` 分隔描述；作者行支持非 ASCII（日/中/韩作者名） |
-| mokkei_VE（探跡家もっけい） | `『日文世界名』`+正文+`https://t.co/xxx` | 名字在『』内，链接全靠 t.co 解包 |
+| mokkei_VE（探跡家もっけい） | `『日文世界名』`+正文+`https://t.co/xxx` | 链接全靠 t.co 解包（**解析器未对 `『』` 做专门处理**：实测 `grep -rn "『" core/` 零命中，名字靠解包回源；`『』` 只是作者的书写习惯） |
 
 **世界名正则**（`core/fetch-x-worlds.js:924` 现实现）：`/(?:World(?:\s*name)?|ワールド)\s*[:：]\s*…/gi` —— 支持 `World:` / `World name:` / `ワールド：`（**不含** `ワールド名：`）。
 ⚠️ **历史坑（勿复现）**：曾写 `World\s*name?\s*:`，其中 `name?` 会强制要求 "nam" 字样，导致 `World:X`（fox 格式）漏抓 —— 可选整词须写 `(?:name)?`。**现实现已修正**（此处仅记录曾错形态，勿去「修」一个不存在的 bug）。
