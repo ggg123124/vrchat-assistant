@@ -169,6 +169,11 @@ def main():
             size = args.size or 1024
             result = make_square(img, args.mode_detail, crop_box=args.crop_box, size=size)
             rotated = False
+            note = {
+                "fit": f"中心裁剪为 {size}×{size} 正方形（不补边）",
+                "pad": f"四周补透明边为 {size}×{size} 正方形（不裁剪内容）",
+                "smart": f"按 --crop-box 裁剪为 {size}×{size} 正方形",
+            }.get(args.mode_detail, f"square/{args.mode_detail}: 输出 {size}×{size}")
         else:
             rw, rh = [int(x) for x in args.ratio.split(":")]
             target_w = args.size or 1920
