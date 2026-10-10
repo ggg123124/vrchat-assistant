@@ -65,6 +65,8 @@ const state = {
   syslogPrefix: false,
   filePath: '',
   fileEnabled: false,
+  // 运行期文件写入「连续失败段」计数（成功落盘即清零）：用于错误去重与不可自愈时的降级判定
+  fileWriteFailures: 0,
   closed: false,
   pid: process.pid,
 };
@@ -185,6 +187,7 @@ export function initLogger(options = {}) {
   state.syslogPrefix = cfg.syslogPrefix;
   state.filePath = path.join(state.dir, 'monitor.log');
   state.fileEnabled = cfg.file;
+  state.fileWriteFailures = 0;
   state.closed = false;
   state.pid = process.pid;
 
@@ -407,6 +410,65 @@ function checkRotation(line) {
   }
 }
 
+// 运行期文件写入：自愈 + 错误去重 + 不可自愈降级（issue #278）。
+// 背景：日志目录此前只在 initLogger 里建一次，而 appendFileSync 是唯一落盘点——运行期
+// 目录被外部删除（清理脚本 / git clean / 挂载点重挂载）后，旧行为每写一行刷一条 ENOENT
+// 且永不恢复，直到重启；同时 getLoggerInfo() 仍报 file:true，与「一行都没落盘」自相矛盾
+// （违背 #200 审定的「报生效值」约定）。
+// 现行为：① ENOENT/ENOTDIR（目录缺失）→ 重建目录后重试一次（自愈，不属降级）；
+// ② 同一「连续失败段」内错误只输出一次，不逐行刷屏；
+// ③ 连续失败达 FILE_WRITE_DEGRADE_AFTER 次 → 按启动期同语义降级为仅 console
+//    （fileEnabled=false + filePath=''），使 /health.logging 继续报生效值。
+const FILE_WRITE_DEGRADE_AFTER = 3;
+
+function appendFileLine(fileLine) {
+  checkRotation(fileLine);
+  fs.appendFileSync(state.filePath, `${fileLine}\n`, 'utf8');
+}
+
+function markFileWriteFailure(err) {
+  state.fileWriteFailures += 1;
+  if (!state.console) return;
+  if (state.fileWriteFailures === 1) {
+    console.error(`[logger] 写入日志文件失败: ${err.message}`);
+  }
+  if (state.fileWriteFailures >= FILE_WRITE_DEGRADE_AFTER) {
+    state.fileEnabled = false;
+    state.filePath = '';
+    console.error(
+      `[logger] 日志文件连续 ${state.fileWriteFailures} 次写入失败，已降级为仅 console（不再落盘，重启后重新尝试）: ${err.message}`
+    );
+  }
+}
+
+function writeFileLines(fileLines) {
+  for (const fileLine of fileLines) {
+    try {
+      appendFileLine(fileLine);
+      state.fileWriteFailures = 0; // 成功落盘即结束失败段
+    } catch (err) {
+      // 目录被外部删除是可确定性自愈的：重建目录 + 重试同一行，不留降级痕迹。
+      // 提示走裸 console——此时才刚恢复文件通道，且不能在 write() 内递归调用 write()。
+      if (err && (err.code === 'ENOENT' || err.code === 'ENOTDIR')) {
+        try {
+          fs.mkdirSync(state.dir, { recursive: true });
+          appendFileLine(fileLine);
+          state.fileWriteFailures = 0;
+          if (state.console) {
+            console.info(`[logger] 日志目录已被外部删除，已重建: ${state.dir}`);
+          }
+          continue;
+        } catch (retryErr) {
+          markFileWriteFailure(retryErr);
+          return; // 本批剩余行不再逐个尝试：同一次失败不重复刷屏
+        }
+      }
+      markFileWriteFailure(err);
+      return;
+    }
+  }
+}
+
 function write(levelName, name, msg, meta) {
   if (state.closed) return;
 
@@ -434,25 +496,16 @@ function write(levelName, name, msg, meta) {
   writeToConsole(levelName, line);
 
   if (state.fileEnabled && state.filePath) {
-    try {
-      // 多行消息按行拆分落盘：每行都带完整前缀。否则「前缀+空正文」行会被解析成
-      // 空条目（日志页出现空行）、无前缀的续行（如 `\n[启动]...` 的正文、error.stack）
-      // 会被解析器整行丢弃（日志页数据丢失）。空段跳过——装饰性 '\n' 不再产生空行。
-      const fileLines = state.format === 'json'
-        ? [line]
-        : redactedMsg.split('\n')
-            .map((s) => s.trim())
-            .filter(Boolean)
-            .map((seg) => formatText(ts, levelName, name, seg));
-      for (const fl of fileLines) {
-        checkRotation(fl);
-        fs.appendFileSync(state.filePath, `${fl}\n`, 'utf8');
-      }
-    } catch (err) {
-      if (state.console) {
-        console.error(`[logger] 写入日志文件失败: ${err.message}`);
-      }
-    }
+    // 多行消息按行拆分落盘：每行都带完整前缀。否则「前缀+空正文」行会被解析成
+    // 空条目（日志页出现空行）、无前缀的续行（如 `\n[启动]...` 的正文、error.stack）
+    // 会被解析器整行丢弃（日志页数据丢失）。空段跳过——装饰性 '\n' 不再产生空行。
+    const fileLines = state.format === 'json'
+      ? [line]
+      : redactedMsg.split('\n')
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .map((seg) => formatText(ts, levelName, name, seg));
+    writeFileLines(fileLines);
   }
 }
 
