@@ -117,22 +117,26 @@ metadata:
 | 博主 | 格式 | 解析要点 |
 |---|---|---|
 | Bradlee1011 | `World name: X` / `By: Y` / `Platform: …` | 标准 By 格式 |
-| fox_yata9 | `World:X` / `By:Y`（冒号**无空格**） | 正则 `World\s*(?:name)?\s*:?`（`name?` 要求 "nam" 字样，`World:` 会漏 → 必须写 `(?:name)?`） |
-| n4rGm5DmrVXXz6I（八谷凛奈） | `世界名\n作者名\n--\n简介`**三行格式** | 前两行分别是名/作者，`--` 分隔描述 |
+| fox_yata9 | `World:X` / `By:Y`（冒号**无空格**） | 名字正则见下方「世界名正则」 |
+| n4rGm5DmrVXXz6I（八谷凛奈） | `世界名\n作者名\n--\n简介`**三行格式** | 前两行分别是名/作者，`--` 分隔描述；作者行支持非 ASCII（日/中/韩作者名） |
 | mokkei_VE（探跡家もっけい） | `『日文世界名』`+正文+`https://t.co/xxx` | 名字在『』内，链接全靠 t.co 解包 |
 
-**通用标记**：四位博主的世界推荐几乎都带 **`#VRChat_world紹介`** 标签——**判断「某条推文是不是世界推荐」用它最可靠**（比名字/链接正则更稳）。服务端三行格式识别即以此标签为前置条件（`looksLikeWorldIntro`）。
+**世界名正则**（`core/fetch-x-worlds.js:924` 现实现）：`/(?:World(?:\s*name)?|ワールド)\s*[:：]\s*…/gi` —— 支持 `World:` / `World name:` / `ワールド：`（**不含** `ワールド名：`）。
+⚠️ **历史坑（勿复现）**：曾写 `World\s*name?\s*:`，其中 `name?` 会强制要求 "nam" 字样，导致 `World:X`（fox 格式）漏抓 —— 可选整词须写 `(?:name)?`。**现实现已修正**（此处仅记录曾错形态，勿去「修」一个不存在的 bug）。
+
+**通用标记**：四位常用博主的推荐**实测均带** **`#VRChat_world紹介`** 标签——判断「某条推文是不是世界推荐」时它是很好的判据（比名字/链接正则稳）。服务端三行格式识别即以此标签为前置条件（`looksLikeWorldIntro`）。
 
 > **教训**：曾因解析器只认 `World: X By: Y`，把整批不兼容格式的博主推荐漏抓（八谷三行格式、mokkei 『』格式各漏 20+ 世界），用户拿具体世界名质疑才发现。**「某博主 N 天 0 推荐」≠ 数据真相，先核对推文格式是否被解析器覆盖**。
+> 三行格式的作者行**曾**用 `[A-Za-z0-9_\-\.]{2,40}`，把日文/中文作者名（如「よけいっ」「虚拟电波猫」）挡在门外 → 三行分支不命中、整批漏抓；已放宽为 `[^\s\n]{2,40}` 并补单测。
 
 ### ⚠️ 世界名解析/筛选：名字+作者搜索兜底（2026-10 实测）
 
-t.co 解包偶尔失败（反爬/超时）或博主只发文字名不给链接时，用 **VRChat 官方 API 名字+作者搜索**找回世界（用户实测验证：**地图名去掉多余标点就能搜到，作者名也能对上**）：
+t.co 解包偶尔失败（反爬/超时）或博主只发文字名不给链接时，用 **VRChat 官方 API 名字+作者搜索**找回世界（用户实测验证：**地图名去掉多余标点就能搜到，作者名也能对上**）。以下 URL 为**示意**；服务端实际调用见 `core/fetch-x-worlds.js`（`/worlds?search=` 用 `n=10`、`/users?search=` 用 `n=5`、带 `userId` 的 `/worlds?search=<名>&userId=<id>&n=10`；作者全量作品分页在 `core/tools/events.js`，`n` + `offset`）：
 
 1. **标点清洗（search 前必做）**：去掉 `［Spookality 2026］`/`(IOS対応)`/`（Beta）` 等括号内容、去平台标记（IOS/QUEST/Android対応）、去装饰标点（`․ ˸ ǃ ！ ⁄ ｜ · ・ ．`），再用核心名搜。**带这些符号直接搜搜不到**。
    - 例：`The Dead Forest ［Spookality 2026］(IOS対応)` → 搜 `The Dead Forest`；`Take me away․` → 搜 `Take me away`
-2. **名字搜索**：`GET /worlds?search=<清洗后名字>&n=50&sort=popularity`，逐个比对归一化名（去空格+标点+转小写），要求**精确或长度相近的子串**匹配。⚠️ 长度差大不算命中（避免 `Stalker 2` 误配 `Stalker`——归一化后 `stalker` ⊂ `stalker2` 会假阳，需加长度/尾部数字约束）
-3. **作者世界列表法（最可靠，尤其日文/特殊字符名）**：`GET /users?search=<作者名>` → 取 `userId` → `GET /worlds?userId=<uid>&n=100&sort=popularity` 逐页翻，在作者全部作品里按名匹配。作者名能对上时优先用这条（实测恢复了一大批日文世界）
+2. **名字搜索**：`GET /worlds?search=<清洗后名>&n=10`，逐个比对归一化名（去空格+标点+转小写），要求**精确或长度相近的子串**匹配。⚠️ 长度差大不算命中（避免 `Stalker 2` 误配 `Stalker`——归一化后 `stalker` ⊂ `stalker2` 会假阳，需加长度/尾部数字约束）
+3. **作者世界列表法（最可靠，尤其日文/特殊字符名）**：`GET /users?search=<作者名>&n=5` → 取 `userId` → `GET /worlds?search=<名>&userId=<uid>&n=10`（作者过滤）；作者全部作品另走 `/worlds?userId=<uid>` 分页（`n`+`offset`）。作者名能对上时优先用这条（实测恢复了一大批日文世界）
 4. **宁缺毋滥**：名字搜索+作者列表都找不到 → 诚实标「待查/NEW」（刚发布的世界 VRChat 索引延迟，属客观查不到），**绝不盲取搜索结果第一条**（用户明确要求防误报）
 
 ### ⚠️ VRChat API 认证陷阱（2026-10 实测，静默误判源）
@@ -146,6 +150,7 @@ t.co 解包偶尔失败（反爬/超时）或博主只发文字名不给链接�
   curl -s -m 15 "https://api.vrchat.cloud/api/1/worlds/<已知wrld_id>" \
     -H "Cookie: auth=$COOKIE" -H "User-Agent: VRCX-0-Actions-MCP/1.0"
   ```
+- ⚠️ **凭据纪律**：cookie 只用变量承载，**绝不 `echo`、绝不写日志/进脚本输出**（同 `AGENTS.md` 对 X cookie 的约束）。
 - **UA 建议**：请求带服务同款 `User-Agent: VRCX-0-Actions-MCP/1.0`（裸 `urllib` 默认 UA 曾被 WAF 拦）；排查时先固定 UA 变量，避免与 cookie 问题混淆
 - **修复**：重启服务走 OTP 自动登录拿新 cookie（`node start-monitor.js`；服务进程 PATH 无 python 时 OTP 脚本会失败 → 设 env `VRC_MONITOR_PYTHON` 指向 python.exe），或手动 `python scripts/fetch-otp.py <邮箱> <IMAP授权码>` 拿验证码 + 客户端 `_verify2fa` 登录写回 cookie
 
