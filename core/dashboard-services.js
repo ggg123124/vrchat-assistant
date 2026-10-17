@@ -33,6 +33,19 @@ const WORLD_FETCH_COOLDOWN_MS = Number.isFinite(WORLD_FETCH_COOLDOWN_RAW) && WOR
 // 一个永久 404/不可见的世界会在每次 friends 请求里被反复回源（前端 120s 轮询 → 最坏每 ~2 分钟一次）。
 // 内存 Map 即可（重启即重置 → 重试一次，可接受）；无 schema 变更。
 const worldFetchCooldown = new Map(); // worldId -> lastAttemptAt
+// worldId -> VRChat 对当前账号返回 404/403（不可见/已下架）。注意：实测 404 可能是**暂时**的（同一批世界 8 分钟后重试即 200）⇒ 只作「本次取不到」的标注，取到即撤销
+const worldUnavailable = new Set();
+const worldFetchInflight = new Map();   // worldId -> 正在进行的回源 Promise（并发去重）
+/** 同一世界在同一时刻只发一次回源（复审 ⚠️：dashboard.events 与 dashboard.friends 会在同一轮 bootstrap 的
+ *  Promise.all 里并发点名同一个世界，而失败冷却要等失败之后才写入 ⇒ 没有 in-flight 去重会重复打 API）。 */
+function worldFetchOnce(worldSvc, worldId) {
+  let p = worldFetchInflight.get(worldId);
+  if (!p) {
+    p = Promise.resolve().then(() => worldSvc({ worldId })).finally(() => worldFetchInflight.delete(worldId));
+    worldFetchInflight.set(worldId, p);
+  }
+  return p;
+}
 
 // world_cache.updated_at 由 SQLite datetime('now') 写入（UTC、无时区后缀）→ 补 Z 再解析。
 // 注意（审查 💡2）：updated_at 是「行被写过」的时间，setWorldNote/setWorldFavorited 也会刷新它而
@@ -190,7 +203,7 @@ export function registerDashboardServices(loader, ctx) {
         const worldSvc = loader.services.get('dashboard.world');
         (async () => {
           for (const r of missing.slice(0, 5)) {
-            try { await worldSvc({ worldId: r.worldId }); } catch { /* 单个世界失败不影响 */ }
+            try { await worldFetchOnce(worldSvc, r.worldId); } catch { /* 单个世界失败不影响 */ }
           }
         })();
       }
@@ -781,6 +794,38 @@ export function registerDashboardServices(loader, ctx) {
       if (ev.avatarName && !isPlausibleAvatarName(ev.avatarName)) ev.avatarName = '';
       if (ev.previousAvatarName && !isPlausibleAvatarName(ev.previousAvatarName)) ev.previousAvatarName = '';
     }
+    // 世界名预热（2026-10-17 用户报「有些获取不到地图名」）：
+    // 事件列 e.world_name 是**写入那一刻**的快照；自己的位置事件写入时，那个世界往往还没进
+    // world_cache（只有好友列表 / 最近游玩那两条路会预热）⇒ 这些行永远只剩「好友＋ · JP · 12345」。
+    // 这里对本次窗口里**缺名字**的世界按同一「限流 + 失败冷却」回填。回源是异步的：
+    // **本次响应里这些行仍是空的**（首帧恒空），回填进 world_cache 后由 DTO 的
+    // COALESCE(world_cache.name, e.world_name) 在**下一次请求**起显示世界名 ✓
+    try {
+      const worldSvc = loader.services.get('dashboard.world');
+      if (worldSvc) {
+        const need = [...new Set(result
+          .filter((e) => e.worldId && String(e.worldId).startsWith('wrld_') && !e.worldName)
+          .map((e) => e.worldId))]
+          .filter((id) => !worldFetchCooldown.has(id) || Date.now() - worldFetchCooldown.get(id) >= WORLD_FETCH_COOLDOWN_MS)
+          .slice(0, 5);
+        if (need.length) {
+          (async () => {
+            for (const id of need) {
+              try {
+                const w = await worldFetchOnce(worldSvc, id);   // 与 friends 预热共享同一张 in-flight 表
+                if (w && w.unavailable) worldUnavailable.add(id);   // 404/403：本次取不到，供出口标注（取到名字时会撤销）
+                const name = w && w.name;
+                if (name) for (const ev of result) if (ev.worldId === id) ev.worldName = name;
+              } catch { /* 单个世界失败不影响响应（失败冷却由 dashboard.world 记录） */ }
+            }
+          })();
+        }
+      }
+    } catch { /* 预热失败不影响响应 */ }
+    // 世界名不可得标注（2026-10-17 用户定：显示成「404世界 + 完整 worldId」，房间号照旧保留）
+    for (const ev of result) {
+      if (ev.worldId && !ev.worldName && worldUnavailable.has(ev.worldId)) ev.worldNameUnavailable = true;
+    }
     return { events: result, total };
   });
   loader.serviceOwners.set('dashboard.events', 'core');
@@ -1239,10 +1284,13 @@ export function registerDashboardServices(loader, ctx) {
           new Promise((_, rej) => setTimeout(() => rej(new Error('world fetch timeout')), 10000)),
         ]);
         if (result.status === 200 && result.data) {
+          worldUnavailable.delete(worldId);   // 之前判过不可见、现在能取到 ⇒ 撤销标记
           const w = result.data;
           ctx.storage.upsertWorld({ worldId, name: w.name || '', authorId: w.authorId || '', authorName: w.authorName || '', imageUrl: w.imageUrl || '', description: w.description || '', tags: w.tags || [] });
           return pick(w);
         }
+        // VRChat 对无权查看/已下架的世界返回 404（不是 403）⇒ 先记下来供界面标注；若之后取到名字会撤销标记（404 实测有过暂时态）
+        if (result.status === 404 || result.status === 403) worldUnavailable.add(worldId);
       } catch { /* 超时/失败返回 null，由调用方回退缓存或占位 */ }
       worldFetchCooldown.set(worldId, Date.now());   // 失败冷却（💡1），避免每请求重试一个不可见世界
       return null;
@@ -1253,12 +1301,12 @@ export function registerDashboardServices(loader, ctx) {
       let cachedTags = cached.tags;
       if (typeof cachedTags === 'string') { try { cachedTags = JSON.parse(cachedTags || '[]'); } catch { cachedTags = []; } }
       // 缓存含标签且带 version 才视为完整（旧缓存缺 version/heat 等字段，需 fetchFresh 补齐一次）
-      if (cached.description && Array.isArray(cachedTags) && cachedTags.length && cached.version != null) return { ...pick(cached), tags: cachedTags, note: cached.note || '' };
+      if (cached.description && Array.isArray(cachedTags) && cachedTags.length && cached.version != null) return { ...pick(cached), tags: cachedTags, note: cached.note || '', unavailable: worldUnavailable.has(worldId) };
       const fresh = await fetchFresh().catch(() => null);
-      return fresh ? { ...fresh, note: cached.note || '' } : { ...pick(cached), tags: cachedTags, note: cached.note || '' };
+      return fresh ? { ...fresh, note: cached.note || '', unavailable: worldUnavailable.has(worldId) } : { ...pick(cached), tags: cachedTags, note: cached.note || '', unavailable: worldUnavailable.has(worldId) };
     }
     const fresh = await fetchFresh().catch(() => null);
-    return fresh || { worldId, name: '' };
+    return { ...(fresh || { worldId, name: '' }), unavailable: worldUnavailable.has(worldId) };
   });
   loader.serviceOwners.set('dashboard.world', 'core');
 

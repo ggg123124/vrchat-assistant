@@ -466,6 +466,8 @@ onUnmounted(() => {
             <span class="dest-group">
               <img v-if="x.worldImageUrl" class="wthumb" :src="x.worldImageUrl" alt="" loading="lazy" />
               <span v-if="x.worldName" class="world-link" @click="openWorld(x.worldId)" role="button" tabindex="0" @keydown.enter="openWorld(x.worldId)">{{ x.worldName }}</span>
+              <!-- 世界名不可得（VRChat 对无权查看/已下架世界返回 404）：显式标注 + 完整 worldId，房间号照旧跟在后面（2026-10-17 用户定） -->
+              <span v-else-if="x.worldId && x.worldNameUnavailable" class="dim mono" :title="'VRChat 返回 404/403：该世界对当前账号不可见或已下架（可能是暂时的，服务会自动重试）—— ' + x.worldId">404世界 {{ x.worldId }}</span>
               <span v-else-if="x.location" class="dim">{{ specialLocationLabel(x.location) || locLabel(x.location) || x.location }}</span>
               <span v-if="x.instanceType || x.region || x.instanceId" class="inst mono">{{ instanceLabel(x.instanceType) }}{{ x.region ? ' · ' + x.region.toUpperCase() : '' }}{{ x.instanceId ? ' · ' + x.instanceId : '' }}</span>
             </span>
