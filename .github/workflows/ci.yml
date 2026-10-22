@@ -1,7 +1,7 @@
 name: CI
 
 # 无真实 VRChat 凭据的冒烟测试（解冻 PR-3）：
-#   - npm test                   （node --test "test/**/*.test.mjs" 全量单测；issue #190 起纳入门禁）
+#   - npm test                   （node --test "test/**/*.test.mjs" 全量单测 + scripts/check-deident.mjs 去标识化判据；issue #190 起纳入门禁）
 #   - test/test-registry.mjs  （注册表完整性：工具数、顺序+定义+handler，无凭据可跑）
 #   - scripts/dump-tools.mjs     （权威工具清单，行数须与 core/tool-order.json 一致——动态推导，不写死）
 #   - test/test-storage-snapshot.mjs（storage 行为等价基线：公共方法「输入→返回」快照，--check 对比 golden）
@@ -62,11 +62,8 @@ jobs:
       - name: Install plugin dependencies (per-plugin package.json)
         run: npm run install-plugins
 
-      - name: Unit tests (npm test — test/**/*.test.mjs glob)
+      - name: Unit tests (npm test — test/**/*.test.mjs glob + de-identification check)
         run: npm test
-
-      - name: De-identification check (ID track; nickname track skipped without tokens)
-        run: node scripts/check-deident.mjs
 
       - name: Auth guard fail-closed regression (issue #159, no credentials)
         run: node test/test-auth-guard.mjs

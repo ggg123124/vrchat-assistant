@@ -9,6 +9,9 @@
  *   (b) 昵称轨（不落明文）：昵称 token 只从环境变量 / 未跟踪文件读取，脚本内不内嵌。
  *       未提供 token 时输出 skipped（退出码 0），绝不输出 pass。
  *
+ * 枚举：`git ls-files` 只收已跟踪文件——自测变异探针必须先 `git add -f` 才会被扫到，
+ *       未跟踪探针会得到「0 命中」的假绿（2026-10-22 评审实测踩坑）；昵称 token 文件
+ *       按设计保持未跟踪（既不入库，也不会被自己扫到）。
  * 退出码：pass = 0；skipped = 0（报告里显式计数）；fail = 1。
  * 归一化：比较前只去掉行尾 CR，不折叠空白、不做大小写变换。
  * 范围：只约束工作树（git 历史不重写），只看源码文本，不扫描运行期生成值。
@@ -147,7 +150,7 @@ export function runCheck({ root = process.cwd(), files, tokens = [] } = {}) {
 
 export function formatReport(result) {
   const lines = [];
-  lines.push(`[deident] ID 轨：扫描 ${result.idScanned} 个文本文件，${result.idFindings.length} 处命中（白名单占位模板 1 个）`);
+  lines.push(`[deident] ID 轨：扫描 ${result.idScanned} 个文本文件，${result.idFindings.length} 处命中（白名单占位模板 ${ID_WHITELIST.size} 个）`);
   if (result.skipped.nickname) {
     lines.push('[deident] 昵称轨：skipped（未提供 token）');
   } else {
