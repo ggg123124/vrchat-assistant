@@ -126,7 +126,7 @@ db.transaction((t) => { for (const x of list) t.run(...); });  // 事务
 ### 4.3 api.vrchat.fetch(path, options?) — 调用 VRChat REST API
 
 ```js
-const user = await api.vrchat.fetch("/users/usr_c1644b5b-3ca4-45b4-97c6-a2a0de70d469");
+const user = await api.vrchat.fetch("/users/usr_01234567-0123-4123-8123-0123456789ab");
 const res  = await api.vrchat.fetch("/worlds/wrld_xxx/favorites", { method: "POST", body: { type: "world", favoriteGroup: "worlds1" } });
 ```
 

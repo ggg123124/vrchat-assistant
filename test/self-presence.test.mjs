@@ -17,7 +17,7 @@ import {
 } from '../core/self-presence.js';
 import { registerDashboardServices } from '../core/dashboard-services.js';
 
-const SELF = 'usr_c834d70f-e199-4d71-9cfc-9aa33a4880f9';
+const SELF = 'usr_01234567-0123-4123-8123-0123456789ab';
 const NOW = Date.parse('2026-09-17T12:00:00.000Z');
 
 /** 造一个只支持本模块那条查询的最小 storage */

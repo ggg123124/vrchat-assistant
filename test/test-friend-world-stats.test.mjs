@@ -39,7 +39,7 @@ const W_OLD = 'wrld_stats-old-0000-0000-0000-000000000003';
 const W_LOCAL = 'local:xxxx-test';  // 非 wrld_ 前缀应排除
 
 const loc = (worldId, worldName, userId, dt) => storage.insertEvent({
-  type: 'friend-location', userId, displayName: userId === F1 ? '好友一' : '好友二',
+  type: 'friend-location', userId, displayName: userId === F1 ? '好友A' : '好友B',
   contentJson: { location: worldId + ':1', worldName }, worldId, worldName,
   createdAt: iso(dt), source: 'ws',
 });
@@ -52,7 +52,7 @@ for (const dt of [-300000, -360000, -420000]) loc(W_MID, '', F2, dt);
 loc(W_OLD, '旧世界', F1, -40 * 86400000);
 // local 房间(非 wrld_)
 storage.insertEvent({
-  type: 'friend-location', userId: F1, displayName: '好友一',
+  type: 'friend-location', userId: F1, displayName: '好友A',
   contentJson: { location: W_LOCAL }, worldId: W_LOCAL, worldName: '本地测试',
   createdAt: iso(0), source: 'ws',
 });
@@ -73,7 +73,7 @@ test('get_friend_world_stats 聚合/排序/窗口/资料补齐', () => {
   assert.equal(hot.worldName, '热门世界(缓存名)', 'world_cache 名称优先');
   assert.ok(hot.imageUrl.includes('file_x'), 'imageUrl 来自 world_cache');
   assert.equal(hot.authorName, '作者甲', 'authorName 来自 world_cache');
-  assert.deepEqual(hot.friends.sort(), ['好友一', '好友二'], 'friends 样本含两个好友名');
+  assert.deepEqual(hot.friends.sort(), ['好友A', '好友B'], 'friends 样本含两个好友名');
 
   assert.equal(mid.visitors, 1);
   assert.equal(mid.visits, 3);

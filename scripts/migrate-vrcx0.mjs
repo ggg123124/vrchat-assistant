@@ -149,7 +149,7 @@ function worldIdFromLocation(location) {
 }
 
 // ── 用户前缀转标准 userId（补横线）──
-// VRCX 表名前缀是去掉横线的 userId（如 usr3a6252c9... → usr_3a6252c9-88e9-...）
+// VRCX 表名前缀是去掉横线的 userId（如 usr01234567... → usr_01234567-89ab-cdef-0123-456789abcdef）
 function userIdFromPrefix(prefix) {
   const m = String(prefix).match(/^usr([0-9a-fA-F]{8})([0-9a-fA-F]{4})([0-9a-fA-F]{4})([0-9a-fA-F]{4})([0-9a-fA-F]{12})$/);
   if (!m) return '';
@@ -337,7 +337,7 @@ async function main() {
           const userId = row.user_id;
           const memoText = row.memo || '';
 
-          // 从备注文本提取昵称（格式："昵称：风风" 或直接文本）
+          // 从备注文本提取昵称（格式："昵称：好友A" 或直接文本）
           let displayName = '';
           let nickName = memoText;
           const nickMatch = memoText.match(/^昵称[：:]\s*(.+)/);

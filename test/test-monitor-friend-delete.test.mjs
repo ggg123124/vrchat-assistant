@@ -58,21 +58,21 @@ test('friend-delete 即时进入非好友追踪（新行新增 + 已移除行重
   const D1 = 'usr_test-delf-0000000000000000000000a1';
   const D2 = 'usr_test-delf-0000000000000000000000a2';
   // D1 从未 tracked；D2 曾 tracked 且被手动移除（removed_at != ''）
-  storage.upsertFriend({ userId: D1, displayName: '将删好友一', isOnline: 0 });
-  storage.upsertFriend({ userId: D2, displayName: '将删好友二', isOnline: 0 });
+  storage.upsertFriend({ userId: D1, displayName: '将删好友A', isOnline: 0 });
+  storage.upsertFriend({ userId: D2, displayName: '将删好友B', isOnline: 0 });
   storage.run(`INSERT OR IGNORE INTO tracked_non_friends (user_id, display_name) VALUES ($u, $d)`,
-    { $u: D2, $d: '将删好友二' });
+    { $u: D2, $d: '将删好友B' });
   storage.run(`UPDATE tracked_non_friends SET removed_at = datetime('now') WHERE user_id = $u`, { $u: D2 });
   const d2Before = storage.query(`SELECT removed_at FROM tracked_non_friends WHERE user_id=$u`, { $u: D2 })[0];
   assert.ok(d2Before.removed_at, '前置:D2 应处于已移除状态');
 
-  await pipe._handleDelete({ userId: D1, type: 'friend-delete', displayName: '将删好友一', receivedAt: new Date().toISOString() });
-  await pipe._handleDelete({ userId: D2, type: 'friend-delete', displayName: '将删好友二', receivedAt: new Date().toISOString() });
+  await pipe._handleDelete({ userId: D1, type: 'friend-delete', displayName: '将删好友A', receivedAt: new Date().toISOString() });
+  await pipe._handleDelete({ userId: D2, type: 'friend-delete', displayName: '将删好友B', receivedAt: new Date().toISOString() });
 
   const d1Row = storage.query(`SELECT display_name, removed_at FROM tracked_non_friends WHERE user_id=$u`, { $u: D1 })[0];
   assert.ok(d1Row, '被删好友 D1 应即时进入 tracked(无需等重启自动导入)');
   assert.equal(d1Row.removed_at, '', '新进入的 tracked 行应为活跃状态');
-  assert.equal(d1Row.display_name, '将删好友一', 'display_name 取事件携带值');
+  assert.equal(d1Row.display_name, '将删好友A', 'display_name 取事件携带值');
   const d2Row = storage.query(`SELECT removed_at FROM tracked_non_friends WHERE user_id=$u`, { $u: D2 })[0];
   assert.equal(d2Row.removed_at, '', '已移除的 tracked 行应被重新激活(removed_at 清空)');
 });
