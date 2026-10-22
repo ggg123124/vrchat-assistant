@@ -23,7 +23,7 @@ metadata:
 |------|------|
 | `get_online_friends` | 当前在线好友列表（含昵称 nickname + 房型解析 locationParsed：worldId/instanceId/type/ownerId/region + 世界名 worldName（未缓存自动 API 补查）+ 房间停留时长 durationMinutes/enteredAt + **在线时长 onlineMinutes/onlineSince**；durationMinutes 进入时间 = max(会话起点, 最新位置事件)防跨会话污染；onlineMinutes = 最近 friend-offline 之后最早 friend-online 起算，重复推送被 MIN 跳过） |
 | `get_friend_info` | 好友详细信息 |
-| `search_users` | 按名字搜索用户（API 优先；API 无匹配时自动回退本地好友库模糊搜索 display_name/备注，结果带 `source: local_friends` 标记） |
+| `search_users` | 按名字搜索用户（API 优先；API 无匹配时自动回退本地好友库模糊搜索 display_name/备注，结果带 `source: local_friends` 标记。API 结果的 `bio` 固定 `null`——搜索结果不逐条取 profile，简介未知；`''` 才表示确认未写） |
 | `search_groups` | 按名字搜索群组（API 用 query 参数，不是 search） |
 | `search_worlds` | 按名字搜索世界（英文/日文走 API；中文自动加本地缓存兜底） |
 | `search_planet_worlds` | **PlanetVRC 地图检索**（planetvrchat.net 日文世界目录）：关键词搜索 → 世界名/wrld_id/平台/分类/收藏数；适合 VRChat API 搜不到的日文/小众图。limit 最大 8（每个结果抓详情页补 wrld_id，约 1-2s/个） |

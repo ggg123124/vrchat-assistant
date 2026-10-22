@@ -8,6 +8,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { ctx } from '../core/server-context.js';
 import { handleSearchUsers } from '../core/tools/friends.js';
 import { userSearchSub } from '../plugins/official/web-dashboard/server/routes/search.js';
@@ -45,4 +46,10 @@ test('看板用户搜索副标题只含好友标记，不拼接简介', () => {
   assert.equal(userSearchSub({ isFriend: true, bio: '任意简介' }), '好友');
   assert.equal(userSearchSub({ isFriend: false, bio: '任意简介' }), '');
   assert.doesNotMatch(userSearchSub({ isFriend: true, bio: '任意简介' }), /任意简介/);
+});
+
+test('看板调用点仍在：index.js 用 userSearchSub 且不再读 u.bio（防「函数写了没人调」）', () => {
+  const src = fs.readFileSync(new URL('../plugins/official/web-dashboard/index.js', import.meta.url), 'utf8');
+  assert.match(src, /sub: userSearchSub\(u\)/, '调用点必须接上');
+  assert.doesNotMatch(src, /u\.bio/, '不得回退到已不在 user 对象里的字段');
 });
