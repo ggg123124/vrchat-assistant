@@ -12,6 +12,7 @@
  * 枚举：`git ls-files` 只收已跟踪文件——自测变异探针必须先 `git add -f` 才会被扫到，
  *       未跟踪探针会得到「0 命中」的假绿（2026-10-22 评审实测踩坑）；昵称 token 文件
  *       按设计保持未跟踪（既不入库，也不会被自己扫到）。
+ * 环境：fail-closed——不是 git 工作树 / 未安装 git 时明确报错并 exit 1，不降级 skipped。
  * 退出码：pass = 0；skipped = 0（报告里显式计数）；fail = 1。
  * 归一化：比较前只去掉行尾 CR，不折叠空白、不做大小写变换。
  * 范围：只约束工作树（git 历史不重写），只看源码文本，不扫描运行期生成值。
@@ -52,8 +53,19 @@ export function normalizeLine(line) {
 
 /** 从 git 索引枚举工作树文本文件（排除未跟踪文件，token 文件天然不会被扫到） */
 export function listTrackedFiles(root) {
-  const out = execFileSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
-  return out.split('\0').filter(Boolean);
+  try {
+    const out = execFileSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] });
+    return out.split('\0').filter(Boolean);
+  } catch (e) {
+    // fail-closed：判据的契约是「不许假绿」，非 git 环境不能降级成 skipped
+    const err = new Error(
+      '[deident] 无法枚举文件：当前目录不是 git 工作树，或未安装 git（判据依赖 git ls-files）\n' +
+      '[deident] ⇒ 请在仓库 clone 内运行；无 git 环境（源码包/拷贝目录）请用显式命令绕开判据'
+    );
+    err.code = 'DEIDENT_NOT_GIT';
+    err.cause = e;
+    throw err;
+  }
 }
 
 function readTextFile(absPath) {
@@ -174,7 +186,16 @@ function main() {
     else if (args[i] === '--json') { json = true; }
   }
   const tokens = readTokens();
-  const result = runCheck({ root, tokens });
+  let result;
+  try {
+    result = runCheck({ root, tokens });
+  } catch (e) {
+    if (e.code === 'DEIDENT_NOT_GIT') {
+      process.stderr.write(e.message + '\n');
+      process.exit(1);
+    }
+    throw e;
+  }
   if (json) {
     process.stdout.write(JSON.stringify({ ...result, status: result.status, tokenCount: tokens.length }, null, 2) + '\n');
   } else {

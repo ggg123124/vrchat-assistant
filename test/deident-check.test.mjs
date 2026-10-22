@@ -11,11 +11,13 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import {
   runCheck,
   formatReport,
   normalizeLine,
   readTokens,
+  listTrackedFiles,
   PLACEHOLDER_USR,
 } from '../scripts/check-deident.mjs';
 
@@ -136,6 +138,29 @@ test('readTokens：inline 逗号分隔 / 文件每行一个（# 注释忽略）'
     const file = path.join(root, 'tokens.txt');
     fs.writeFileSync(file, '# 本地 token，不入库\n好友A\r\n好友B\n\n');
     assert.deepEqual(readTokens({ VRC_DEIDENT_TOKENS_FILE: file }), ['好友A', '好友B']);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('非 git 目录：枚举失败 fail-closed（明确报错，不降级 skipped）', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vrc-deident-nogit-'));
+  try {
+    // 若临时目录恰好在某个工作树内，git ls-files 会成功，本用例不适用
+    let inside = false;
+    try {
+      inside = execFileSync('git', ['rev-parse', '--is-inside-work-tree'], {
+        cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim() === 'true';
+    } catch { /* 不是工作树 = 目标场景 */ }
+    if (inside) {
+      t.skip('临时目录位于 git 工作树内，跳过');
+      return;
+    }
+    assert.throws(
+      () => listTrackedFiles(root),
+      (e) => e.code === 'DEIDENT_NOT_GIT' && /不是 git 工作树/.test(e.message),
+    );
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

@@ -194,6 +194,7 @@ PR 由 AI Agent 编写提交（人类只提出需求、不直接编码）。以�
   - **ID 轨（确定性，进 CI）**：`usr_` 用户标识必须是统一占位模板 `usr_01234567-0123-4123-8123-0123456789ab`，出现其它 v4 形态即失败；`wrld_` 是世界公开 ID（测试里用真实公开世界做功能性夹具），不在范围内；
   - **昵称轨（不落明文）**：token 只从 `VRC_DEIDENT_TOKENS`（逗号分隔）或 `VRC_DEIDENT_TOKENS_FILE`（每行一个，`#` 注释）读取，脚本内不内嵌；未提供时输出 `skipped`（退出码 0）并在报告中显式计数，**不输出 pass**；
   - **枚举口径**：`git ls-files` 只收**已跟踪**文件——自测变异探针必须先 `git add -f` 才会被扫到，未跟踪探针会得到「0 命中」的假绿；昵称 token 文件按设计保持未跟踪（不入库，也不会被自己扫到）；
+  - **环境口径**：非 git 工作树 / 未安装 git 时 **fail-closed**——明确报错并 exit 1，不降级 `skipped`（否则正好制造判据本该防止的假绿）；只在仓库 clone 内运行。
   - **退出码**：pass / skipped = 0，fail = 1；归一化只去行尾 CR；只约束工作树（git 历史不重写），只看源码文本、不看运行期生成值。
 - **插件第三方依赖**：`plugins/official/*` 中带 `package.json` 的插件（目前 emoji-notes 依赖 pinyin-pro）需先执行 `npm run install-plugins`（CI 已在 `npm ci` 后运行此步）。本地/审查环境只跑 `npm ci` 会漏装插件依赖，表现为此类插件整体加载失败、`test/test-registry.mjs` 工具数少于 `core/tool-order.json`（如 105/108）——先补装插件依赖再跑测试，勿误判为代码回归。
 - **测试日志隔离（两条路径，绝不写生产日志目录）**：① `npm test`（package.json 的 test script）通过 `--import ./test/setup-log-isolation.mjs` 把 `VRC_MONITOR_LOGGER_DIR` 钉到每次运行唯一的系统临时目录——显式隔离；② 裸 `node --test`（不经 npm script）只有 `core/logger.js` `resolveDir()` 的 `NODE_TEST_CONTEXT` 单点兜底（node --test 子进程会设 `NODE_TEST_CONTEXT`，日志落到 `os.tmpdir()/vrc-monitor-test-logs`）。两条路径都不会写进生产日志目录 `<VRC_MONITOR_DIR>/logs`（曾实测 96 行 `wrld_kbtest-*` 测试夹具污染生产日志，后修复）。
