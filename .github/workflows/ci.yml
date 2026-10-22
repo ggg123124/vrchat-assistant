@@ -65,6 +65,9 @@ jobs:
       - name: Unit tests (npm test — test/**/*.test.mjs glob)
         run: npm test
 
+      - name: De-identification check (ID track; nickname track skipped without tokens)
+        run: node scripts/check-deident.mjs
+
       - name: Auth guard fail-closed regression (issue #159, no credentials)
         run: node test/test-auth-guard.mjs
 

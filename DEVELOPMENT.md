@@ -190,6 +190,10 @@ PR 由 AI Agent 编写提交（人类只提出需求、不直接编码）。以�
   - 实现走**单一来源** `core/ext-log.js`（`logExtFailure` / `logExtFallback` / `logExtSuccess` / `getExtStats`）；插件禁止 `import core/`，改用 `api.extLog.failure/fallback/success`（见 PLUGIN-API §4.7）；
   - 聚合快照经 `GET /health` 的 `api` 字段暴露（`client` 调用统计 + `ext` 外部服务失败统计），明细用 `get_ops_log`（`kind=api|ext`）查；新增外部调用点若不留痕，评审按阻断项处理。
   - **限流等待用聚合、不用逐条**（issue #192）：`[limiter]` 的慢等待按「去抖窗口」聚合成一行（默认 30s 无新等待 flush；持续饱和按 5min 上限定期输出），因为串行批刷新下「每位好友一行」与积压无关；`slowWaits`/`maxQueueLen` 保持逐次即时真值，阈值不得为降噪而抬（会打红 `test/rate-limiter-logging.test.mjs` 并静默重定义 `/health` 指标语义）。
+- **去标识化判据（issue #308）**：`node scripts/check-deident.mjs` 校验工作树源码文本——
+  - **ID 轨（确定性，进 CI）**：`usr_` 用户标识必须是统一占位模板 `usr_01234567-0123-4123-8123-0123456789ab`，出现其它 v4 形态即失败；`wrld_` 是世界公开 ID（测试里用真实公开世界做功能性夹具），不在范围内；
+  - **昵称轨（不落明文）**：token 只从 `VRC_DEIDENT_TOKENS`（逗号分隔）或 `VRC_DEIDENT_TOKENS_FILE`（每行一个，`#` 注释）读取，脚本内不内嵌；未提供时输出 `skipped`（退出码 0）并在报告中显式计数，**不输出 pass**；
+  - **退出码**：pass / skipped = 0，fail = 1；归一化只去行尾 CR；只约束工作树（git 历史不重写），只看源码文本、不看运行期生成值。
 - **插件第三方依赖**：`plugins/official/*` 中带 `package.json` 的插件（目前 emoji-notes 依赖 pinyin-pro）需先执行 `npm run install-plugins`（CI 已在 `npm ci` 后运行此步）。本地/审查环境只跑 `npm ci` 会漏装插件依赖，表现为此类插件整体加载失败、`test/test-registry.mjs` 工具数少于 `core/tool-order.json`（如 105/108）——先补装插件依赖再跑测试，勿误判为代码回归。
 - **测试日志隔离（两条路径，绝不写生产日志目录）**：① `npm test`（package.json 的 test script）通过 `--import ./test/setup-log-isolation.mjs` 把 `VRC_MONITOR_LOGGER_DIR` 钉到每次运行唯一的系统临时目录——显式隔离；② 裸 `node --test`（不经 npm script）只有 `core/logger.js` `resolveDir()` 的 `NODE_TEST_CONTEXT` 单点兜底（node --test 子进程会设 `NODE_TEST_CONTEXT`，日志落到 `os.tmpdir()/vrc-monitor-test-logs`）。两条路径都不会写进生产日志目录 `<VRC_MONITOR_DIR>/logs`（曾实测 96 行 `wrld_kbtest-*` 测试夹具污染生产日志，后修复）。
 
