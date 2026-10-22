@@ -149,9 +149,9 @@ export async function handleSearchUsers({ query, limit = 10 }) {
     .map(u => ({
       userId: u.id,
       displayName: u.displayName,
-      // ⚠️ 已知未覆盖（2026-10-07 评审 💡，main 既有）：搜索结果预览仍读 u.bio（已不在 user 对象里）⇒
-      // 该预览恒空；逐结果补 /profile 会造成 N 次请求，故不纳入，仅登记。
-      bio: (u.bio || '').slice(0, 100),
+      // 搜索结果不逐条取 /profile（N 次请求不划算）：简介未知 ⇒ 显式 null。
+      // 不用 '' 伪装成「确认没写简介」——与 get_friend_info 的 null（未知）/ ''（确认无）口径一致。
+      bio: null,
       status: u.status,
       isFriend: u.isFriend,
       userIcon: u.userIcon || '',

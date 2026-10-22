@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { parseLimit, readJsonBody, sendHtml, sendJson } from './server/http.js';
 import { CACHE_TTLS, createDashboardState, setCached } from './server/state.js';
 import { safeModeBlockIrreversible } from './server/safe-mode.js';
-import { registerSearchRoutes } from './server/routes/search.js';
+import { registerSearchRoutes, userSearchSub } from './server/routes/search.js';
 import { readLoggerEntries, loggerFileInfo } from './server/logger-file.js';
 import { registerFavoriteRoutes } from './server/routes/favorites.js';
 import { registerAvatarRoutes, loadMe, loadAvatarName } from './server/routes/avatars.js';
@@ -1280,8 +1280,8 @@ export default function register(api) {
         } else {
           results = (r.results || []).map(u => ({
             kind: 'user', id: u.userId, name: u.displayName || '?',
-            // ⚠️ 已知未覆盖（main 既有）：u.bio 已不在 user 对象里 ⇒ 该副标题恒空；逐结果补 /profile 会造成 N 次请求，故登记不修
-            sub: [u.isFriend ? '好友' : '', (u.bio || '').slice(0, 40)].filter(Boolean).join(' · '),
+            // 搜索结果不逐条取 profile（N 次请求不划算）：简介未知，副标题只保留好友标记
+            sub: userSearchSub(u),
             image: u.userIcon || u.currentAvatarThumbnailImageUrl || u.profilePicOverride || '',
           }));
         }

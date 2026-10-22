@@ -1,5 +1,13 @@
 import { parseLimit, readJsonBody, sendJson } from '../http.js';
 
+/**
+ * 用户搜索结果副标题：只保留「好友」标记。
+ * 搜索结果不逐条取 profile（N 次请求不划算）⇒ 简介未知，不展示、也不伪造空串。
+ */
+export function userSearchSub(u) {
+  return u.isFriend ? '好友' : '';
+}
+
 export function registerSearchRoutes(api) {
   api.http.registerRoute({
     method: 'GET',
