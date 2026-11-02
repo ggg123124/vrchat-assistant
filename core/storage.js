@@ -269,7 +269,7 @@ export class Storage {
   }
 
   getEventsByUser(userId, { limit = 50, offset = 0, type } = {}) {
-    let sql = `SELECT * FROM events WHERE user_id = $userId`;
+    let sql = `SELECT id, type, user_id, display_name, content_json, world_id, world_name, created_at, source FROM events WHERE user_id = $userId`;
     const params = { $userId: userId };
     if (type) { sql += ` AND type = $type`; params.$type = type; }
     sql += ` ORDER BY created_at DESC LIMIT $limit OFFSET $offset`;
@@ -338,7 +338,7 @@ export class Storage {
   }
 
   getRecentEvents({ limit = 50, type } = {}) {
-    let sql = `SELECT * FROM events`;
+    let sql = `SELECT id, type, user_id, display_name, content_json, world_id, world_name, created_at, source FROM events`;
     const params = {};
     if (type) { sql += ` WHERE type = $type`; params.$type = type; }
     sql += ` ORDER BY created_at DESC LIMIT $limit`;
@@ -367,14 +367,14 @@ export class Storage {
     params.$limit = limit;
     params.$offset = offset;
     return this._query(
-      `SELECT * FROM events${wsql} ORDER BY created_at DESC LIMIT $limit OFFSET $offset`,
+      `SELECT id, type, user_id, display_name, content_json, world_id, world_name, created_at, source FROM events${wsql} ORDER BY created_at DESC LIMIT $limit OFFSET $offset`,
       params
     );
   }
 
   getEventsByTimeRange(start, end, { limit = 1000 } = {}) {
     return this._query(
-      `SELECT * FROM events WHERE created_at >= $start AND created_at <= $end ORDER BY created_at DESC LIMIT $limit`,
+      `SELECT id, type, user_id, display_name, content_json, world_id, world_name, created_at, source FROM events WHERE created_at >= $start AND created_at <= $end ORDER BY created_at DESC LIMIT $limit`,
       { $start: start, $end: end, $limit: limit }
     );
   }
@@ -487,7 +487,7 @@ export class Storage {
     }
     const params = { $limit: limit, $offset: offset };
     const placeholders = typesArr.map((t, i) => { params[`$t${i}`] = t; return `$t${i}`; }).join(',');
-    let sql = `SELECT * FROM events WHERE type = 'friend-update'
+    let sql = `SELECT id, type, user_id, display_name, content_json, world_id, world_name, created_at, source FROM events WHERE type = 'friend-update'
                AND json_extract(content_json, '$.type') IN (${placeholders})`;
     if (userId) { sql += ` AND user_id = $userId`; params.$userId = userId; }
     sql += ` ORDER BY created_at DESC LIMIT $limit OFFSET $offset`;
