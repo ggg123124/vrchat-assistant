@@ -49,7 +49,7 @@ watch(() => store.instanceModal, async (m) => {
   <Dialog v-model:visible="visible" header="房间信息" :style="{ width: 'min(440px, 94vw)' }" :dismissable-mask="true" :modal="true" :closeOnEscape="true">
     <div v-if="inst" class="inst">
       <!-- 世界信息 -->
-      <div class="inst-world" @click="openWorld(inst.worldId)" role="button" tabindex="0" @keydown.enter="openWorld(inst.worldId)">
+      <div class="inst-world" v-clickable="(e) => (openWorld(inst.worldId))" >
         <img v-if="inst.worldImageUrl" :src="inst.worldImageUrl" class="inst-img" alt="" loading="lazy" />
         <div class="inst-wtext">
           <b>{{ inst.worldName || '未公开位置' }}</b>
@@ -66,7 +66,7 @@ watch(() => store.instanceModal, async (m) => {
         <span v-if="detail && detail.capacity" class="inst-tag">容量 {{ detail.capacity }}</span>
       </div>
       <!-- 房主（实例详情） -->
-      <div v-if="detail && detail.ownerId" class="inst-owner-row" role="button" tabindex="0" @click="openUser(detail.ownerId)" @keydown.enter="openUser(detail.ownerId)">
+      <div v-if="detail && detail.ownerId" class="inst-owner-row" v-clickable="(e) => (openUser(detail.ownerId))" >
         <img v-if="detail.ownerAvatar" :src="detail.ownerAvatar" class="io-av" alt="" loading="lazy" />
         <i v-else class="pi pi-user io-ic"></i>
         <div class="io-text">
@@ -78,7 +78,7 @@ watch(() => store.instanceModal, async (m) => {
       <div class="inst-sec">本房间用户{{ detail && detail.users ? '（' + detail.users.length + '）' : inst.members.length ? '（' + inst.members.length + '）' : '' }}</div>
       <div v-if="detailLoading" class="inst-empty">加载中…</div>
       <div v-else-if="detail && detail.users && detail.users.length" class="inst-members">
-        <div v-for="u in detail.users" :key="u.id" class="inst-member" role="button" tabindex="0" @click="openUser(u.id)" @keydown.enter="openUser(u.id)">
+        <div v-for="u in detail.users" :key="u.id" class="inst-member" v-clickable="(e) => (openUser(u.id))" >
           <Avatar :image="u.avatarUrl" shape="circle" size="small" :label="(u.displayName || '?')[0]" />
           <div class="im-text">
             <b :style="{ color: trustColor(u.trustLevel) }">{{ store.nicknameMap[u.id] || u.displayName || '?' }}</b>
@@ -86,7 +86,7 @@ watch(() => store.instanceModal, async (m) => {
         </div>
       </div>
       <div v-else-if="inst.members.length" class="inst-members">
-        <div v-for="f in inst.members" :key="f.userId" class="inst-member" @click="openUser(f.userId)" role="button" tabindex="0" @keydown.enter="openUser(f.userId)">
+        <div v-for="f in inst.members" :key="f.userId" class="inst-member" v-clickable="(e) => (openUser(f.userId))" >
           <Avatar :image="f.userIcon || f.avatarUrl" shape="circle" size="small" :label="avatarLabel(f.userIcon || f.avatarUrl, f.displayName)" />
           <div class="im-text">
             <b :style="{ color: trustColor(f.trustLevel) }">{{ store.nicknameMap[f.userId] || f.displayName || '?' }}</b>

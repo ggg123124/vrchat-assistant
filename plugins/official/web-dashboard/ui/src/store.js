@@ -50,6 +50,9 @@ export const store = reactive({
   feedTotal: 0,  // 数据库事件总数（右上角"已加载/总数"）
   eventsRange: { min: null, max: null },  // 动态数据时间范围（日历筛选可选范围）
   feedLoading: false,
+  // 加载失败横幅文案（空串=无错误）。**必须在此声明**：Vue 3 的 reactive 基于 Proxy，
+  // 给未声明的属性赋值不会触发依赖更新 ⇒ 横幅可能不刷新（2026-11-02 由 store-declared-fields 用例发现）。
+  loadError: '',
   feedLoadingMore: false,
 
   friends: [],
@@ -118,9 +121,28 @@ function closeMobileDrawers() {
   if (store.isMobile && store.friendsOpen) store.friendsOpen = false;
 }
 
+// ── 弹窗焦点归还（2026-11-02）──
+// 键盘用户从列表打开详情弹窗、按 Esc 关闭后，若不归还焦点，焦点会掉到 <body> ⇒
+// 只能从头 Tab 一遍才能回到刚才那一行。记录「打开前的 activeElement」，关闭时还原。
+// 只记元素引用、不持有 DOM，元素被移除时 focusOrRestore 会静默跳过（不影响关闭流程）。
+let __focusBeforeModal = null;
+export function rememberFocusForModal() {
+  // catch 里不写 null：frontend-catch-guard 的规则是「失败不得被写成正常值」，
+  // 而「读不到 activeElement」本身就是拿不到来源 ⇒ 保持旧值（= 无可归还元素），
+  // 让 restore 自然早退，语义比强行清空更准确。
+  try { __focusBeforeModal = document.activeElement || null; } catch { /* 保持旧值：无来源可还原 */ }
+}
+export function restoreFocusAfterModal() {
+  const el = __focusBeforeModal;
+  __focusBeforeModal = null;
+  if (!el || typeof el.focus !== 'function') return;
+  try { if (el.isConnected) el.focus({ preventScroll: true }); } catch { /* 元素已移除/不可聚焦：忽略 */ }
+}
+
 export function openUser(u) {
   if (!u) return;
   closeMobileDrawers();
+  rememberFocusForModal();
   if (typeof u === 'string') {
     const found = store.friends.find((f) => f.userId === u);
     // 自己不在 friends 表（不是自己的好友）→ 回退到 store.me，保留头像/状态等字段
@@ -132,35 +154,39 @@ export function openUser(u) {
     store.userModal = u;
   }
 }
-export const closeUser = () => { store.userModal = null; };
+export const closeUser = () => { store.userModal = null; restoreFocusAfterModal(); };
 
 export function openWorld(wid) {
   if (!wid) return;
   closeMobileDrawers();
+  rememberFocusForModal();
   store.worldModal = typeof wid === 'string' ? { worldId: wid } : wid;
 }
-export const closeWorld = () => { store.worldModal = null; };
+export const closeWorld = () => { store.worldModal = null; restoreFocusAfterModal(); };
 
 export function openAvatar(aid) {
   if (!aid) return;
   closeMobileDrawers();
+  rememberFocusForModal();
   store.avatarModal = typeof aid === 'string' ? { avatarId: aid } : aid;
 }
-export const closeAvatar = () => { store.avatarModal = null; };
+export const closeAvatar = () => { store.avatarModal = null; restoreFocusAfterModal(); };
 
 export function openGroup(g) {
   if (!g) return;
   closeMobileDrawers();
+  rememberFocusForModal();
   store.groupModal = typeof g === 'string' ? { groupId: g } : g;
 }
-export const closeGroup = () => { store.groupModal = null; };
+export const closeGroup = () => { store.groupModal = null; restoreFocusAfterModal(); };
 
 export function openInstance(loc) {
   if (!loc) return;
   closeMobileDrawers();
+  rememberFocusForModal();
   store.instanceModal = { location: loc };
 }
-export const closeInstance = () => { store.instanceModal = null; };
+export const closeInstance = () => { store.instanceModal = null; restoreFocusAfterModal(); };
 
 export const openPreview = (url) => { if (url) { closeMobileDrawers(); store.previewUrl = url; } };
 
@@ -755,12 +781,13 @@ function initKeyboard() {
       return;
     }
     if (e.key === 'Escape') {
+      // 关闭后归还焦点（2026-11-02）：否则键盘用户只能从 <body> 重新 Tab 回来
       if (store.quickSearchOpen) { store.quickSearchOpen = false; return; }
-      if (store.userModal) { store.userModal = null; return; }
-      if (store.worldModal) { store.worldModal = null; return; }
-      if (store.avatarModal) { store.avatarModal = null; return; }
-      if (store.groupModal) { store.groupModal = null; return; }
-      if (store.instanceModal) { store.instanceModal = null; return; }
+      if (store.userModal) { store.userModal = null; restoreFocusAfterModal(); return; }
+      if (store.worldModal) { store.worldModal = null; restoreFocusAfterModal(); return; }
+      if (store.avatarModal) { store.avatarModal = null; restoreFocusAfterModal(); return; }
+      if (store.groupModal) { store.groupModal = null; restoreFocusAfterModal(); return; }
+      if (store.instanceModal) { store.instanceModal = null; restoreFocusAfterModal(); return; }
     }
   });
 }

@@ -120,7 +120,34 @@ const loginView = ref(!hasToken());
 // #297：探测失败的原因要透出到登录页 —— 此前只 console.warn，用户看到的是一个没有任何解释的登录页。
 const loginReason = ref('');
 const authChecking = ref(true);
+// 硬兜底（2026-11-02 用户报「卡在正在检查访问鉴权」）：下面两个探测各自带 AbortSignal.timeout，
+// 但部分环境会忽略该 signal（旧内核 / fetch 被 polyfill / service worker 拦截），
+// 一旦 await 永不返回，finally 就永远不执行 ⇒ 界面永久停在「正在检查访问鉴权」，用户无从判断。
+// 这里再加一层与 fetch 无关的计时器：超时后强制结束检查态、保留登录门并给出可读原因。
+// ⚠️ 必须 > verifyToken 自身的 20000ms 超时：否则 fetch 还在正常等待时就被这层判超时，
+// 把一个「慢但会成功」的冷启动误判成失败（实测首次 /api/dashboard/me 冷启动 8186ms，
+// 而 12s 的旧值在更慢的公网链路上会被击穿 ⇒ 用户看到「连接鉴权服务超时」并被弹回登录页）。
+const AUTH_HARD_TIMEOUT_MS = 25000;
 onMounted(async () => {
+  let authSettled = false;
+  const finishChecking = () => {
+    if (authSettled) return true;
+    authSettled = true;
+    clearTimeout(hardTimeout);
+    authChecking.value = false;
+    return false;
+  };
+  const hardTimeout = setTimeout(() => {
+    // 硬超时只负责「别把用户永久卡在检查态」，**不武断判定鉴权失败**：
+    // 结束检查态、先把登录门亮出来（用户能操作），但请求本身仍可能随后成功 ——
+    // 那次成功由下面的 finally 正常收口（authSettled 已在 finishChecking 里置位，不会重复）。
+    if (finishChecking()) return;
+    console.warn('[auth] 鉴权探测超过 ' + AUTH_HARD_TIMEOUT_MS + 'ms 仍未返回，先结束检查态（请求仍在进行）');
+    if (!store.authVerified && store.authRequired !== false) {
+      loginReason.value = '鉴权服务响应较慢，已先显示登录界面；若你刚打开页面，稍等片刻会自动进入面板。';
+      loginView.value = true;
+    }
+  }, AUTH_HARD_TIMEOUT_MS);
   try {
     if (hasToken()) {
       if (await verifyToken(getToken())) {
@@ -152,9 +179,11 @@ onMounted(async () => {
     // 保留登录门（frontend-catch-guard 已把这条登记为「回到登录页」的安全默认例外）
     loginView.value = true;
   } finally {
-    authChecking.value = false;
-    // 兜底统一启动（幂等）：任何「已判定可进面板」的路径都必须起数据面，避免 api:0（「暂无动态」却无请求）
+    // 统一收口：硬超时可能已结束过检查态，但这不代表鉴权结论已定 ——
+    // 请求最终成功时仍要进面板（超时只是「先让界面可用」，不是判失败）。
+    const alreadyDone = finishChecking();
     if (!loginView.value) startDashboard();
+    if (alreadyDone && !loginView.value) console.info('[auth] 鉴权在超时后成功返回，已自动进入面板');
   }
 });
 function onAuth401() { loginView.value = true; }

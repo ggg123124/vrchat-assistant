@@ -78,7 +78,7 @@ onMounted(load);
         <button v-for="s in SORTS" :key="s.v" class="chip" :class="{ active: sortBy === s.v }" @click="setSort(s.v)">{{ s.l }}</button>
       </div>
       <span class="ws-count">最近去过的世界</span>
-      <Button size="small" text icon="pi pi-refresh" title="刷新" @click="reload" />
+      <Button size="small" text icon="pi pi-refresh" title="刷新" @click="reload" aria-label="刷新" />
     </div>
 
     <!-- 好友地图统计：好友群体最近 N 天去过的世界热度（发现好玩的图） -->
@@ -105,7 +105,7 @@ onMounted(load);
               <template v-if="s.friends.length"> · {{ s.friends.join('、') }}</template>
             </small>
           </div>
-          <Button size="small" text icon="pi pi-external-link" title="打开世界页" @click="openWorld(s.worldId)" />
+          <Button size="small" text icon="pi pi-external-link" title="打开世界页" @click="openWorld(s.worldId)" aria-label="打开世界页" />
         </div>
       </div>
     </div>
@@ -126,8 +126,7 @@ onMounted(load);
       {{ q || onlyNoted ? '没有匹配的世界' : '暂无足迹——去逛逛，回来就有了' }}
     </div>
     <div v-else class="ws-grid">
-      <div v-for="(w, i) in shown" :key="w.worldId || i" class="ws-card" role="button" tabindex="0"
-        @click="openWorld(w.worldId)" @keydown.enter="openWorld(w.worldId)">
+      <div v-for="(w, i) in shown" :key="w.worldId || i" class="ws-card" v-clickable="(e) => (openWorld(w.worldId))" >
         <div class="ws-imgwrap">
           <img v-if="w.imageUrl || w.thumbnailUrl" class="ws-img" :src="w.imageUrl || w.thumbnailUrl" alt="" loading="lazy" />
           <div v-else class="ws-img ws-img-empty"><i class="pi pi-globe"></i></div>
@@ -177,7 +176,7 @@ onMounted(load);
 .ws-meta { display: flex; align-items: center; gap: 8px; margin-top: 4px; font-size: 10.5px; color: var(--text-dim); }
 .ws-time small { margin-left: 4px; }
 .ws-noted { color: var(--accent); }
-.ws-fav { color: #ffca28; font-size: 11px; }
+.ws-fav { color: var(--star); font-size: 11px; }
 .ws-bar { display: block; height: 3px; background: var(--surface-3); border-radius: 2px; overflow: hidden; margin-top: 3px; }
 .ws-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); border-radius: 2px; }
 .ws-note { font-size: 10px; color: var(--accent); opacity: 0.85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; display: block; }

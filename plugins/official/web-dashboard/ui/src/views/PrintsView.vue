@@ -169,7 +169,7 @@ onMounted(load);
       <span class="pr-count">{{ tab === 'prints' ? 'VRChat Plus 照片' : '资料展示图' }}</span>
       <Button size="small" icon="pi pi-upload" :loading="uploading" :label="tab === 'prints' ? '上传' : '上传'" :title="tab === 'prints' ? '上传照片到 VRChat Plus 相册' : '上传图片到 VRChat Plus 画廊'" @click="pickImage" />
       <input ref="fileInput" type="file" accept="image/*" class="hidden-file" aria-hidden="true" @change="onFileChosen" />
-      <Button size="small" text icon="pi pi-refresh" title="刷新" @click="load" />
+      <Button size="small" text icon="pi pi-refresh" title="刷新" @click="load" aria-label="刷新" />
     </div>
 
     <div v-if="tab === 'prints' && worldChips.length" class="ws-chips" role="group" aria-label="按世界筛选">
@@ -234,7 +234,7 @@ onMounted(load);
 .pr-img { width: 100%; aspect-ratio: 16/10; object-fit: cover; display: block; background: var(--surface-2); }
 .pr-noimg { display: flex; align-items: center; justify-content: center; color: var(--text-dim); font-size: 20px; }
 .pr-card { position: relative; }
-.pr-del { position: absolute; top: 6px; right: 6px; background: rgba(0,0,0,0.5); border: none; border-radius: 50%; width: 24px; height: 24px; color: #ff6b6b; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 11px; }
+.pr-del { position: absolute; top: 6px; right: 6px; background: rgba(0,0,0,0.5); border: none; border-radius: 50%; width: 24px; height: 24px; color: var(--danger); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 11px; }
 .pr-del:hover { background: rgba(255, 107, 107, 0.25); }
 .pr-cardbtn { border: none; background: none; padding: 0; cursor: pointer; text-align: left; color: inherit; font-family: inherit; display: flex; flex-direction: column; }
 .pr-meta { padding: 6px 8px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }

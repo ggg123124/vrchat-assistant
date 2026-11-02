@@ -89,7 +89,7 @@ onMounted(() => { loadCal(true); load(); });
     <div class="ev-head">
       <h2><i class="pi pi-calendar"></i> 活动</h2>
       <span class="ev-count">{{ source === 'vrc' ? 'VRChat 官方活动日历' : 'VRChat 社区活动聚合（群组挖掘 + 日历源）' }}{{ source === 'community' && data && data.counts ? ' · 共 ' + data.counts.output + ' 个' : '' }}</span>
-      <Button size="small" text icon="pi pi-refresh" title="刷新" @click="source === 'vrc' ? loadCal(true) : load()" />
+      <Button size="small" text icon="pi pi-refresh" title="刷新" @click="source === 'vrc' ? loadCal(true) : load()" aria-label="刷新" />
     </div>
 
     <div class="ev-chips" role="group" aria-label="活动来源">

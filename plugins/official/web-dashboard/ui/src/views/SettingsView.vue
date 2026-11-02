@@ -4,6 +4,7 @@
 import { ref, onMounted } from 'vue';
 import { get, post } from '../api.js';
 import { toast } from '../toast.js';
+import { readPref, setPref } from '../theme.js';
 
 const enabled = ref(false);
 const template = ref('');
@@ -13,6 +14,19 @@ const onlineNow = ref(null);
 const lastSent = ref('');
 const loading = ref(true);
 const saving = ref(false);
+
+
+// 主题：浅色 / 深色 / 跟随系统（持久化到 localStorage，首帧由 index.html 内联脚本先行应用）
+const THEME_OPTIONS = [
+  { v: 'light', label: '浅色', hint: '白底黑字，室内/白天看着更清楚' },
+  { v: 'dark', label: '深色', hint: '黑底浅字，夜间使用' },
+  { v: 'system', label: '跟随系统', hint: '随操作系统的深色模式自动切换' },
+];
+const themePref = ref(readPref());
+function pickTheme(v) {
+  themePref.value = v;
+  setPref(v);
+}
 
 async function load() {
   loading.value = true;
@@ -70,6 +84,22 @@ onMounted(load);
   <div class="settings-wrap">
     <div class="set-card">
       <div class="set-title">
+        <i class="pi pi-palette"></i>
+        <b>外观主题</b>
+        <span class="set-sub">选择界面配色；改动立即生效并记住，下次打开保持一致</span>
+      </div>
+      <div class="set-row">
+        <div class="set-radios theme-radios">
+          <label v-for="t in THEME_OPTIONS" :key="t.v" class="theme-opt" :class="{ active: themePref === t.v }">
+            <input type="radio" :value="t.v" :checked="themePref === t.v" @change="pickTheme(t.v)" />
+            <span class="theme-name">{{ t.label }}</span>
+            <small class="theme-hint">{{ t.hint }}</small>
+          </label>
+        </div>
+      </div>
+    </div>
+    <div class="set-card">
+      <div class="set-title">
         <i class="pi pi-sync"></i>
         <b>动态状态</b>
         <span class="set-sub">根据在线好友数量自动更新自己的自定义状态（statusDescription）</span>
@@ -116,6 +146,14 @@ onMounted(load);
 
 <style scoped>
 .settings-wrap { padding: 12px 14px; max-width: 720px; }
+.theme-radios { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; width: 100%; }
+@media (max-width: 640px) { .theme-radios { grid-template-columns: 1fr; } }
+.theme-opt { display: flex; flex-direction: column; gap: 2px; padding: 9px 11px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; }
+.theme-opt:hover { border-color: var(--text-dim); }
+.theme-opt.active { border-color: var(--accent); background: var(--surface-2); }
+.theme-opt input { margin: 0 0 4px; }
+.theme-name { font-size: 13px; }
+.theme-hint { color: var(--text-dim); font-size: 11px; line-height: 1.4; }
 .set-card { background: var(--surface); border: 1px solid var(--border-soft); border-radius: 10px; padding: 16px; }
 .set-radios { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
 .set-radios label { display: flex; align-items: center; gap: 6px; }

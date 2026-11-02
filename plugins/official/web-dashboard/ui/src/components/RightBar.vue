@@ -119,7 +119,7 @@ async function submitStatus() {
 
     <!-- 我（含状态设置） -->
     <div v-if="store.me" class="me-item">
-      <div class="me-top" @click="openUser(store.me.userId)" role="button" tabindex="0" @keydown.enter="openUser(store.me.userId)">
+      <div class="me-top" v-clickable="(e) => (openUser(store.me.userId))" >
         <Avatar :image="store.me.userIcon || store.me.avatarUrl" shape="circle" :label="avatarLabel(store.me.userIcon || store.me.avatarUrl, store.me.displayName)" />
         <div class="me-text">
           <b :style="{ color: trustColor(store.me.trustLevel) }">{{ store.me.displayName || store.me.userId }}</b>
@@ -138,7 +138,7 @@ async function submitStatus() {
         </div>
         <span v-if="statusError" class="mp-error">{{ statusError }}</span>
         <div class="mp-row">
-          <input v-model="desc" placeholder="状态描述（可选）…" maxlength="32" class="mp-input" @keydown.enter="submitStatus()" />
+          <input v-model="desc" placeholder="状态描述（可选）…" aria-label="自定义状态描述" maxlength="32" class="mp-input" @keydown.enter="submitStatus()" />
           <Button icon="pi pi-check" size="small" rounded text :disabled="applyingStatus" :aria-label="'提交状态'" @click="submitStatus()" />
         </div>
       </div>
@@ -156,7 +156,7 @@ async function submitStatus() {
       <div v-else class="rb-groups">
         <!-- 同实例 -->
         <div v-if="sameInstance.length" class="wg accent">
-          <div class="wg-head" role="button" tabindex="0" title="点击折叠/展开" @click="toggleGroup('same')" @keydown.enter="toggleGroup('same')">
+          <div class="wg-head" title="点击折叠/展开" v-clickable="(e) => (toggleGroup('same'))" >
             <i class="pi pi-map-marker"></i>
             <span>同实例好友</span>
             <span class="wg-num">{{ sameInstance.length }}</span>
@@ -174,7 +174,7 @@ async function submitStatus() {
         </div>
         <!-- 同世界（同世界不同实例）：pi-compass 与同实例的 map-marker 区分 -->
         <div v-if="sameWorld.length" class="wg">
-          <div class="wg-head" role="button" tabindex="0" title="同世界、不同实例的在线好友" @click="toggleGroup('sworld')" @keydown.enter="toggleGroup('sworld')">
+          <div class="wg-head" title="同世界、不同实例的在线好友" v-clickable="(e) => (toggleGroup('sworld'))" >
             <i class="pi pi-compass"></i>
             <span>同世界好友</span>
             <span class="wg-num">{{ sameWorld.length }}</span>
@@ -191,7 +191,7 @@ async function submitStatus() {
           </template>
         </div>
         <div v-for="(g, gi) in groups" :key="(g.worldId || g.label) + '#' + gi" class="wg">
-          <div class="wg-head" role="button" tabindex="0" title="点击折叠/展开" @click="toggleGroup('w:' + (g.worldId || g.label) + '#' + gi)" @keydown.enter="toggleGroup('w:' + (g.worldId || g.label) + '#' + gi)">
+          <div class="wg-head" title="点击折叠/展开" v-clickable="(e) => (toggleGroup('w:' + (g.worldId || g.label) + '#' + gi))" >
             <img v-if="groupIcon(g)" :src="groupIcon(g)" class="wg-thumb" alt="" loading="lazy" />
             <span :title="g.label">{{ g.label }}</span>
             <span v-if="g.loc && !g.mixedRooms" class="wg-loc" @click.stop="openInstance(g.list[0].location)" :title="'查看房间信息'">{{ g.loc }}</span>
@@ -229,19 +229,19 @@ async function submitStatus() {
 
     <!-- 最近一起玩：7 天内同屏过的好友（含离线），默认前 8，可展开全部；区头可折叠 -->
     <div v-if="coShown.length" class="rb-sec">
-      <div class="rb-sec-head rb-sec-toggle" role="button" tabindex="0" title="点击折叠/展开" @click="coSecOpen = !coSecOpen" @keydown.enter="coSecOpen = !coSecOpen">
+      <div class="rb-sec-head rb-sec-toggle" title="点击折叠/展开" v-clickable="(e) => (coSecOpen = !coSecOpen)" >
         <span>最近一起玩</span><span class="rb-cnt">{{ (store.coPlay || []).length }}</span>
         <i class="pi co-arrow" :class="coSecOpen ? 'pi-chevron-up' : 'pi-chevron-down'"></i>
       </div>
       <div v-if="coSecOpen" class="rb-groups">
-        <div v-for="c in coShown" :key="c.userId" class="rb-friend" @click="openUser(c)" role="button" tabindex="0" @keydown.enter="openUser(c)">
+        <div v-for="c in coShown" :key="c.userId" class="rb-friend" v-clickable="(e) => (openUser(c))" >
           <Avatar :image="coAvatar(c)" shape="circle" size="small" :label="avatarLabel(coAvatar(c), c.displayName)" />
           <div class="rf-text">
             <b>{{ coName(c) }}</b>
             <small class="co-sub">{{ c.matchCount }} 次<span v-if="c.daysCount > 1"> · {{ c.daysCount }} 天</span><span v-if="c.lastDay"> · 最近 {{ c.lastDay }}</span></small>
           </div>
         </div>
-        <div v-if="(store.coPlay || []).length > 8" class="co-more" role="button" tabindex="0" @click="coAll = !coAll" @keydown.enter="coAll = !coAll">
+        <div v-if="(store.coPlay || []).length > 8" class="co-more" v-clickable="(e) => (coAll = !coAll)">
           {{ coAll ? '收起' : '展开全部 ' + (store.coPlay || []).length + ' 人' }}
         </div>
       </div>

@@ -132,7 +132,7 @@ onUnmounted(() => {
     <div class="lv-head">
       <h2><i class="pi pi-history"></i> 服务日志</h2>
       <span class="lv-count">{{ lvNote }}</span>
-      <Button size="small" text icon="pi pi-refresh" title="刷新" @click="reload" />
+      <Button size="small" text icon="pi pi-refresh" title="刷新" @click="reload" aria-label="刷新" />
     </div>
 
     <div class="lv-src" role="group" aria-label="日志来源">
@@ -150,7 +150,7 @@ onUnmounted(() => {
       <div class="lv-chips" role="group" aria-label="日志来源标签筛选">
         <button v-for="n in NAMES" :key="n.v" class="chip" :class="{ active: nameSel === n.v }" @click="setName(n.v)">{{ n.l }}</button>
       </div>
-      <input class="lv-q" type="text" placeholder="关键词…" v-model="qSel" @input="onQInput" />
+      <input class="lv-q" type="text" placeholder="关键词…" aria-label="按关键词筛选日志" v-model="qSel" @input="onQInput" />
     </div>
 
     <div v-if="src === 'file' && fileExists === false" class="lvhint">
@@ -191,7 +191,7 @@ onUnmounted(() => {
 }
 .lv-q:focus { border-color: var(--accent); }
 .lv-name { text-transform: lowercase; min-width: 46px; justify-content: center; }
-.lvhint { font-size: 11px; color: var(--warn-text, #e0a63c); margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
+.lvhint { font-size: 11px; color: var(--warn-text, var(--warn)); margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
 .lv-chips { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
 .lv-list { display: flex; flex-direction: column; gap: 4px; }
 .lv-ico { font-size: 9px; margin-right: 4px; }

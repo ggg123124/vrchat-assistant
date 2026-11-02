@@ -155,7 +155,7 @@ onUnmounted(() => clearInterval(timer));
       <h2><i class="pi pi-bell"></i> 通知</h2>
       <span class="nt-count">当前 {{ currentShown.length }} · 历史 {{ historyShown.length }}</span>
       <Button size="small" icon="pi pi-check" :loading="seeingAll" label="全部已读" title="标记当前未读通知为已读（最多 15 条）" @click="markAllSeen" />
-      <Button size="small" text icon="pi pi-refresh" title="刷新" @click="reload" />
+      <Button size="small" text icon="pi pi-refresh" title="刷新" @click="reload" aria-label="刷新" />
     </div>
 
     <div class="nt-chips" role="group" aria-label="通知类型筛选">
@@ -177,12 +177,12 @@ onUnmounted(() => clearInterval(timer));
           <div v-else class="nt-av nt-av-empty">{{ avatarLabel('', x.groupName || nameOf(x)) }}</div>
           <div class="nt-body">
             <div class="nt-top">
-              <b class="nt-name" :style="{ color: trustColor((store.friends || []).find(fr => fr.userId === x.senderUserId)?.trustLevel) }" @click="x.senderUserId?.startsWith('usr_') && openUser({ userId: x.senderUserId, displayName: nameOf(x) })" role="button" tabindex="0" @keydown.enter="x.senderUserId?.startsWith('usr_') && openUser({ userId: x.senderUserId, displayName: nameOf(x) })">{{ x.groupName || nameOf(x) }}</b>
+              <b class="nt-name" :style="{ color: trustColor((store.friends || []).find(fr => fr.userId === x.senderUserId)?.trustLevel) }" v-clickable="(e) => (x.senderUserId?.startsWith('usr_') && openUser({ userId: x.senderUserId, displayName: nameOf(x) }))">{{ x.groupName || nameOf(x) }}</b>
               <span class="nt-type"><i class="pi nt-ico" :class="typeIcon(x)"></i>{{ typeLabel(x) }}</span>
               <span class="nt-time mono" :title="date(x.created_at)">{{ time(x.created_at) }}</span>
             </div>
-            <div class="nt-msg" :class="{ 'nt-msg-clamp': !isMsgExpanded(x) }" :title="!isMsgExpanded(x) ? (x.message || x.details || '') : ''" @click="toggleMsg(x)" role="button" tabindex="0" @keydown.enter="toggleMsg(x)">{{ x.message || x.details || typeLabel(x) }}</div>
-            <img v-if="x.imageUrl && !isGroupNotif(x)" class="nt-img" :src="x.imageUrl" alt="" loading="lazy" title="点击查看原图" @click="openImage(x.imageUrl)" role="button" tabindex="0" @keydown.enter="openImage(x.imageUrl)" />
+            <div class="nt-msg" :class="{ 'nt-msg-clamp': !isMsgExpanded(x) }" :title="!isMsgExpanded(x) ? (x.message || x.details || '') : ''" v-clickable="(e) => (toggleMsg(x))" >{{ x.message || x.details || typeLabel(x) }}</div>
+            <img v-if="x.imageUrl && !isGroupNotif(x)" class="nt-img" :src="x.imageUrl" alt="" loading="lazy" title="点击查看原图" v-clickable="(e) => (openImage(x.imageUrl))" />
           </div>
           <div class="nt-acts">
             <template v-if="kindOf(x) === 'friendRequest'">
@@ -207,12 +207,12 @@ onUnmounted(() => clearInterval(timer));
           <div v-else class="nt-av nt-av-empty">{{ avatarLabel('', x.groupName || x.senderUsername || '?') }}</div>
           <div class="nt-body">
             <div class="nt-top">
-              <b class="nt-name" :style="{ color: trustColor((store.friends || []).find(fr => fr.userId === x.senderUserId)?.trustLevel) }" @click="x.senderUserId?.startsWith('usr_') && openUser({ userId: x.senderUserId, displayName: x.senderUsername || x.groupName || '' })" role="button" tabindex="0" @keydown.enter="x.senderUserId?.startsWith('usr_') && openUser({ userId: x.senderUserId, displayName: x.senderUsername || x.groupName || '' })">{{ x.groupName || x.senderUsername || '系统' }}</b>
+              <b class="nt-name" :style="{ color: trustColor((store.friends || []).find(fr => fr.userId === x.senderUserId)?.trustLevel) }" v-clickable="(e) => (x.senderUserId?.startsWith('usr_') && openUser({ userId: x.senderUserId, displayName: x.senderUsername || x.groupName || '' }))">{{ x.groupName || x.senderUsername || '系统' }}</b>
               <span class="nt-type"><i class="pi nt-ico" :class="typeIcon(x)"></i>{{ typeLabel(x) }}</span>
               <span class="nt-time mono" :title="date(x.createdAt)">{{ time(x.createdAt) }}<small>{{ date(x.createdAt) }}</small></span>
             </div>
-            <div class="nt-msg" :class="{ 'nt-msg-clamp': !isMsgExpanded(x) }" :title="!isMsgExpanded(x) ? (x.message || x.title || '') : ''" @click="toggleMsg(x)" role="button" tabindex="0" @keydown.enter="toggleMsg(x)">{{ x.message || x.title || typeLabel(x) }}</div>
-            <img v-if="x.imageUrl && !isGroupNotif(x)" class="nt-img" :src="x.imageUrl" alt="" loading="lazy" title="点击查看原图" @click="openImage(x.imageUrl)" role="button" tabindex="0" @keydown.enter="openImage(x.imageUrl)" />
+            <div class="nt-msg" :class="{ 'nt-msg-clamp': !isMsgExpanded(x) }" :title="!isMsgExpanded(x) ? (x.message || x.title || '') : ''" v-clickable="(e) => (toggleMsg(x))" >{{ x.message || x.title || typeLabel(x) }}</div>
+            <img v-if="x.imageUrl && !isGroupNotif(x)" class="nt-img" :src="x.imageUrl" alt="" loading="lazy" title="点击查看原图" v-clickable="(e) => (openImage(x.imageUrl))" />
           </div>
         </div>
       </div>

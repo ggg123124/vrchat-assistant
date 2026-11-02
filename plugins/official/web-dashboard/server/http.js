@@ -57,6 +57,25 @@ export function sendJson(res, payload, status = 200) {
   res.end(body);
 }
 
+/** 单文件页面的 gzip 缓存（按内容哈希）：
+ *  页面只在部署时变化，但每次「回源且客户端未命中缓存」都要重新 gzipSync 一遍 ~1MB 正文
+ *  （实测 35ms/次，且是**同步**压缩 ⇒ 直接阻塞事件循环，与并发的数据请求抢主线程）。
+ *  以内容 sha1 为键缓存压缩结果：同一份产物只压一次，重复请求直接复用 Buffer。
+ *  上限 2 条（当前产物 + 上一版），避免部署多次后无限增长。 */
+const htmlGzipCache = new Map();   // tag -> { gz: Buffer }
+const HTML_GZIP_CACHE_MAX = 2;
+
+function gzipHtmlCached(tag, body) {
+  const hit = htmlGzipCache.get(tag);
+  if (hit) return hit;
+  const gz = gzipSync(body, { level: 9 });
+  if (htmlGzipCache.size >= HTML_GZIP_CACHE_MAX) {
+    htmlGzipCache.delete(htmlGzipCache.keys().next().value);   // FIFO：淘汰最旧的一份
+  }
+  htmlGzipCache.set(tag, { gz });
+  return { gz };
+}
+
 export function sendHtml(res, html) {
   const body = Buffer.from(html);
   const tag = etagOf(body);
@@ -71,7 +90,7 @@ export function sendHtml(res, html) {
     return res.end();
   }
   if (acceptsGzip(res) && body.length > 1024) {
-    const gz = gzipSync(body);
+    const gz = gzipHtmlCached(tag, body).gz;
     res.writeHead(200, {
       'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'no-cache',

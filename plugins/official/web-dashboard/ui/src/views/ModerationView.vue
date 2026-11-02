@@ -66,7 +66,7 @@ onMounted(load);
     <div class="md-head">
       <h2><i class="pi pi-ban"></i> 屏蔽管理</h2>
       <span class="md-count">黑名单 / 静音列表 · 后端 30 分钟缓存</span>
-      <Button size="small" text icon="pi pi-refresh" title="刷新" @click="load" />
+      <Button size="small" text icon="pi pi-refresh" title="刷新" @click="load" aria-label="刷新" />
     </div>
 
     <div class="md-chips" role="group" aria-label="列表筛选">

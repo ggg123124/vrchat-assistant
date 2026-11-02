@@ -145,7 +145,7 @@ function instInfo(inst) {
           <!-- 房间页 -->
           <TabPanel v-if="hasRooms" value="rooms">
             <div class="gd-inst">
-              <div v-for="(inst, i) in g.instances" :key="i" class="gd-inst-item" @click="inst.worldId && openWorld(inst.worldId)" role="button" tabindex="0" @keydown.enter="inst.worldId && openWorld(inst.worldId)" :title="inst.worldId ? '点击打开世界' : ''">
+              <div v-for="(inst, i) in g.instances" :key="i" class="gd-inst-item" v-clickable="(e) => (inst.worldId && openWorld(inst.worldId))" :title="inst.worldId ? '点击打开世界' : ''">
                 <img v-if="inst.worldImageUrl" :src="imgUrl(inst.worldImageUrl)" class="gd-inst-img" alt="" loading="lazy" />
                 <div class="gd-inst-body">
                   <b class="gd-inst-name">{{ inst.worldName || '群组房间' }}</b>
@@ -261,7 +261,7 @@ function instInfo(inst) {
   background: var(--surface-3);
   border: 1px solid var(--border);
 }
-.gd-inst-access.access-plus { color: #ffca28; border-color: color-mix(in srgb, #ffca28 40%, var(--border)); }
+.gd-inst-access.access-plus { color: var(--star); border-color: color-mix(in srgb, var(--star) 40%, var(--border)); }
 .gd-inst-access.access-public { color: #2bcf5c; border-color: color-mix(in srgb, #2bcf5c 40%, var(--border)); }
 .gd-inst-access.access-members { color: var(--accent-2); border-color: color-mix(in srgb, var(--accent-2) 40%, var(--border)); }
 </style>

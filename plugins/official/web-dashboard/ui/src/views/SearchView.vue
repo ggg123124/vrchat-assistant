@@ -109,7 +109,7 @@ onUnmounted(() => clearTimeout(debounceTimer));
     <div v-else-if="!q.trim()" class="empty" style="padding:24px">输入关键词开始搜索（{{ TYPE_LABEL[type] }}）</div>
     <div v-else-if="!shown.length" class="empty" style="padding:24px">没有找到匹配的{{ TYPE_LABEL[type] }}</div>
     <div v-else class="sv-list">
-      <div v-for="x in shown" :key="x.kind + x.id" class="sv-row" role="button" tabindex="0" @click="openResult(x)" @keydown.enter="openResult(x)">
+      <div v-for="x in shown" :key="x.kind + x.id" class="sv-row" v-clickable="(e) => (openResult(x))" >
         <img v-if="rowAvatar(x)" class="sv-av" :src="rowAvatar(x)" alt="" loading="lazy" />
         <div v-else class="sv-av sv-av-empty">{{ avatarLabel('', x.name) }}</div>
         <div class="sv-body">

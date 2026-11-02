@@ -373,7 +373,7 @@ const worldJson = computed(() => (world.value ? JSON.stringify(world.value, null
               <span><i class="pi pi-lock"></i> 私密 {{ privOcc }} 人</span>
             </div>
             <div v-if="sortedInstances.length" class="inst-list">
-              <div v-for="inst in sortedInstances" :key="inst.location" class="inst-row" role="button" tabindex="0" :title="'打开房间详情：' + inst.location" @click="openInstance(inst.location)" @keydown.enter="openInstance(inst.location)">
+              <div v-for="inst in sortedInstances" :key="inst.location" class="inst-row" :title="'打开房间详情：' + inst.location" v-clickable="(e) => (openInstance(inst.location))" >
                 <div class="inst-line1">
                   <i :class="['pi', instIcon(inst)]" class="inst-icon" :style="{ color: inst.type === 'group' ? 'var(--accent-2)' : 'var(--text-dim)' }"></i>
                   <span class="inst-type">{{ instTypeLabel(inst) }}</span>
@@ -395,7 +395,7 @@ const worldJson = computed(() => (world.value ? JSON.stringify(world.value, null
             <div v-if="onlineHere.length" class="wd-online-here">
               <div class="wd-local-head"><i class="pi pi-users"></i> 该世界的好友</div>
               <div class="mini-list">
-                <div v-for="f in onlineHere" :key="f.userId" class="mini-row" role="button" tabindex="0" @click="openUser({ userId: f.userId, displayName: f.displayName, avatarUrl: f.avatarUrl || '' })" @keydown.enter="openUser({ userId: f.userId, displayName: f.displayName, avatarUrl: f.avatarUrl || '' })">
+                <div v-for="f in onlineHere" :key="f.userId" class="mini-row" v-clickable="(e) => (openUser({ userId: f.userId, displayName: f.displayName, avatarUrl: f.avatarUrl || '' }))" >
                   <img v-if="f.avatarUrl" :src="f.avatarUrl" class="mini-thumb" alt="" loading="lazy" />
                   <span class="mini-name">{{ f.displayName }}</span>
                   <span class="mini-loc text-dim">{{ f.instanceName || '' }}</span>

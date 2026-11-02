@@ -1,10 +1,24 @@
 <!doctype html>
 <html lang="zh-CN" class="app-dark">
 <head>
+  <!-- 主题首帧防闪：在样式表之前内联跑一次，深色/浅色/跟随系统三态一进来就是对的。
+       与 src/theme.js 同一套键名（vrc.theme）与判定规则；JS 未加载时也能先定色。 -->
+  <script>
+    (function () {
+      try {
+        var p = localStorage.getItem('vrc.theme');
+        if (p !== 'light' && p !== 'dark') p = 'system';
+        var dark = p === 'dark' || (p === 'system' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        document.documentElement.classList.toggle('app-dark', dark);
+        document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+      } catch (e) { /* 隐私模式：保持默认深色 */ }
+    })();
+  </script>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="referrer" content="no-referrer">
   <title>VRChat Assistant</title>
+  <meta name="theme-color" content="#070708">
 </head>
 <body>
   <div id="app"></div>

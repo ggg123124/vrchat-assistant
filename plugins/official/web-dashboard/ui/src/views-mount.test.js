@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 // 2026-09-22：挂载测试需要 DOM ⇒ 用文件级指令开 happy-dom（不改全局 vite.config，改动面最小 ✓）
 import { describe, it, expect, vi } from 'vitest';
+import { clickable } from './directives/clickable.js';
 import { mount } from '@vue/test-utils';
 import { store } from './store.js';   // 被上面的 vi.mock 替换成桩；本文件会改 userModal 触发弹窗 ✓
 
@@ -33,7 +34,13 @@ import TrackedView from './views/TrackedView.vue';
 import FriendsView from './views/FriendsView.vue';
 import BoothView from './views/BoothView.vue';
 
-const mountOpts = { global: { stubs: { Teleport: true, Transition: true, TransitionGroup: true } } };
+// 2026-11-02：v-clickable 是全局指令（main.js 注册）。挂载测试不走 main.js，若不在这里注册，模板里的 v-clickable 会报 "Failed to resolve directive" 并且**不绑定任何行为** ⇒测试环境与生产不一致，等于给这类回归开了后门。)
+const mountOpts = {
+  global: {
+    directives: { clickable },
+    stubs: { Teleport: true, Transition: true, TransitionGroup: true },
+  },
+};
 
 describe('视图挂载护栏（挂载即渲染，不允许静默空白）', () => {
   const cases = [
