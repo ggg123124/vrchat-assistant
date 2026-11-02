@@ -304,4 +304,98 @@ describe('v-clickable', () => {
     document.body.removeChild(el);
   });
 
+
+
+  // ── 复审 🔴1 第二轮（2026-11-02，EMeowAGENT）：e.target !== el 守卫过严 ──
+  // 事故：一律早退让「卡片内图片/文字」点击全部失效（比原 bug 更伤日常——
+  // 卡片可点区域缩到只剩背景）。正确判据是「事件是否归链上某一级自己处理」。
+  describe('事件归属判定（所有权链）', () => {
+    const mk = (tag) => document.createElement(tag);
+    const click = (el) => el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+    it('容器内普通子元素（img/span/div）应触发父容器', () => {
+      const parent = mk('div');
+      const inner = mk('img');
+      const label = mk('span');
+      parent.appendChild(inner);
+      parent.appendChild(label);
+      document.body.appendChild(parent);
+      let hits = 0;
+      clickable.mounted(parent, { value: () => { hits += 1; }, modifiers: {} });
+
+      click(inner);
+      expect(hits, '卡片缩略图必须可点').toBe(1);
+      click(label);
+      expect(hits, '卡片内文字必须可点').toBe(2);
+
+      clickable.unmounted(parent);
+      document.body.removeChild(parent);
+    });
+
+    it('容器内原生 button 不触发父容器（按钮自己处理）', () => {
+      const parent = mk('div');
+      const btn = mk('button');
+      parent.appendChild(btn);
+      document.body.appendChild(parent);
+      let parentHits = 0;
+      let btnHits = 0;
+      clickable.mounted(parent, { value: () => { parentHits += 1; }, modifiers: {} });
+      btn.addEventListener('click', () => { btnHits += 1; });
+
+      click(btn);
+      expect(btnHits).toBe(1);
+      expect(parentHits).toBe(0);
+
+      clickable.unmounted(parent);
+      document.body.removeChild(parent);
+    });
+
+    it('button 内的 span 也不触发父容器（链上有 button 即归它）', () => {
+      const parent = mk('div');
+      const btn = mk('button');
+      const s = mk('span');
+      btn.appendChild(s);
+      parent.appendChild(btn);
+      document.body.appendChild(parent);
+      let hits = 0;
+      clickable.mounted(parent, { value: () => { hits += 1; }, modifiers: {} });
+
+      click(s);
+      expect(hits).toBe(0);
+
+      clickable.unmounted(parent);
+      document.body.removeChild(parent);
+    });
+
+    it('容器内嵌套另一个 v-clickable 子元素：只触发子元素', () => {
+      const parent = mk('div');
+      const child = mk('span');
+      parent.appendChild(child);
+      document.body.appendChild(parent);
+      let parentHits = 0;
+      let childHits = 0;
+      clickable.mounted(parent, { value: () => { parentHits += 1; }, modifiers: {} });
+      clickable.mounted(child, { value: () => { childHits += 1; }, modifiers: {} });
+
+      click(child);
+      expect(childHits).toBe(1);
+      expect(parentHits, '嵌套时父容器不该重复处理').toBe(0);
+
+      clickable.unmounted(child);
+      clickable.unmounted(parent);
+      document.body.removeChild(parent);
+    });
+
+    it('容器自身仍响应', () => {
+      const parent = mk('div');
+      document.body.appendChild(parent);
+      let hits = 0;
+      clickable.mounted(parent, { value: () => { hits += 1; }, modifiers: {} });
+      click(parent);
+      expect(hits).toBe(1);
+      clickable.unmounted(parent);
+      document.body.removeChild(parent);
+    });
+  });
+
 });

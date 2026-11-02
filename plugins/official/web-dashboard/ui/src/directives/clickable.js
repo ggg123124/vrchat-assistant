@@ -13,7 +13,8 @@ function onKeydown(e) {
   // ⚠️ 必须只处理落在自身的事件：容器内嵌原生 <button> 时，按钮上的 Enter 会冒泡到这里，
   // 若无条件 preventDefault 会把**浏览器对 <button> 的默认 Enter 激活**一起取消
   // ⇒ 复制 ID / 取消收藏这些按钮用键盘点不动（复审 EMeowAGENT 🔴1，实测父行命中 1 次）。
-  if (e.target !== this) return;
+  // 键盘事件只处理落在自身（或容器内无自己声明的普通子元素）的情况。
+  if (ownsEvent(this, e.target)) return;
   // 长按会以 repeat=true 连续触发 keydown（原生 <button> 是 keyup 触发一次）。
   // 不加这道守卫时，.ev-row 这类 toggle 元素长按空格会来回抖动（复审 Lian-Hu 💡1，实测命中 5 次）。
   if (e.repeat) return;
@@ -29,11 +30,24 @@ function onKeydown(e) {
 // ⇒ 监听器永远留在元素上。动态流每渲染一批行就新建一批元素与闭包，
 // 元素被 Vue 移除后闭包仍被监听器持有 ⇒ 内存只增不减
 // （2026-11-02 用户实测浏览器 OOM「Out of Memory」）。这里把同一引用存到元素上，卸载时一并摘掉。
+// 判定「这个事件是否该由容器自己处理」（复审 EMeowAGENT 第二轮 🔴1）：
+// 不能在 e.target !== el 时一律早退 —— 冒泡上来的不只是 <button>，还有卡片内的
+// <img>/<span>/<div>/<b>（缩略图、好友名、时间列），它们本就没有自己的可点声明，
+// 原本正是**靠冒泡**触发父容器的动作。一律早退会让「整张卡片点不动」。
+// 正确判据：从 target 往容器方向走，只要链上某一级**自己声明了可点**（有 v-clickable）
+// 或是原生可交互元素（button/a/input/...），事件就归它，容器不重复处理。
+const INTERACTIVE = /^(BUTTON|A|INPUT|SELECT|TEXTAREA|LABEL)$/;
+function ownsEvent(container, target) {
+  for (let n = target; n && n !== container; n = n.parentElement) {
+    if (n[CLICK_HANDLER] || (n.tagName && INTERACTIVE.test(n.tagName))) return true;
+    // aria 语义上的可点元素（role=button 且不是本容器）也视为它自己处理
+    if (n !== container && n.getAttribute && n.getAttribute('role') === 'button') return true;
+  }
+  return false;
+}
+
 function onClick(e) {
-  // 只处理「落在自身」的点击：容器内常有原生 <button>（复制 ID / 取消收藏 / 移动分组），
-  // 子元素的 click 会冒泡上来。若不守卫，父行的 handler 会被顺带触发
-  //（复审 EMeowAGENT 🔴1/🔴2：点行内按钮会同时「打开详情 / 展开行」）。
-  if (e.target !== this) return;
+  if (ownsEvent(this, e.target)) return;
   applyModifiers(e, this[MODIFIERS]);
   const fn = this[HANDLER];
   if (fn) fn(e);
