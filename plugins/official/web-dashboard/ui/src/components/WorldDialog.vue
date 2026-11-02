@@ -3,6 +3,7 @@ import { ref, computed, watch } from 'vue';
 import { store, closeWorld, openUser, copyText, openPreview, openInstance, openGroup, openWorld } from '../store.js';
 import { get, post, imgUrl } from '../api.js';
 import { date, dateTime, time, trustColor, parseLoc, instanceLabel } from '../utils.js';
+import { createSeqGuard } from '../utils/seq-guard.js';
 import { toast } from '../toast.js';
 import { confirm } from '../confirm.js';
 
@@ -38,17 +39,24 @@ async function load() {
   history.value = null;
   liveInst.value = null;
   activeTab.value = 'info';
+  // 复审 💡3：切换世界时旧响应可能晚到并覆盖新世界的数据（UserDialog 已修，这里同步）。
+  // rec 同时校验序号与业务键 worldId：过期响应直接丢弃，loading 只由最新一次收尾。
+  const rec = worldGuard.begin(modal.worldId);
   try {
     const d = await get(`/api/dashboard/world?worldId=${encodeURIComponent(modal.worldId)}`);
+    if (!worldGuard.isCurrent(rec)) return;
     if (!d.error) world.value = d;
     const h = await get(`/api/dashboard/world-history?worldId=${encodeURIComponent(modal.worldId)}`);
+    if (!worldGuard.isCurrent(rec)) return;
     if (!h.error) history.value = h;
     // 实时实例（在线实例变化频繁，走独立实时端点）
     const li = await get(`/api/dashboard/world-instances?worldId=${encodeURIComponent(modal.worldId)}`);
+    if (!worldGuard.isCurrent(rec)) return;
     if (!li.error) liveInst.value = li;
   } catch { /* 保持空 */ }
-  loading.value = false;
+  if (worldGuard.isCurrent(rec)) loading.value = false;
 }
+const worldGuard = createSeqGuard();
 watch(() => store.worldModal, (v) => { if (v) load(); });
 
 const infoFacts = computed(() => {

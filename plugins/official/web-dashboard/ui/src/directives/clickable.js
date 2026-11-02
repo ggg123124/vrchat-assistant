@@ -1,5 +1,6 @@
 const HANDLER = Symbol('clickableHandler');
 const CLICK_HANDLER = Symbol('clickableClickHandler');
+const MODIFIERS = Symbol('clickableModifiers');
 
 function normalize(binding) {
   const v = binding && binding.value;
@@ -11,6 +12,7 @@ function onKeydown(e) {
   if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Spacebar') return;
   // 空格默认会滚动页面；Enter 在 role=button 上默认什么都不做，都拦掉
   e.preventDefault();
+  applyModifiers(e, this[MODIFIERS]);
   const fn = this[HANDLER];
   if (fn) fn(e);
 }
@@ -21,8 +23,18 @@ function onKeydown(e) {
 // 元素被 Vue 移除后闭包仍被监听器持有 ⇒ 内存只增不减
 // （2026-11-02 用户实测浏览器 OOM「Out of Memory」）。这里把同一引用存到元素上，卸载时一并摘掉。
 function onClick(e) {
+  applyModifiers(e, this[MODIFIERS]);
   const fn = this[HANDLER];
   if (fn) fn(e);
+}
+
+// 修饰符：自定义指令不会自动套 withModifiers（那是 @click.stop 的编译行为），
+// .stop/.prevent 只是 binding.modifiers 里的布尔位，必须由指令自己处理。
+// 复审 🔴1 实测：缺少这一层时子元素 click 会冒泡到父行 ⇒ 「点玩家名会同时打开用户卡 + 展开父行」。
+function applyModifiers(e, mods) {
+  if (!mods) return;
+  if (mods.stop) e.stopPropagation();
+  if (mods.prevent) e.preventDefault();
 }
 
 const installed = new WeakSet();
@@ -32,6 +44,7 @@ export const clickable = {
     const fn = normalize(binding);
     if (!fn) return;
     el[HANDLER] = fn;
+    el[MODIFIERS] = binding.modifiers || null;
     if (!el.hasAttribute('role')) el.setAttribute('role', 'button');
     if (!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '0');
     // 同一个元素可能被 v-if 复用后又重新 mounted —— WeakSet 防重复绑监听
@@ -42,6 +55,7 @@ export const clickable = {
     el.addEventListener('keydown', onKeydown);
   },
   updated(el, binding) {
+    el[MODIFIERS] = binding.modifiers || null;
     const fn = normalize(binding);
     if (fn) el[HANDLER] = fn;
   },
@@ -50,6 +64,7 @@ export const clickable = {
     el.removeEventListener('click', el[CLICK_HANDLER] || onClick);
     el.removeEventListener('keydown', onKeydown);
     delete el[CLICK_HANDLER];
+    delete el[MODIFIERS];
     delete el[HANDLER];
     installed.delete(el);
   },

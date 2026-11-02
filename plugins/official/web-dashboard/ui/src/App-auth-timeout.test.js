@@ -40,7 +40,10 @@ describe('鉴权检查态必须有硬超时兜底', () => {
   it('超时后保留登录门并给出可读原因（不是静默白屏）', () => {
     const idx = src.indexOf('硬超时');
     expect(idx).toBeGreaterThan(-1);
-    expect(src).toMatch(/连接鉴权服务超时/);
+    // 复审 💡4：原断言写成 /连接鉴权服务超时/，只命中了第 129 行的**注释**，
+    // 真正赋给 loginReason 的文案是「鉴权服务响应较慢…」⇒ 那条断言是空转的。
+    // 现在断言真正出现在赋值语句里的文案。
+    expect(src).toMatch(/loginReason\.value = '[^']*鉴权服务响应较慢/);
   });
 });
 

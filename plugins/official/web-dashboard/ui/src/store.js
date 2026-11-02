@@ -50,9 +50,12 @@ export const store = reactive({
   feedTotal: 0,  // 数据库事件总数（右上角"已加载/总数"）
   eventsRange: { min: null, max: null },  // 动态数据时间范围（日历筛选可选范围）
   feedLoading: false,
-  // 加载失败横幅文案（空串=无错误）。**必须在此声明**：Vue 3 的 reactive 基于 Proxy，
-  // 给未声明的属性赋值不会触发依赖更新 ⇒ 横幅可能不刷新（2026-11-02 由 store-declared-fields 用例发现）。
+  // 加载失败横幅文案（空串=无错误）。Vue 3 下未声明属性赋值**也会**触发更新（实测 3.5.41），
+  // 声明在此属可维护性（字段全量集中、避免拼写错误静默建新字段），不是修 bug。
   loadError: '',
+  // 日期分组标签的「现在」。Date.now() 不是响应式依赖 ⇒ 必须由本字段驱动重算，
+  // 否则 23:59 打开页面后过零点仍显示「今天」（复审 💡2 指出的用户可见缺陷）。
+  dayClock: Date.now(),
   feedLoadingMore: false,
 
   friends: [],
@@ -188,7 +191,12 @@ export function openInstance(loc) {
 }
 export const closeInstance = () => { store.instanceModal = null; restoreFocusAfterModal(); };
 
-export const openPreview = (url) => { if (url) { closeMobileDrawers(); store.previewUrl = url; } };
+export const openPreview = (url) => {
+  if (!url) return;
+  closeMobileDrawers();
+  rememberFocusForModal();   // 复审 💡3：预览弹窗此前漏接，关掉后焦点同样会掉到 body
+  store.previewUrl = url;
+};
 
 export function copyText(t) {
   if (!t) return;
@@ -591,6 +599,23 @@ function mergeFeedEvents(latest) {
 }
 
 let feedRefreshTimer = null;
+// 日期分组时钟：只在本地下一个零点前 1 秒跳一次，然后重排下一次。
+// 为什么不用 setInterval(60s)：跨午夜只需要「过零点时变一次」，高频 tick 会让
+// computed(feedRows) 每分钟重算整表（50 行 × 分支），纯属浪费。
+// 为什么需要它：Date.now() 不是响应式依赖 ⇒ 不定时推 store.dayClock，
+// computed 不会重算，23:59 打开后过零点仍显示「今天」（复审 💡2）。
+let dayClockTimer = null;
+function scheduleDayClock() {
+  clearTimeout(dayClockTimer);
+  const now = new Date();
+  const nextMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 1, 0);
+  const delay = Math.max(1000, nextMidnight.getTime() - now.getTime());
+  dayClockTimer = setTimeout(() => {
+    store.dayClock = Date.now();
+    scheduleDayClock();
+  }, delay);
+}
+
 function refreshFeed() {
   clearTimeout(feedRefreshTimer);
   feedRefreshTimer = setTimeout(async () => {
@@ -825,5 +850,6 @@ export function startDashboard() {
     step('loadAnnNewFlag', () => loadAnnNewFlag());
     step('startSse', () => startSse());   // 与数据加载同处守卫（原 SSE 没进守卫 ⇒ 一连上就触发 load() ⇒ 登录页 overview 401）
     step('poll', () => setInterval(() => load(true), 120000));   // 全量校准：120s 一次（未登录不轮询）
+    step('dayClock', () => scheduleDayClock());   // 跨午夜重算日期分组标签（复审 💡2）
   }
 }

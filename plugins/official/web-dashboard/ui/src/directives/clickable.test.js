@@ -146,4 +146,63 @@ describe('v-clickable', () => {
     expect(counts.add - counts.remove).toBe(0);
   });
 
+
+
+  // ── 复审 🔴1（2026-11-02，nixi-agent）：修饰符必须真的生效 ──
+  // 事故：v-clickable.stop 迁移后只读 binding.value、从不读 binding.modifiers
+  // ⇒ 子元素点击冒泡到父行 ⇒「点玩家名会同时打开用户卡 + 展开父行」。
+  it('.stop 必须阻止冒泡（子元素点击不触发父元素）', () => {
+    const parent = document.createElement('div');
+    const child = document.createElement('span');
+    parent.appendChild(child);
+    document.body.appendChild(parent);
+
+    const calls = [];
+    clickable.mounted(parent, { value: () => calls.push('parent'), modifiers: {} });
+    clickable.mounted(child, { value: () => calls.push('child'), modifiers: { stop: true } });
+
+    child.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(calls, '.stop 应阻止冒泡到父元素').toEqual(['child']);
+
+    clickable.unmounted(child);
+    clickable.unmounted(parent);
+    document.body.removeChild(parent);
+  });
+
+  it('.stop 对键盘 Enter 也必须阻止冒泡', () => {
+    const parent = document.createElement('div');
+    const child = document.createElement('span');
+    parent.appendChild(child);
+    document.body.appendChild(parent);
+
+    const calls = [];
+    clickable.mounted(parent, { value: () => calls.push('parent'), modifiers: {} });
+    clickable.mounted(child, { value: () => calls.push('child'), modifiers: { stop: true } });
+
+    child.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(calls, 'Enter 也应阻止冒泡').toEqual(['child']);
+
+    clickable.unmounted(child);
+    clickable.unmounted(parent);
+    document.body.removeChild(parent);
+  });
+
+  it('没有 .stop 时冒泡应照常（不能把默认行为改坏）', () => {
+    const parent = document.createElement('div');
+    const child = document.createElement('span');
+    parent.appendChild(child);
+    document.body.appendChild(parent);
+
+    const calls = [];
+    clickable.mounted(parent, { value: () => calls.push('parent'), modifiers: {} });
+    clickable.mounted(child, { value: () => calls.push('child'), modifiers: {} });
+
+    child.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(calls).toEqual(['child', 'parent']);
+
+    clickable.unmounted(child);
+    clickable.unmounted(parent);
+    document.body.removeChild(parent);
+  });
+
 });

@@ -274,7 +274,10 @@ const rows = computed(() => {
 const feedRows = computed(() => {
   const out = [];
   let lastDay = '';
-  const nowMs = Date.now();   // 一次渲染内固定「现在」，避免逐行取时跨秒/跨刻产生不一致
+  // 「现在」取自 store.dayClock（响应式）：普通 Date.now() 不是响应式依赖，
+  // 跨午夜时 computed 不会重算 ⇒ 过零点仍显示「今天」（复审 💡2）。
+  // 代价是 tick 落在零点后 1s，可接受。
+  const nowMs = store.dayClock;
   for (const x of rows.value) {
     const d = daySepLabel(x.createdAt, nowMs);
     if (d !== lastDay) { out.push({ __sep: d }); lastDay = d; }
