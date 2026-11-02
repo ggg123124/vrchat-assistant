@@ -169,7 +169,12 @@ describe('v-clickable', () => {
     document.body.removeChild(parent);
   });
 
-  it('.stop 对键盘 Enter 也必须阻止冒泡', () => {
+  // ⚠️ 用例名原为「.stop 对键盘 Enter 也必须阻止冒泡」，**语义已不成立**
+  // （复审 EMeowAGENT 第 4 轮指出）：keydown 上有意**不再应用** .stop（否则吞掉
+  // document 上的全局快捷键）。这条现在能通过是因为父容器被 ownsEvent() 早退
+  // ——子元素自己声明了可点，事件归它——而不是 .stop 生效。
+  // 改成如实的名字，免得后来者以为 keydown 的 .stop 还在。
+  it('父容器不重复处理子元素已声明的键盘事件（由 ownsEvent 保证，非 .stop）', () => {
     const parent = document.createElement('div');
     const child = document.createElement('span');
     parent.appendChild(child);
@@ -180,7 +185,7 @@ describe('v-clickable', () => {
     clickable.mounted(child, { value: () => calls.push('child'), modifiers: { stop: true } });
 
     child.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-    expect(calls, 'Enter 也应阻止冒泡').toEqual(['child']);
+    expect(calls, '事件归子元素，父容器不重复处理').toEqual(['child']);
 
     clickable.unmounted(child);
     clickable.unmounted(parent);
