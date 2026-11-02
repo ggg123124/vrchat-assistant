@@ -128,18 +128,24 @@ function closeMobileDrawers() {
 // 键盘用户从列表打开详情弹窗、按 Esc 关闭后，若不归还焦点，焦点会掉到 <body> ⇒
 // 只能从头 Tab 一遍才能回到刚才那一行。记录「打开前的 activeElement」，关闭时还原。
 // 只记元素引用、不持有 DOM，元素被移除时 focusOrRestore 会静默跳过（不影响关闭流程）。
-let __focusBeforeModal = null;
-export function rememberFocusForModal() {
-  // catch 里不写 null：frontend-catch-guard 的规则是「失败不得被写成正常值」，
-  // 而「读不到 activeElement」本身就是拿不到来源 ⇒ 保持旧值（= 无可归还元素），
-  // 让 restore 自然早退，语义比强行清空更准确。
-  try { __focusBeforeModal = document.activeElement || null; } catch { /* 保持旧值：无来源可还原 */ }
+// 焦点来源用**栈**而不是单槽（复审 EMeowAGENT ⚠️4）：
+// 单槽在嵌套弹窗下会被覆盖 —— 开 UserDialog 记列表行 → 弹窗内开 WorldDialog 覆盖成弹窗内元素
+// → 关 WorldDialog 还原并清空 → 关 UserDialog 时槽已空 ⇒ 焦点掉到 body，正是本功能想修的现象。
+const __focusStack = [];
+function rememberFocusForModal() {
+  // catch 里不压栈：frontend-catch-guard 的规则是「失败不得被写成正常值」，
+  // 而「读不到 activeElement」本身就是拿不到来源 ⇒ 不压栈，让 restore 自然早退。
+  try { __focusStack.push(document.activeElement || null); } catch { /* 无来源可还原 */ }
 }
 export function restoreFocusAfterModal() {
-  const el = __focusBeforeModal;
-  __focusBeforeModal = null;
-  if (!el || typeof el.focus !== 'function') return;
-  try { if (el.isConnected) el.focus({ preventScroll: true }); } catch { /* 元素已移除/不可聚焦：忽略 */ }
+  // 栈式还原：每次关闭弹出最近一次打开时记下的来源，嵌套弹窗逐层归还。
+  while (__focusStack.length) {
+    const el = __focusStack.pop();
+    // 跳过已从 DOM 移除的来源（弹窗内部元素可能随弹窗一起销毁），继续往下一层还
+    if (el && typeof el.focus === 'function' && el.isConnected) {
+      try { el.focus({ preventScroll: true }); return; } catch { /* 不可聚焦：继续下一层 */ }
+    }
+  }
 }
 
 export function openUser(u) {

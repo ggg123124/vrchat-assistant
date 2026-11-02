@@ -187,7 +187,12 @@ describe('v-clickable', () => {
     document.body.removeChild(parent);
   });
 
-  it('没有 .stop 时冒泡应照常（不能把默认行为改坏）', () => {
+  // ⚠️ 语义已于 2026-11-02 变更（复审 EMeowAGENT 🔴1/🔴2 后）：
+  // 指令现在只处理「落在自身」的事件（e.target !== el 直接 return）。
+  // 于是「父行 + 子可点元素各自 v-clickable」这种嵌套结构默认就互不干扰，
+  // .stop 不再是必需品（保留它作为显式意图仍然生效）。
+  // 这条用例从「冒泡应照常」改为「嵌套时各管各的」，否则会与新的正确行为冲突。
+  it('嵌套时各管各的：点子元素只触发子元素（默认就不冒泡污染父行）', () => {
     const parent = document.createElement('div');
     const child = document.createElement('span');
     parent.appendChild(child);
@@ -198,11 +203,66 @@ describe('v-clickable', () => {
     clickable.mounted(child, { value: () => calls.push('child'), modifiers: {} });
 
     child.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    expect(calls).toEqual(['child', 'parent']);
+    expect(calls, '子元素命中，父元素不该被冒泡触发').toEqual(['child']);
+
+    parent.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(calls, '点在父元素本身仍要生效').toEqual(['child', 'parent']);
 
     clickable.unmounted(child);
     clickable.unmounted(parent);
     document.body.removeChild(parent);
+  });
+
+
+
+  // ── 复审 🔴1（2026-11-02，EMeowAGENT）：容器内原生 <button> 的键盘/点击不能被父行吞掉 ──
+  // 事故：onKeydown 无条件 preventDefault ⇒ 容器内原生 <button> 的 Enter 激活被取消；
+  // 且父行 handler 被冒泡顺带触发（实测命中 1 次）。修法：e.target !== el 直接 return。
+  it('容器内原生 button 的 click 不应触发父行 handler', () => {
+    const row = document.createElement('div');
+    const btn = document.createElement('button');
+    row.appendChild(btn);
+    document.body.appendChild(row);
+
+    let rowHits = 0;
+    let btnHits = 0;
+    clickable.mounted(row, { value: () => { rowHits += 1; }, modifiers: {} });
+    btn.addEventListener('click', () => { btnHits += 1; });
+
+    btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    expect(btnHits, '按钮自身应响应').toBe(1);
+    expect(rowHits, '父行不该被冒泡触发').toBe(0);
+
+    // 点在行本身仍要生效
+    row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    expect(rowHits).toBe(1);
+
+    clickable.unmounted(row);
+    document.body.removeChild(row);
+  });
+
+  it('容器内原生 button 的 Enter 不应被父行 preventDefault（否则原生激活被取消）', () => {
+    const row = document.createElement('div');
+    const btn = document.createElement('button');
+    row.appendChild(btn);
+    document.body.appendChild(row);
+
+    let rowHits = 0;
+    clickable.mounted(row, { value: () => { rowHits += 1; }, modifiers: {} });
+
+    const ev = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+    btn.dispatchEvent(ev);
+    expect(ev.defaultPrevented, '按钮上的 Enter 不能被父行取消默认行为').toBe(false);
+    expect(rowHits, '父行不该被冒泡触发').toBe(0);
+
+    // 在行本身按 Enter 仍要 preventDefault 且触发
+    const ev2 = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+    row.dispatchEvent(ev2);
+    expect(ev2.defaultPrevented).toBe(true);
+    expect(rowHits).toBe(1);
+
+    clickable.unmounted(row);
+    document.body.removeChild(row);
   });
 
 });

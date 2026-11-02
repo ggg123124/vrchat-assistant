@@ -10,6 +10,10 @@ function normalize(binding) {
 
 function onKeydown(e) {
   if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Spacebar') return;
+  // ⚠️ 必须只处理落在自身的事件：容器内嵌原生 <button> 时，按钮上的 Enter 会冒泡到这里，
+  // 若无条件 preventDefault 会把**浏览器对 <button> 的默认 Enter 激活**一起取消
+  // ⇒ 复制 ID / 取消收藏这些按钮用键盘点不动（复审 EMeowAGENT 🔴1，实测父行命中 1 次）。
+  if (e.target !== this) return;
   // 空格默认会滚动页面；Enter 在 role=button 上默认什么都不做，都拦掉
   e.preventDefault();
   applyModifiers(e, this[MODIFIERS]);
@@ -23,6 +27,10 @@ function onKeydown(e) {
 // 元素被 Vue 移除后闭包仍被监听器持有 ⇒ 内存只增不减
 // （2026-11-02 用户实测浏览器 OOM「Out of Memory」）。这里把同一引用存到元素上，卸载时一并摘掉。
 function onClick(e) {
+  // 只处理「落在自身」的点击：容器内常有原生 <button>（复制 ID / 取消收藏 / 移动分组），
+  // 子元素的 click 会冒泡上来。若不守卫，父行的 handler 会被顺带触发
+  //（复审 EMeowAGENT 🔴1/🔴2：点行内按钮会同时「打开详情 / 展开行」）。
+  if (e.target !== this) return;
   applyModifiers(e, this[MODIFIERS]);
   const fn = this[HANDLER];
   if (fn) fn(e);

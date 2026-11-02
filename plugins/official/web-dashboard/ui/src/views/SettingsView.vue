@@ -89,7 +89,7 @@ onMounted(load);
         <span class="set-sub">选择界面配色；改动立即生效并记住，下次打开保持一致</span>
       </div>
       <div class="set-row">
-        <div class="set-radios theme-radios">
+        <div class="theme-radios">
           <label v-for="t in THEME_OPTIONS" :key="t.v" class="theme-opt" :class="{ active: themePref === t.v }">
             <input type="radio" :value="t.v" :checked="themePref === t.v" @change="pickTheme(t.v)" />
             <span class="theme-name">{{ t.label }}</span>
@@ -146,7 +146,10 @@ onMounted(load);
 
 <style scoped>
 .settings-wrap { padding: 12px 14px; max-width: 720px; }
-.theme-radios { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; width: 100%; }
+/* 原写法与 .set-radios（display:flex; flex-direction:column，同特异性且定义在后）冲突
+   ⇒ 3 列网格是死代码、实际渲染成 1 列竖排（复审 EMeowAGENT ⚠️5）。
+   现在不再共用 .set-radios，类名独立；font-size 等通用项在此显式补齐。 */
+.theme-radios { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; width: 100%; font-size: 13px; }
 @media (max-width: 640px) { .theme-radios { grid-template-columns: 1fr; } }
 .theme-opt { display: flex; flex-direction: column; gap: 2px; padding: 9px 11px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; }
 .theme-opt:hover { border-color: var(--text-dim); }
