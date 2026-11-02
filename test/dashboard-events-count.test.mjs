@@ -126,3 +126,23 @@ test('迁移幂等：同一库再次 init 不报 duplicate column', async () => 
   const cols = s2.query('PRAGMA table_xinfo(events)').map((c) => c.name);
   assert.equal(new Set(cols).size, cols.length, '不得有重复列');
 });
+
+// ── 复审 💡5：拆分支路里 restWhere（日期条件）的拼接此前没有用例钉住 ──
+// 逻辑：hasJsonSubtypeCond && !utCond 时才拆分，且把「不含 json_extract 的条件」（日期）同时拼到两条子查询上。
+// 若 restWhere 漏拼，两条 COUNT 会忽略日期 ⇒ total 大于原始条件（漏筛）。
+test('日期筛选 + 拆分分支：total 仍与原始条件相等（restWhere 拼接不能漏）', async () => {
+  const from = new Date(Date.UTC(2026, 10, 1, 0, 0, 4)).toISOString();   // 第 4 条起
+  const to = new Date(Date.UTC(2026, 10, 1, 0, 0, 8)).toISOString();     // 第 8 条止
+  const r = await events({ limit: 50, dateFrom: from, dateTo: to });
+  const expected = originalTotal(`e.created_at >= '${from}' AND e.created_at <= '${to}'`);
+  assert.equal(r.total, expected, '日期条件必须同时作用于拆分后的两条 COUNT');
+  assert.ok(r.total < originalTotal(), '日期区间应真的筛掉行（否则说明 restWhere 没生效）');
+});
+
+test('日期 + 类型双筛选：同样与原始条件相等（此路径不拆分）', async () => {
+  const from = new Date(Date.UTC(2026, 10, 1, 0, 0, 1)).toISOString();
+  const { updateTypeConds } = await import(pathToFileURL(path.join(REPO, 'core', 'dashboard-services.js')).href);
+  const utCond = updateTypeConds('avatar');
+  const r = await events({ limit: 50, dateFrom: from, updateTypes: 'avatar' });
+  assert.equal(r.total, originalTotal(utCond + ` AND e.created_at >= '${from}'`), '日期+类型组合也应与原始条件相等');
+});

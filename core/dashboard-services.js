@@ -347,7 +347,7 @@ export function registerDashboardServices(loader, ctx) {
     if (utCond) conds.push(utCond);
     const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
     const rows = ctx.storage.query(`SELECT e.id, e.type, e.user_id, e.display_name, e.content_json, e.world_id,
-      e.world_name AS e_world_name_raw, e.created_at, e.source,
+      e.world_name, e.created_at, e.source,
       f.display_name AS friendDisplayName,
       f.avatar_image_url AS avatarUrl, f.user_icon AS userIcon, f.trust_level AS trustLevel,
       COALESCE(NULLIF(wc.name,''), e.world_name, '') AS world_name,

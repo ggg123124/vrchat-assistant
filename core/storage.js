@@ -100,14 +100,20 @@ export class Storage {
     // （实测同一张表 table_info 9 列 / table_xinfo 10 列）⇒ 用 table_info 做存在性判断永远为假
     // ⇒ 第二次 init 会 duplicate column 报错。
     const evCols = this._query(`PRAGMA table_xinfo(events)`);
-    if (!evCols.some(c => c.name === 'content_subtype')) {
-      this._run(`ALTER TABLE events ADD COLUMN content_subtype TEXT GENERATED ALWAYS AS (json_extract(content_json,'$.type')) VIRTUAL`);
-    }
+    // ALTER 与 CREATE INDEX 合并进同一个 try（复审 💡2）：老 SQLite（<3.31）不支持 GENERATED 列时
+    // ALTER 会先抛；若只 catch 索引创建，就与「老版本不阻断启动」的承诺不符。
     try {
+      if (!evCols.some(c => c.name === 'content_subtype')) {
+        // CASE WHEN json_valid(...)：历史脏数据（malformed JSON）不会让生成列求值抛错（复审 💡1）。
+        // 实测：直接 json_extract 时，库里一条 'not-json' 就让 SELECT * 整体报 malformed JSON；
+        // 加 json_valid 后该行生成值为 NULL、其余行照常，且 6.2 万行库上仍走索引（1.3 vs 1.4ms）。
+        this._run(`ALTER TABLE events ADD COLUMN content_subtype TEXT GENERATED ALWAYS AS (CASE WHEN json_valid(content_json) THEN json_extract(content_json,'$.type') END) VIRTUAL`);
+      }
       this._run(`CREATE INDEX IF NOT EXISTS idx_events_type_subtype ON events(type, content_subtype)`);
     } catch (e) {
-      // 老 SQLite（<3.31）不支持生成列时兜住，避免启动崩
-      log.warn(`events content_subtype 索引创建失败（计数将回落到全表扫描）: ${e.message}`);
+      // 依赖 better-sqlite3 自带的 SQLite（当前 3.53.2，远高于所需的 3.31）；
+      // 真遇到不支持的环境时降级为「计数回落到全表扫描」，不阻断启动。
+      log.warn(`events content_subtype 生成列/索引创建失败（计数将回落到全表扫描）: ${e.message}`);
     }
     // 迁移：旧库 world_cache 缺 note 列
     const worldCols = this._query(`PRAGMA table_info(world_cache)`);
