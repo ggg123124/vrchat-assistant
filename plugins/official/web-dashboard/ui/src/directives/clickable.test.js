@@ -398,4 +398,41 @@ describe('v-clickable', () => {
     });
   });
 
+
+
+  // ── 复审 EMeowAGENT 💡2：keydown 上不得应用 .stop（否则吞掉全局快捷键）──
+  it('带 .stop 的元素上按 Enter，document 仍应收到事件（不吞全局快捷键）', () => {
+    const box = document.createElement('div');
+    document.body.appendChild(box);
+    let docSaw = 0;
+    const onDoc = (e) => { if (e.key === 'Enter') docSaw += 1; };
+    document.addEventListener('keydown', onDoc);
+
+    clickable.mounted(box, { value: () => {}, modifiers: { stop: true } });
+    box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+
+    expect(docSaw, 'keydown 上的 .stop 不应阻止事件到达 document').toBe(1);
+
+    document.removeEventListener('keydown', onDoc);
+    clickable.unmounted(box);
+    document.body.removeChild(box);
+  });
+
+  it('click 上的 .stop 仍然生效（不能因为改 keydown 一起丢掉）', () => {
+    const outer = document.createElement('div');
+    const box = document.createElement('div');
+    outer.appendChild(box);
+    document.body.appendChild(outer);
+    let outerHits = 0;
+    outer.addEventListener('click', () => { outerHits += 1; });
+
+    clickable.mounted(box, { value: () => {}, modifiers: { stop: true } });
+    box.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+    expect(outerHits, 'click 的 .stop 必须仍然阻止冒泡').toBe(0);
+
+    clickable.unmounted(box);
+    document.body.removeChild(outer);
+  });
+
 });

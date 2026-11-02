@@ -20,7 +20,10 @@ function onKeydown(e) {
   if (e.repeat) return;
   // 空格默认会滚动页面；Enter 在 role=button 上默认什么都不做，都拦掉
   e.preventDefault();
-  applyModifiers(e, this[MODIFIERS]);
+  // ⚠️ keydown 上**不应用** .stop：那会让全局快捷键（document 上的 Esc / Ctrl+K 之类）
+  // 收不到事件。复审 EMeowAGENT 💡2 实测：在带 .stop 的元素上按 Enter，document 收到 0 次。
+  // .prevent 仍需生效（阻止空格滚动），所以这里只传 prevent。
+  applyModifiers(e, this[MODIFIERS] && { prevent: this[MODIFIERS].prevent });
   const fn = this[HANDLER];
   if (fn) fn(e);
 }

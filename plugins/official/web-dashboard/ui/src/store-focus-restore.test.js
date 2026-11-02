@@ -125,7 +125,10 @@ describe('预览弹窗的焦点栈配对（嵌套路径）', () => {
   it('源码层：不得有绕过 openPreview 的直赋（否则栈错位）', async () => {
     const { readFileSync, readdirSync, statSync } = await import('node:fs');
     const path = await import('node:path');
-    const dir = path.dirname(new URL(import.meta.url).pathname);
+    // 用 fileURLToPath 而不是 new URL().pathname：Windows 下 pathname 形如 /C:/...，
+    // readdirSync 会失败（复审 EMeowAGENT 💡1）。本仓既有 6 处均用 fileURLToPath，保持一致。
+    const { fileURLToPath } = await import('node:url');
+    const dir = path.dirname(fileURLToPath(import.meta.url));
     const walk = (d, out = []) => {
       for (const name of readdirSync(d)) {
         const p = path.join(d, name);
