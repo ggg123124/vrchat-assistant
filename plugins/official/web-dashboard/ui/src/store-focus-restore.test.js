@@ -90,4 +90,98 @@ describe('弹窗焦点归还', () => {
     m.closeGroup();
     expect(document.activeElement.id).toBe('src-2');
   });
+
+
+// ── 复审 nixi-agent 第 2 轮 ⚠️1：预览弹窗必须与父弹窗的焦点栈配对 ──
+describe('预览弹窗的焦点栈配对（嵌套路径）', () => {
+  it('openUser → openPreview → 关预览：焦点回弹窗内来源；再 closeUser：回列表行', async () => {
+    const m = await loadStore();
+    document.body.innerHTML = '';
+    const row = document.createElement('button');
+    row.id = 'list-row';
+    document.body.appendChild(row);
+    const avatar = document.createElement('div');
+    avatar.id = 'avatar-card';
+    avatar.tabIndex = 0;
+    document.body.appendChild(avatar);
+
+    row.focus();
+    expect(document.activeElement.id).toBe('list-row');
+
+    // 真实入口：openUser 压一档
+    m.openUser('usr_01234567-0123-4123-8123-0123456789ab');
+    avatar.focus();
+    // 真实入口：openPreview 再压一档（这正是 UserDialog.vue:181 之前绕过的那一步）
+    m.openPreview('https://example.com/a.png');
+    expect(m.activeFocusStackDepth(), '两层栈').toBe(2);
+
+    m.restoreFocusAfterModal();         // 关闭预览 → 应回到弹窗内的 avatar
+    expect(document.activeElement.id, '预览关闭后焦点必须留在弹窗内').toBe('avatar-card');
+
+    m.restoreFocusAfterModal();         // 关闭 UserDialog → 回到列表行
+    expect(document.activeElement.id, '关掉 UserDialog 后回到列表行').toBe('list-row');
+  });
+
+  it('源码层：不得有绕过 openPreview 的直赋（否则栈错位）', async () => {
+    const { readFileSync, readdirSync, statSync } = await import('node:fs');
+    const path = await import('node:path');
+    const dir = path.dirname(new URL(import.meta.url).pathname);
+    const walk = (d, out = []) => {
+      for (const name of readdirSync(d)) {
+        const p = path.join(d, name);
+        if (statSync(p).isDirectory()) walk(p, out);
+        else if (/\.(vue|js)$/.test(name) && !/\.test\.js$/.test(name)) out.push(p);
+      }
+      return out;
+    };
+    const offenders = [];
+    for (const f of walk(dir)) {
+      if (f.endsWith('store.js')) continue;
+      for (const line of readFileSync(f, 'utf8').split('\n')) {
+        if (!/store\.previewUrl\s*=/.test(line)) continue;
+        if (/^\s*(\/\/|\*)/.test(line)) continue;
+        offenders.push(path.relative(dir, f) + ': ' + line.trim().slice(0, 70));
+      }
+    }
+    expect(offenders, '绕过 openPreview 会破坏焦点栈配对').toEqual([]);
+  });
+});
+
+
+
+// ── 复审 nixi-agent 第 2 轮 💡2：跨午夜不能只 grep 源码，要行为断言 ──
+// 只匹配 dayClock / scheduleDayClock 字面量防不住「写了但没接上」（例如步骤没进 startDashboard）。
+// 这里用假定时器真的把时钟推到跨午夜，验证 store.dayClock 会被更新。
+describe('跨午夜 tick（行为，不是源码匹配）', () => {
+  it('零点调度真的会推进 store.dayClock', async () => {
+    vi.resetModules();
+    const m = await import('./store.js');
+    const { store, scheduleDayClock } = m;
+
+    // 固定当前时间为本地 23:59:00，然后推进 2 秒跨过零点
+    const before = new Date(2026, 10, 2, 23, 59, 0, 0).getTime();
+    vi.useFakeTimers();
+    vi.setSystemTime(before);
+
+    const clockAtStart = Date.now();
+    store.dayClock = clockAtStart;
+
+    // scheduleDayClock 未导出时跳过（保持用例对实现方式不敏感）
+    const sched = typeof scheduleDayClock === 'function'
+      ? scheduleDayClock
+      : m.__scheduleDayClockForTest;
+    expect(typeof sched, 'scheduleDayClock 应可被调用（导出或测试钩子）').toBe('function');
+
+    // 23:59:00 的「下一个零点后 1 秒」= 次日 00:00:01 ⇒ 距现在 61 秒，推进 62 秒足够
+    sched();
+    vi.advanceTimersByTime(62 * 1000);
+
+    expect(store.dayClock, '跨过零点后 dayClock 必须变（否则 computed 不重算）').toBeGreaterThan(clockAtStart);
+    const d = new Date(store.dayClock);
+    expect(d.getDate(), '应已进入次日').toBe(3);
+
+    vi.useRealTimers();
+  });
+});
+
 });

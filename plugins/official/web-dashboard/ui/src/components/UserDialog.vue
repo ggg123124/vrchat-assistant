@@ -178,7 +178,11 @@ function ago(iso) {
   return `${Math.floor(diff / 86400000)} 天`;
 }
 function openAvatarImage(a) {
-  if (a && (a.imageUrl || a.thumbnailImageUrl)) store.previewUrl = a.imageUrl || a.thumbnailImageUrl;
+  // 必须走 openPreview（复审 nixi-agent ⚠️1）：直接给 store.previewUrl 赋值会绕过
+  // 内部的焦点压栈 ⇒ 预览关闭时弹掉的是**父弹窗那一档**焦点栈，
+  // 焦点跑到仍打开的 UserDialog 背后，随后 closeUser 时又无处可还。
+  // 空值分支由 openPreview 内的 if (!url) return 兜住。
+  if (a) openPreview(a.imageUrl || a.thumbnailImageUrl || '');
 }
 
 // ── 数据加载 ──

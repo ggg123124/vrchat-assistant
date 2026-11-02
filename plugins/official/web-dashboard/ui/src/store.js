@@ -132,6 +132,7 @@ function closeMobileDrawers() {
 // 单槽在嵌套弹窗下会被覆盖 —— 开 UserDialog 记列表行 → 弹窗内开 WorldDialog 覆盖成弹窗内元素
 // → 关 WorldDialog 还原并清空 → 关 UserDialog 时槽已空 ⇒ 焦点掉到 body，正是本功能想修的现象。
 const __focusStack = [];
+export function activeFocusStackDepth() { return __focusStack.length; }
 function rememberFocusForModal() {
   // catch 里不压栈：frontend-catch-guard 的规则是「失败不得被写成正常值」，
   // 而「读不到 activeElement」本身就是拿不到来源 ⇒ 不压栈，让 restore 自然早退。
@@ -611,7 +612,7 @@ let feedRefreshTimer = null;
 // 为什么需要它：Date.now() 不是响应式依赖 ⇒ 不定时推 store.dayClock，
 // computed 不会重算，23:59 打开后过零点仍显示「今天」（复审 💡2）。
 let dayClockTimer = null;
-function scheduleDayClock() {
+export function scheduleDayClock() {
   clearTimeout(dayClockTimer);
   const now = new Date();
   const nextMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 1, 0);
