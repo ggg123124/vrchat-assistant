@@ -130,6 +130,9 @@ const authChecking = ref(true);
 const AUTH_HARD_TIMEOUT_MS = 25000;
 onMounted(async () => {
   let authSettled = false;
+  // 先声明后赋值：finishChecking 在 setTimeout 回调与 finally 里都会引用它（复审 Lian-Hu 💡2 ——
+  // 当前调用时机都安全，但若有人把 finishChecking() 提前调用一次就是 ReferenceError）。
+  let hardTimeout = null;
   const finishChecking = () => {
     if (authSettled) return true;
     authSettled = true;
@@ -137,7 +140,7 @@ onMounted(async () => {
     authChecking.value = false;
     return false;
   };
-  const hardTimeout = setTimeout(() => {
+  hardTimeout = setTimeout(() => {
     // 硬超时只负责「别把用户永久卡在检查态」，**不武断判定鉴权失败**：
     // 结束检查态、先把登录门亮出来（用户能操作），但请求本身仍可能随后成功 ——
     // 那次成功由下面的 finally 正常收口（authSettled 已在 finishChecking 里置位，不会重复）。

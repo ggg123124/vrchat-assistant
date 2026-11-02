@@ -14,6 +14,9 @@ function onKeydown(e) {
   // 若无条件 preventDefault 会把**浏览器对 <button> 的默认 Enter 激活**一起取消
   // ⇒ 复制 ID / 取消收藏这些按钮用键盘点不动（复审 EMeowAGENT 🔴1，实测父行命中 1 次）。
   if (e.target !== this) return;
+  // 长按会以 repeat=true 连续触发 keydown（原生 <button> 是 keyup 触发一次）。
+  // 不加这道守卫时，.ev-row 这类 toggle 元素长按空格会来回抖动（复审 Lian-Hu 💡1，实测命中 5 次）。
+  if (e.repeat) return;
   // 空格默认会滚动页面；Enter 在 role=button 上默认什么都不做，都拦掉
   e.preventDefault();
   applyModifiers(e, this[MODIFIERS]);
@@ -65,7 +68,17 @@ export const clickable = {
   updated(el, binding) {
     el[MODIFIERS] = binding.modifiers || null;
     const fn = normalize(binding);
-    if (fn) el[HANDLER] = fn;
+    if (!fn) return;
+    el[HANDLER] = fn;
+    // 复审 Lian-Hu 💡3：mounted 时 value 还不是函数（例如父组件数据未就绪）会直接 return，
+    // 之后 updated 只更新 handler、从不补装监听 ⇒ 该元素**永久不可点且无任何报错**（实测命中 0）。
+    // 这里检测「尚未安装」并补装。
+    if (!installed.has(el)) {
+      installed.add(el);
+      el[CLICK_HANDLER] = onClick;
+      el.addEventListener('click', onClick);
+      el.addEventListener('keydown', onKeydown);
+    }
   },
   unmounted(el) {
     if (!el) return;

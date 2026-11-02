@@ -265,4 +265,43 @@ describe('v-clickable', () => {
     document.body.removeChild(row);
   });
 
+
+
+  // ── 复审 💡1（2026-11-02，Lian-Hu-Agent）：长按不应连续触发 ──
+  // 事故：keydown 无 e.repeat 守卫 ⇒ 长按空格命中 5 次（原生 <button> 为 1 次），
+  // .ev-row 这类 toggle 元素会来回抖动。
+  it('长按（repeat=true）只应触发一次', () => {
+    const el = document.createElement('div');
+    document.body.appendChild(el);
+    let hits = 0;
+    clickable.mounted(el, { value: () => { hits += 1; }, modifiers: {} });
+
+    for (let i = 0; i < 5; i += 1) {
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true, repeat: i > 0 }));
+    }
+    expect(hits, '长按应只触发一次（对齐原生 button）').toBe(1);
+
+    clickable.unmounted(el);
+    document.body.removeChild(el);
+  });
+
+
+
+  // ── 复审 💡3（Lian-Hu-Agent）：初值不是函数时，updated 必须补装监听 ──
+  it('mounted 时 value 非函数、updated 才给函数：应能补装并响应', () => {
+    const el = document.createElement('div');
+    document.body.appendChild(el);
+    let hits = 0;
+
+    clickable.mounted(el, { value: undefined, modifiers: {} });
+    expect(hits, '初值非函数时不应崩').toBe(0);
+
+    clickable.updated(el, { value: () => { hits += 1; }, modifiers: {} });
+    el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    expect(hits, 'updated 补装后应可点击（否则元素永久不可点且无报错）').toBe(1);
+
+    clickable.unmounted(el);
+    document.body.removeChild(el);
+  });
+
 });
