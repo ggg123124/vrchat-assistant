@@ -89,6 +89,32 @@ export class Storage {
     if (!tnfCols.some(c => c.name === 'trust_level')) {
       this._run(`ALTER TABLE tracked_non_friends ADD COLUMN trust_level TEXT DEFAULT ''`);
     }
+    // 迁移：events 增加 content_subtype 生成列 + 复合索引（2026-11-02，幂等）
+    // 背景：dashboard.events 的 total 计数用
+    //   NOT (type IN ('friend-update','user-update') AND COALESCE(json_extract(content_json,'$.type'),'') = '')
+    // 该条件让 SQLite 对全表逐行反序列化 JSON（6.2 万行库实测 190-230ms），且 EXPLAIN 显示 SCAN e
+    // —— 这个 NOT(A AND B) 结构让优化器放弃索引。把子类型物化后拆成两条走索引的 COUNT 相加
+    // ⇒ 实测 9ms，且与原条件逐值等价（48249 == 48249）。
+    // VIRTUAL：不占存储、不改变 INSERT（本项目全部是显式列名插入）、需要 sqlite >= 3.31。
+    // ⚠️ 用 table_xinfo 而不是 table_info：SQLite 的 table_info **不返回生成列**
+    // （实测同一张表 table_info 9 列 / table_xinfo 10 列）⇒ 用 table_info 做存在性判断永远为假
+    // ⇒ 第二次 init 会 duplicate column 报错。
+    const evCols = this._query(`PRAGMA table_xinfo(events)`);
+    // ALTER 与 CREATE INDEX 合并进同一个 try（复审 💡2）：老 SQLite（<3.31）不支持 GENERATED 列时
+    // ALTER 会先抛；若只 catch 索引创建，就与「老版本不阻断启动」的承诺不符。
+    try {
+      if (!evCols.some(c => c.name === 'content_subtype')) {
+        // CASE WHEN json_valid(...)：历史脏数据（malformed JSON）不会让生成列求值抛错（复审 💡1）。
+        // 实测：直接 json_extract 时，库里一条 'not-json' 就让 SELECT * 整体报 malformed JSON；
+        // 加 json_valid 后该行生成值为 NULL、其余行照常，且 6.2 万行库上仍走索引（1.3 vs 1.4ms）。
+        this._run(`ALTER TABLE events ADD COLUMN content_subtype TEXT GENERATED ALWAYS AS (CASE WHEN json_valid(content_json) THEN json_extract(content_json,'$.type') END) VIRTUAL`);
+      }
+      this._run(`CREATE INDEX IF NOT EXISTS idx_events_type_subtype ON events(type, content_subtype)`);
+    } catch (e) {
+      // 依赖 better-sqlite3 自带的 SQLite（当前 3.53.2，远高于所需的 3.31）；
+      // 真遇到不支持的环境时降级为「计数回落到全表扫描」，不阻断启动。
+      log.warn(`events content_subtype 生成列/索引创建失败（计数将回落到全表扫描）: ${e.message}`);
+    }
     // 迁移：旧库 world_cache 缺 note 列
     const worldCols = this._query(`PRAGMA table_info(world_cache)`);
     if (!worldCols.some(c => c.name === 'note')) {
@@ -249,7 +275,7 @@ export class Storage {
   }
 
   getEventsByUser(userId, { limit = 50, offset = 0, type } = {}) {
-    let sql = `SELECT * FROM events WHERE user_id = $userId`;
+    let sql = `SELECT id, type, user_id, display_name, content_json, world_id, world_name, created_at, source FROM events WHERE user_id = $userId`;
     const params = { $userId: userId };
     if (type) { sql += ` AND type = $type`; params.$type = type; }
     sql += ` ORDER BY created_at DESC LIMIT $limit OFFSET $offset`;
@@ -318,7 +344,7 @@ export class Storage {
   }
 
   getRecentEvents({ limit = 50, type } = {}) {
-    let sql = `SELECT * FROM events`;
+    let sql = `SELECT id, type, user_id, display_name, content_json, world_id, world_name, created_at, source FROM events`;
     const params = {};
     if (type) { sql += ` WHERE type = $type`; params.$type = type; }
     sql += ` ORDER BY created_at DESC LIMIT $limit`;
@@ -347,14 +373,14 @@ export class Storage {
     params.$limit = limit;
     params.$offset = offset;
     return this._query(
-      `SELECT * FROM events${wsql} ORDER BY created_at DESC LIMIT $limit OFFSET $offset`,
+      `SELECT id, type, user_id, display_name, content_json, world_id, world_name, created_at, source FROM events${wsql} ORDER BY created_at DESC LIMIT $limit OFFSET $offset`,
       params
     );
   }
 
   getEventsByTimeRange(start, end, { limit = 1000 } = {}) {
     return this._query(
-      `SELECT * FROM events WHERE created_at >= $start AND created_at <= $end ORDER BY created_at DESC LIMIT $limit`,
+      `SELECT id, type, user_id, display_name, content_json, world_id, world_name, created_at, source FROM events WHERE created_at >= $start AND created_at <= $end ORDER BY created_at DESC LIMIT $limit`,
       { $start: start, $end: end, $limit: limit }
     );
   }
@@ -467,7 +493,7 @@ export class Storage {
     }
     const params = { $limit: limit, $offset: offset };
     const placeholders = typesArr.map((t, i) => { params[`$t${i}`] = t; return `$t${i}`; }).join(',');
-    let sql = `SELECT * FROM events WHERE type = 'friend-update'
+    let sql = `SELECT id, type, user_id, display_name, content_json, world_id, world_name, created_at, source FROM events WHERE type = 'friend-update'
                AND json_extract(content_json, '$.type') IN (${placeholders})`;
     if (userId) { sql += ` AND user_id = $userId`; params.$userId = userId; }
     sql += ` ORDER BY created_at DESC LIMIT $limit OFFSET $offset`;
