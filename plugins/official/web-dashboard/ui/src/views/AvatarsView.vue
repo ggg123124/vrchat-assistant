@@ -86,7 +86,7 @@ onMounted(load);
       <h2><i class="pi pi-user-edit"></i> 我的模型</h2>
       <span class="av-count">上传与收藏 · 后端 30 分钟缓存</span>
       <InputText v-model="q" placeholder="搜索模型…" class="av-search" aria-label="搜索模型" />
-      <Button size="small" text icon="pi pi-refresh" title="刷新" @click="load" />
+      <Button size="small" text icon="pi pi-refresh" title="刷新" @click="load" aria-label="刷新" />
     </div>
 
     <div class="av-chips" role="group" aria-label="模型类别筛选">
@@ -135,8 +135,8 @@ onMounted(load);
 .av-nocover { display: flex; align-items: center; justify-content: center; color: var(--text-dim); font-size: 28px; }
 .ac-fav { position: absolute; top: 6px; right: 6px; background: rgba(0,0,0,0.45); border: none; border-radius: 50%; width: 26px; height: 26px; color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 12px; transition: transform 0.12s; }
 .ac-fav:hover { transform: scale(1.12); }
-.ac-fav.on { color: #ffca28; }
-.ac-select { color: #7bed9f; }
+.ac-fav.on { color: var(--star); }
+.ac-select { color: var(--ok); }
 .ac-fav:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .ac-body { padding: 7px 9px; }
 .ac-name { font-size: 12px; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

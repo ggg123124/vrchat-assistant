@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, watch } from 'vue';
+import { createSeqGuard } from '../utils/seq-guard.js';
 import { store, closeUser, openWorld, openGroup, copyText, openPreview, toggleWatch } from '../store.js';
 import { get, post } from '../api.js';
 import { trustColor, trustName, locLabelFull, statusLabels, fmtMin, time, date, avatarLabel } from '../utils.js';
@@ -177,31 +178,46 @@ function ago(iso) {
   return `${Math.floor(diff / 86400000)} 天`;
 }
 function openAvatarImage(a) {
-  if (a && (a.imageUrl || a.thumbnailImageUrl)) store.previewUrl = a.imageUrl || a.thumbnailImageUrl;
+  // 必须走 openPreview（复审 nixi-agent ⚠️1）：直接给 store.previewUrl 赋值会绕过
+  // 内部的焦点压栈 ⇒ 预览关闭时弹掉的是**父弹窗那一档**焦点栈，
+  // 焦点跑到仍打开的 UserDialog 背后，随后 closeUser 时又无处可还。
+  // 空值分支由 openPreview 内的 if (!url) return 兜住。
+  if (a) openPreview(a.imageUrl || a.thumbnailImageUrl || '');
 }
 
 // ── 数据加载 ──
+// 竞态保护（2026-11-02）：快速切换弹窗对象时，先发出的请求可能后返回，
+// 若不校验身份就会把 A 的资料写进 B 的弹窗（A 的响应覆盖 B）。
+// 用 utils/seq-guard：序号挡同对象乱序、业务键(userId)挡对象已切换。逻辑有独立单测。
+const profileGuard = createSeqGuard();
 async function loadProfile() {
   if (!user.value.userId) return;
+  const rec = profileGuard.begin(user.value.userId);
   loading.value = true;
   error.value = '';
   profile.value = null;
   try {
-    const d = await get(`/api/dashboard/user-profile?userId=${encodeURIComponent(user.value.userId)}`, 60000);
+    const d = await get(`/api/dashboard/user-profile?userId=${encodeURIComponent(rec.key)}`, 60000);
+    if (!profileGuard.isCurrent(rec) || user.value.userId !== rec.key) return;   // 过期 ⇒ 丢弃
     if (d && d.error) { error.value = String(d.error); }
     else profile.value = d || {};
   } catch (e) {
+    if (!profileGuard.isCurrent(rec) || user.value.userId !== rec.key) return;
     error.value = '加载失败：' + (e.message || e);
   } finally {
-    loading.value = false;
+    if (profileGuard.isCurrent(rec)) loading.value = false;   // 只有最新一次能收尾
   }
 }
+const eventsGuard = createSeqGuard();
 async function loadEvents() {
   if (events.value || !user.value.userId) return;
+  const rec = eventsGuard.begin(user.value.userId);
   try {
-    const d = await get(`/api/dashboard/friend-events?userId=${encodeURIComponent(user.value.userId)}&limit=20`);
+    const d = await get(`/api/dashboard/friend-events?userId=${encodeURIComponent(rec.key)}&limit=20`);
+    if (!eventsGuard.isCurrent(rec) || user.value.userId !== rec.key) return;   // 过期 ⇒ 丢弃
     events.value = d.events || [];
   } catch (err) {
+    if (!eventsGuard.isCurrent(rec) || user.value.userId !== rec.key) return;
     // 2026-09-22 彻查：失败不写正常态（[]=「没有事件」✗）⇒ 保持旧值 + 如实报错 ✓
     toast('好友事件加载失败：' + ((err && err.message) || err), 'error');
   }
@@ -304,7 +320,7 @@ const rawJson = computed(() => {
             <div v-if="!isFriend" class="fact fact-wide">
               <span>本地备注</span>
               <span class="memo-cell">
-                <input v-model="memoDraft" class="memo-input" placeholder="给这个人加个备注…" @keydown.enter="saveMemo" />
+                <input v-model="memoDraft" class="memo-input" placeholder="给这个人加个备注…" aria-label="给这位玩家加备注" @keydown.enter="saveMemo" />
                 <Button label="保存" size="small" :loading="memoSaving" @click="saveMemo" />
               </span>
             </div>
@@ -332,7 +348,7 @@ const rawJson = computed(() => {
         <TabPanel value="mutual">
           <div v-if="!profile.mutualFriends.length" class="empty" style="padding:16px">暂无共同好友</div>
           <div v-else class="mini-list">
-            <div v-for="f in profile.mutualFriends" :key="f.id" class="mini-row" role="button" tabindex="0" @click="store.userModal = { userId: f.id, displayName: f.displayName, avatarUrl: f.avatarUrl }" @keydown.enter="store.userModal = { userId: f.id, displayName: f.displayName, avatarUrl: f.avatarUrl }">
+            <div v-for="f in profile.mutualFriends" :key="f.id" class="mini-row" v-clickable="(e) => (store.userModal = { userId: f.id, displayName: f.displayName, avatarUrl: f.avatarUrl })" >
               <Avatar :image="f.avatarUrl" shape="circle" size="small" :label="avatarLabel(f.avatarUrl, f.displayName)" />
               <span>{{ nameOf(f) }}</span>
             </div>
@@ -343,7 +359,7 @@ const rawJson = computed(() => {
         <TabPanel value="mutualgrp">
           <div v-if="!profile.mutualGroups || !profile.mutualGroups.length" class="empty" style="padding:16px">暂无共同群组</div>
           <div v-else class="mini-list">
-            <div v-for="g in profile.mutualGroups" :key="g.id" class="mini-row" role="button" tabindex="0" @click="openGroup(g.id)" @keydown.enter="openGroup(g.id)">
+            <div v-for="g in profile.mutualGroups" :key="g.id" class="mini-row" v-clickable="(e) => (openGroup(g.id))" >
               <span>{{ g.name }}</span>
               <small v-if="g.memberCount" class="mini-dim">{{ g.memberCount }} 成员</small>
             </div>
@@ -354,7 +370,7 @@ const rawJson = computed(() => {
         <TabPanel value="groups">
           <div v-if="!profile.groups.length" class="empty" style="padding:16px">暂未加入群组</div>
           <div v-else class="mini-list">
-            <div v-for="g in profile.groups" :key="g.id" class="mini-row" role="button" tabindex="0" @click="openGroup(g.id)" @keydown.enter="openGroup(g.id)">
+            <div v-for="g in profile.groups" :key="g.id" class="mini-row" v-clickable="(e) => (openGroup(g.id))" >
               <img v-if="g.iconUrl" :src="g.iconUrl" class="mini-thumb" alt="" loading="lazy" />
               <i v-else class="pi pi-users"></i>
               <span>{{ g.name }} <small class="text-dim">({{ g.memberCount }}人)</small></span>
@@ -367,7 +383,7 @@ const rawJson = computed(() => {
         <TabPanel value="worlds" v-if="isFriend">
           <div v-if="!profile.worlds.length" class="empty" style="padding:16px">暂无创建的世界</div>
           <div v-else class="world-grid">
-            <div v-for="w in profile.worlds" :key="w.id" class="world-card" role="button" tabindex="0" @click="openWorld(w.id)" @keydown.enter="openWorld(w.id)">
+            <div v-for="w in profile.worlds" :key="w.id" class="world-card" v-clickable="(e) => (openWorld(w.id))" >
               <img v-if="w.imageUrl" :src="w.imageUrl" class="world-img" alt="" loading="lazy" />
               <div v-else class="world-img world-img-empty"><i class="pi pi-globe"></i></div>
               <div class="world-info">
@@ -396,7 +412,7 @@ const rawJson = computed(() => {
                 <span class="fav-group-count">{{ g.worlds ? g.worlds.length : 0 }}</span>
               </div>
               <div class="world-grid">
-                <div v-for="w in g.worlds" :key="w.worldId || w.name" class="world-card" role="button" tabindex="0" @click="openWorld(w.worldId)" @keydown.enter="openWorld(w.worldId)">
+                <div v-for="w in g.worlds" :key="w.worldId || w.name" class="world-card" v-clickable="(e) => (openWorld(w.worldId))" >
                   <img v-if="w.imageUrl" :src="w.imageUrl" class="world-img" alt="" loading="lazy" />
                   <div v-else class="world-img world-img-empty"><i class="pi pi-globe"></i></div>
                   <div class="world-info">
@@ -413,7 +429,7 @@ const rawJson = computed(() => {
         <TabPanel value="avatars" v-if="isFriend">
           <div v-if="!profile.avatars.length" class="empty" style="padding:16px">暂无创建的模型（VRChat 对他人的模型列表有限制）</div>
           <div v-else class="world-grid">
-            <div v-for="a in profile.avatars" :key="a.id" class="world-card" role="button" tabindex="0" @click="openAvatarImage(a)" @keydown.enter="openAvatarImage(a)">
+            <div v-for="a in profile.avatars" :key="a.id" class="world-card" v-clickable="(e) => (openAvatarImage(a))" >
               <img v-if="a.thumbnailImageUrl" :src="a.thumbnailImageUrl" class="world-img" alt="" loading="lazy" />
               <div v-else class="world-img world-img-empty"><i class="pi pi-user-edit"></i></div>
               <div class="world-info">

@@ -95,7 +95,7 @@ onMounted(async () => {
       <h2><i class="pi pi-users"></i> 我的群组</h2>
       <span class="mg-count">{{ data ? '共 ' + data.count + ' 个 · 点击打开群组详情' : '' }}</span>
       <InputText v-model="q" placeholder="搜索群组…" class="mg-search" aria-label="搜索群组" />
-      <Button size="small" text icon="pi pi-refresh" title="刷新" @click="load" />
+      <Button size="small" text icon="pi pi-refresh" title="刷新" @click="load" aria-label="刷新" />
     </div>
 
     <div v-if="loading && !data" class="loading-mini"><ProgressSpinner style="width:28px;height:28px" strokeWidth="4" /></div>

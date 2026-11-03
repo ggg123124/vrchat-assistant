@@ -89,7 +89,7 @@ onMounted(load);
     <div class="rc-head">
       <h2><i class="pi pi-compass"></i> 世界推荐</h2>
       <span class="rc-count">多源融合（本地 × PlanetVRC × 你的反馈）· 按主题筛选</span>
-      <Button size="small" text icon="pi pi-refresh" title="刷新" @click="load" />
+      <Button size="small" text icon="pi pi-refresh" title="刷新" @click="load" aria-label="刷新" />
     </div>
 
     <div class="rc-chips" role="group" aria-label="推荐主题">

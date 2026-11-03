@@ -9,7 +9,6 @@ import Tooltip from 'primevue/tooltip';
 import Button from 'primevue/button';
 import Drawer from 'primevue/drawer';
 import Tag from 'primevue/tag';
-import Badge from 'primevue/badge';
 import Avatar from 'primevue/avatar';
 import InputText from 'primevue/inputtext';
 import SelectButton from 'primevue/selectbutton';
@@ -21,21 +20,18 @@ import Tab from 'primevue/tab';
 import TabPanels from 'primevue/tabpanels';
 import TabPanel from 'primevue/tabpanel';
 import Toast from 'primevue/toast';
-import Menu from 'primevue/menu';
 import Popover from 'primevue/popover';
-import Skeleton from 'primevue/skeleton';
-import Divider from 'primevue/divider';
 import ConfirmDialog from 'primevue/confirmdialog';
 import ConfirmService from 'primevue/confirmationservice';
 import Textarea from 'primevue/textarea';
-import ToggleSwitch from 'primevue/toggleswitch';
-import ScrollTop from 'primevue/scrolltop';
 import Calendar from 'primevue/calendar';
 
 import 'primeicons/primeicons.css';
 import './style.css';
 import { startDashboard } from './store.js';
 import { imgUrl } from './api.js';
+import { readPref, apply, bindSystemWatcher } from './theme.js';
+import { clickable } from './directives/clickable.js';
 
 // iOS 软键盘修复：键盘弹出时 visualViewport 高度小于 100dvh，把实际值写到 --vvh，
 // 壳体加 has-vvk 类后改用该高度（style.css），fixed tabbar/header 不再被顶飞
@@ -118,6 +114,10 @@ const VrcPreset = definePreset(Aura, {
   },
 });
 
+// 主题必须在挂载前定下来，否则深色用户会先看到一帧浅色（反之亦然）
+apply(readPref());
+bindSystemWatcher();
+
 const app = createApp(App);
 
 app.use(PrimeVue, {
@@ -139,7 +139,6 @@ app.use(ConfirmService);
 app.component('Button', Button);
 app.component('Drawer', Drawer);
 app.component('Tag', Tag);
-app.component('Badge', Badge);
 app.component('Avatar', Avatar);
 app.component('InputText', InputText);
 app.component('SelectButton', SelectButton);
@@ -151,17 +150,14 @@ app.component('Tab', Tab);
 app.component('TabPanels', TabPanels);
 app.component('TabPanel', TabPanel);
 app.component('Toast', Toast);
-app.component('Menu', Menu);
 app.component('Popover', Popover);
-app.component('Skeleton', Skeleton);
-app.component('Divider', Divider);
 app.component('ConfirmDialog', ConfirmDialog);
 app.component('Textarea', Textarea);
-app.component('ToggleSwitch', ToggleSwitch);
-app.component('ScrollTop', ScrollTop);
 app.component('Calendar', Calendar);
 
 app.directive('tooltip', Tooltip);
+// 非 <button> 可点元素的键盘可达性（Enter/Space 一致、自动补 role+tabindex）
+app.directive('clickable', clickable);
 
 startDashboard();
 

@@ -97,7 +97,7 @@ onMounted(load);
       <h2><i class="pi pi-megaphone"></i> 群组公告</h2>
       <span class="ga-count">{{ total }} 条 · WS 推送过的群组公告历史（点击展开全文）</span>
       <InputText v-model="q" placeholder="搜索群组/标题/内容…" class="ga-search" aria-label="搜索公告" />
-      <Button size="small" text icon="pi pi-refresh" title="刷新" @click="load" />
+      <Button size="small" text icon="pi pi-refresh" title="刷新" @click="load" aria-label="刷新" />
     </div>
 
     <div v-if="groupChips.length > 1" class="ga-chips" role="group" aria-label="按群组筛选">
@@ -127,7 +127,7 @@ onMounted(load);
           <i class="pi ga-chev" :class="expanded === a.eventId ? 'pi-chevron-up' : 'pi-chevron-down'" aria-hidden="true"></i>
         </button>
         <div v-if="expanded === a.eventId" class="ga-detail">
-          <img v-if="a.imageUrl" class="ga-img" :src="a.imageUrl" alt="" loading="lazy" title="点击查看原图" @click="openImage(a.imageUrl)" role="button" tabindex="0" @keydown.enter="openImage(a.imageUrl)" />
+          <img v-if="a.imageUrl" class="ga-img" :src="a.imageUrl" alt="" loading="lazy" title="点击查看原图" v-clickable="(e) => (openImage(a.imageUrl))" />
           <p class="ga-text">{{ a.text || '（无内容）' }}</p>
           <div class="ga-copyrow">
             <Button size="small" text icon="pi pi-copy" label="复制全文" @click="copyAnnouncement(a)" />

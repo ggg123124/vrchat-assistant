@@ -49,7 +49,7 @@ onMounted(load);
     <div class="wr-head">
       <h2><i class="pi pi-calendar-clock"></i> 周报</h2>
       <span class="wr-count">{{ periodLabel || '我的 VRChat 活动报告' }} · 北京时间</span>
-      <Button size="small" text icon="pi pi-refresh" title="刷新" @click="load" />
+      <Button size="small" text icon="pi pi-refresh" title="刷新" @click="load" aria-label="刷新" />
     </div>
 
     <div class="wr-chips" role="group" aria-label="报告天数">

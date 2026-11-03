@@ -6,6 +6,7 @@ import { post } from '../api.js';
 import { toast } from '../toast.js';
 import { statusColor } from '../composables/useFriendGroups.js';
 import { typeOf, isNotiUpdate, TYPE_LABELS, TYPE_ICONS, TYPE_SEVERITIES } from '../constants/event-types.js';
+import { daySepLabel } from '../utils/feed-day-label.js';
 
 const datePop = ref(null);
 
@@ -269,23 +270,16 @@ const rows = computed(() => {
   return list;
 });
 
-// 按天分组（今天/昨天/MM-DD）：feedRows 只给模板用，rows 保持纯列表供计数/加载逻辑
-function daySepLabel(iso) {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  const today = new Date();
-  const yest = new Date(today.getTime() - 86400000);
-  const same = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
-  if (same(d, today)) return '今天';
-  if (same(d, yest)) return '昨天';
-  return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
+// 按天分组（今天/昨天/MM-DD）：纯函数在 utils/feed-day-label.js（可注入 nowMs ⇒ 跨午夜边界可测）
 const feedRows = computed(() => {
   const out = [];
   let lastDay = '';
+  // 「现在」取自 store.dayClock（响应式）：普通 Date.now() 不是响应式依赖，
+  // 跨午夜时 computed 不会重算 ⇒ 过零点仍显示「今天」（复审 💡2）。
+  // 代价是 tick 落在零点后 1s，可接受。
+  const nowMs = store.dayClock;
   for (const x of rows.value) {
-    const d = daySepLabel(x.createdAt);
+    const d = daySepLabel(x.createdAt, nowMs);
     if (d !== lastDay) { out.push({ __sep: d }); lastDay = d; }
     out.push(x);
   }
@@ -437,11 +431,11 @@ onUnmounted(() => {
 
       <template v-for="x in feedRows" :key="x.__sep ? 'sep-' + x.__sep : rowId(x)">
       <div v-if="x.__sep" class="ev-daysep"><span>{{ x.__sep }}</span></div>
-      <div v-else class="ev-row" :class="{ open: expanded === rowId(x) }" role="button" tabindex="0" @click="toggleRow(x)" @keydown.enter="toggleRow(x)">
+      <div v-else class="ev-row" :class="{ open: expanded === rowId(x) }" v-clickable="(e) => (toggleRow(x))" >
         <div v-if="!store.isMobile" class="c-time mono"><span class="ct-hm">{{ time(x.createdAt) }}</span><small>{{ date(x.createdAt) }}</small></div>
         <div v-else class="c-time mono"><span class="ct-hm">{{ time(x.createdAt) }}</span><small>{{ date(x.createdAt) }}</small></div>
         <div class="c-type"><Tag :value="TYPE_LABELS[typeOf(x)]" :severity="TYPE_SEVERITIES[typeOf(x)]" rounded><i class="pi ctype-ico" :class="TYPE_ICONS[typeOf(x)] || 'pi-circle'"></i></Tag></div>
-        <div class="c-player" @click.stop="playerOpen(x)" role="button" tabindex="0" @keydown.enter="playerOpen(x)">
+        <div class="c-player" v-clickable.stop="(e) => (playerOpen(x))" >
           <Avatar :image="playerAvatarOf(x)" shape="circle" size="small" :label="avatarLabel(playerAvatarOf(x), playerNameOf(x))" />
           <span class="pl-name" :style="{ color: trustColor(x.trustLevel) }">{{ playerNameOf(x) }}</span>
           <i v-if="isFav(x)" class="pi pi-star-fill pl-star" title="收藏好友"></i>
@@ -464,7 +458,7 @@ onUnmounted(() => {
                 <!-- 上一刻是仅邀请/私人房间 ⇒ 一律「私人房间」，**即便能拿到世界名**（用户 2026-10-17 定案；
                      2026-10-18 复审 ⚠️1：此前这条定案只在纯函数里，模板被 x.previousWorldId 分支绕过 ⇒ 实际渲染成世界名） -->
                 <span v-if="prevPrivate(x)" class="dim">私人房间</span>
-                <span v-else-if="x.previousWorldId" class="world-link" @click="openWorld(x.previousWorldId)" role="button" tabindex="0" @keydown.enter="openWorld(x.previousWorldId)">{{ x.previousWorldName }}</span>
+                <span v-else-if="x.previousWorldId" class="world-link" v-clickable="(e) => (openWorld(x.previousWorldId))" >{{ x.previousWorldName }}</span>
                 <span v-else class="dim">{{ prevLabelOf(x) }}</span>
                 <span v-if="prevInstLabel(x)" class="inst mono">{{ prevInstLabel(x) }}</span>
                 <span class="arr">→</span>
@@ -472,7 +466,7 @@ onUnmounted(() => {
             </template>
             <span class="dest-group">
               <img v-if="x.worldImageUrl" class="wthumb" :src="x.worldImageUrl" alt="" loading="lazy" />
-              <span v-if="x.worldName" class="world-link" @click="openWorld(x.worldId)" role="button" tabindex="0" @keydown.enter="openWorld(x.worldId)">{{ x.worldName }}</span>
+              <span v-if="x.worldName" class="world-link" v-clickable="(e) => (openWorld(x.worldId))" >{{ x.worldName }}</span>
               <!-- 世界名不可得（VRChat 对无权查看/已下架世界返回 404）：显式标注 + 完整 worldId，房间号照旧跟在后面（2026-10-17 用户定） -->
               <span v-else-if="x.worldId && x.worldNameUnavailable" class="dim mono" :title="'VRChat 返回 404/403：该世界对当前账号不可见或已下架（可能是暂时的，服务会自动重试）—— ' + x.worldId">404世界 {{ x.worldId }}</span>
               <span v-else-if="x.location" class="dim">{{ specialLocationLabel(x.location) || locLabel(x.location) || x.location }}</span>
@@ -525,7 +519,7 @@ onUnmounted(() => {
           <template v-else-if="typeOf(x) === 'online'">
             <span class="dim">进入</span>
             <img v-if="x.worldImageUrl" class="wthumb" :src="x.worldImageUrl" alt="" loading="lazy" />
-            <span v-if="x.worldName" class="world-link" @click="openWorld(x.worldId)" role="button" tabindex="0" @keydown.enter="openWorld(x.worldId)">{{ x.worldName }}</span>
+            <span v-if="x.worldName" class="world-link" v-clickable="(e) => (openWorld(x.worldId))" >{{ x.worldName }}</span>
             <span v-else-if="destPrivate(x)" class="dim">私人房间</span>
             <span v-else class="dim">VRChat</span>
           </template>
@@ -543,12 +537,12 @@ onUnmounted(() => {
           <!-- 群组通知：显示群组名+内容；更新类显示"通知已读：内容"，点击打开群组 -->
           <template v-else-if="typeOf(x) === 'group'">
             <template v-if="isNotiUpdate(x)">
-              <span class="noti-read-wrap" :class="{ 'noti-msg-link': x.notiGroupId }" @click.stop="openGroup(x.notiGroupId)" role="button" tabindex="0" @keydown.enter="openGroup(x.notiGroupId)" :title="x.notiGroupId ? '点击打开群组' : ''">
+              <span class="noti-read-wrap" :class="{ 'noti-msg-link': x.notiGroupId }" v-clickable.stop="(e) => (openGroup(x.notiGroupId))" :title="x.notiGroupId ? '点击打开群组' : ''">
                 <span class="dim">通知已读：</span>
                 <span class="noti-msg-inline">{{ x.notiMessage || x.notiTitle || '群组通知' }}</span>
               </span>
             </template>
-            <span v-else class="noti-msg" :class="{ 'noti-msg-link': x.notiGroupId }" @click.stop="openGroup(x.notiGroupId)" role="button" tabindex="0" @keydown.enter="openGroup(x.notiGroupId)" :title="x.notiGroupId ? '点击打开群组' : ''">{{ x.notiMessage || x.notiTitle }}</span>
+            <span v-else class="noti-msg" :class="{ 'noti-msg-link': x.notiGroupId }" v-clickable.stop="(e) => (openGroup(x.notiGroupId))" :title="x.notiGroupId ? '点击打开群组' : ''">{{ x.notiMessage || x.notiTitle }}</span>
           </template>
 
           <!-- 其他通知 -->
@@ -607,7 +601,7 @@ onUnmounted(() => {
           <!-- 加入群组：groupId 可点击打开群组 -->
           <template v-else-if="typeOf(x) === 'groupJoined'">
             <span class="dim">加入了</span>
-            <span v-if="x.notiGroupName" class="world-link" @click="openGroup(x.groupId || x.notiGroupId)" role="button" tabindex="0" @keydown.enter="openGroup(x.groupId || x.notiGroupId)">{{ x.notiGroupName }}</span>
+            <span v-if="x.notiGroupName" class="world-link" v-clickable="(e) => (openGroup(x.groupId || x.notiGroupId))" >{{ x.notiGroupName }}</span>
             <span v-if="x.groupId && !x.notiGroupName" class="mono" :title="x.groupId">{{ x.groupId }}</span>
             <Button v-if="x.groupId" icon="pi pi-copy" text size="small" rounded :aria-label="'复制群组 ID'" :title="x.notiGroupName ? '复制群组 ID：' + x.groupId : '复制群组 ID'" @click="copyText(x.groupId)" />
           </template>
@@ -620,7 +614,7 @@ onUnmounted(() => {
           <!-- 群组角色更新：群名（可打开） + 角色名 -->
           <template v-else-if="typeOf(x) === 'groupRoleUpdated'">
             <span class="dim">群组角色更新</span>
-            <span v-if="x.notiGroupName" class="world-link" @click="openGroup(x.groupId || x.notiGroupId)" role="button" tabindex="0" @keydown.enter="openGroup(x.groupId || x.notiGroupId)">{{ x.notiGroupName }}</span>
+            <span v-if="x.notiGroupName" class="world-link" v-clickable="(e) => (openGroup(x.groupId || x.notiGroupId))" >{{ x.notiGroupName }}</span>
             <span v-if="x.roleName" class="dim">（角色：{{ x.roleName }}）</span>
           </template>
 

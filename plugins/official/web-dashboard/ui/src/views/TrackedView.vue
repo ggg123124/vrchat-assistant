@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, onUnmounted } from 'vue';
 import { get, post } from '../api.js';
 import { time, date, dateTime, avatarLabel , reltime, statusLabels, trustColor, platformIcon, platformLabel } from '../utils.js';
 import { statusColor } from '../composables/useFriendGroups.js';
@@ -24,6 +24,7 @@ const addResults = ref(null);
 const addBusy = ref(false);
 let addSeq = 0;
 let addTimer = null;
+let refreshTimer = null;   // 触发刷新后的延迟重载句柄：卸载必须清
 async function searchUsers() {
   const query = addQuery.value.trim();
   const mySeq = ++addSeq;
@@ -89,6 +90,8 @@ async function addDirectId() {
 }
 
 
+onUnmounted(() => { clearTimeout(addTimer); clearTimeout(refreshTimer); });
+
 // ── 刷新 ──
 async function refreshNow() {
   if (refreshing.value) return;
@@ -97,7 +100,7 @@ async function refreshNow() {
     const r = await post('/api/dashboard/tracked/refresh');
     if (r && r.ok) {
       toast('已触发资料刷新（限流队列中，稍后自动更新列表）', 'info');
-      setTimeout(async () => { await load(); refreshing.value = false; }, 6000);
+      refreshTimer = setTimeout(async () => { await load(); refreshing.value = false; }, 6000);
     } else {
       toast((r && r.error) || '刷新失败', 'error');
       refreshing.value = false;
@@ -226,7 +229,7 @@ onMounted(load);
         <InputText v-model="q" placeholder="搜索昵称 / ID…" class="tk-search" aria-label="搜索追踪用户" />
         <Button size="small" :icon="addOpen ? 'pi pi-times' : 'pi pi-user-plus'" :label="addOpen ? '收起' : '添加追踪'" :severity="addOpen ? 'secondary' : undefined" @click="addOpen = !addOpen" />
         <Button size="small" icon="pi pi-sync" :loading="refreshing" label="立即刷新" title="手动触发全部追踪用户资料刷新（限流队列执行）" @click="refreshNow" />
-        <Button size="small" text icon="pi pi-refresh" title="刷新列表" @click="load" />
+        <Button size="small" text icon="pi pi-refresh" title="刷新列表" @click="load" aria-label="刷新列表" />
       </div>
     </div>
 
@@ -273,7 +276,7 @@ onMounted(load);
         <!-- 2026-09-22 用户：把好友页的整个样式抄过来 ✓；多出来的信息与按钮**先不加** ✓（由用户决定怎么加）
              因此本卡＝好友页 .friend-card 的等价物：头像 + 名字 + 备注 + 状态；**展开入口保留**（2026-10-16 审查 🔴1 恢复），
              资料/移除入口迁到 UserDialog（卡片内不再放这两个按钮）✓ -->
-        <div class="friend-card" role="button" tabindex="0" @click="openUser(x.userId)" @keydown.enter="openUser(x.userId)">
+        <div class="friend-card" v-clickable="(e) => (openUser(x.userId))" >
           <Avatar :image="x.avatarUrl || ''" :label="avatarLabel(x.avatarUrl, x.displayName)" shape="circle" />
           <div class="fc-text">
             <b :style="{ color: trustColor(x.trustLevel) }" :title="x.trustLevel ? ('信任等级：' + x.trustLevel) : ''">{{ x.displayName || x.userId }}</b><!-- 2026-09-22：非好友现在也有信任等级了（来自 tags ✓）⇒ 名字配色自动生效 ✓ + 悬停可看等级名 ✓（与好友页口径一致 ✓）-->

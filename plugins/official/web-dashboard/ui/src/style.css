@@ -24,6 +24,28 @@
   --footer-h: 30px;
 }
 
+/* ── 浅色主题：html 无 .app-dark 时生效（PrimeVue 用 darkModeSelector='.app-dark' 对齐）──
+   语义与深色一一对应（surface 序号越小越靠近背景），只换色值不换布局。 */
+html:not(.app-dark) {
+  --bg: #f7f7f8;
+  --surface: #ffffff;
+  --surface-2: #f2f2f4;
+  --surface-3: #e8e8ec;
+  --border: #dcdce1;
+  --border-soft: #ebebef;
+  --text: #16161a;
+  --text-dim: #61616b;
+  --accent: #7c3aed;
+  --accent-2: #0891b2;
+  --ok: #15803d;
+  --warn: #ea580c;
+  --info: #2563eb;
+  --danger: #dc2626;
+  --star: #b8860b;   /* 浅底上 #ffca28 只有 1.53:1（几乎看不见）⇒ 提到 3.25:1，仍是金色观感 */
+}
+html:not(.app-dark) ::-webkit-scrollbar-thumb { background: #c9c9d0; }
+html:not(.app-dark) ::-webkit-scrollbar-thumb:hover { background: #b0b0b9; }
+html:not(.app-dark) * { scrollbar-color: #c9c9d0 transparent; }
 * { box-sizing: border-box; }
 html, body, #app { height: 100%; margin: 0; }
 /* 修复 iOS：软键盘弹出时 100dvh 固定布局被顶飞（fixed tabbar/header 消失或悬空）。
@@ -204,6 +226,19 @@ body {
 
 /* 滚动区域圆角统一 */
 .rounded { border-radius: var(--radius); }
+
+/* 键盘焦点可见性（2026-11-02）：51 个可聚焦元素（tabindex="0" 的 span/div/img）里
+   有 10 个文件此前完全没有焦点指示 —— 键盘用户看不见焦点落在哪，等于不可用。
+   这些元素分属五花八门的业务类（world-link / friend-card / mini-row / inst-member …），
+   逐个类补会漏，故用属性选择器统一兜住：只作用于**通过键盘到达**的元素，鼠标点击不出现描边。
+   已有的 per-view focus-visible 规则优先级更高（同为 0,1,0 但后定义），不受影响。 */
+[tabindex="0"]:focus-visible, [tabindex]:not([tabindex="-1"]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+/* 弹窗/浮层内同理（.p-dialog 等自带 outline: none，这里补回来） */
+.p-dialog [tabindex="0"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* PrimeVue 暗色微调 */
 .p-button:focus-visible, .p-drawer, .p-inputtext:focus { outline-color: var(--accent); }

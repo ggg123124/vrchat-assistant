@@ -50,7 +50,7 @@ onUnmounted(() => { if (timer) clearInterval(timer); });
     <div class="pl-head">
       <h2><i class="pi pi-id-card"></i> 房间玩家</h2>
       <span class="pl-count">当前实例同房好友 · 30 秒自动刷新</span>
-      <Button size="small" text icon="pi pi-refresh" title="刷新" @click="load" />
+      <Button size="small" text icon="pi pi-refresh" title="刷新" @click="load" aria-label="刷新" />
     </div>
 
     <div v-if="data === null" class="loading-mini"><ProgressSpinner style="width:28px;height:28px" strokeWidth="4" /></div>
@@ -66,7 +66,7 @@ onUnmounted(() => { if (timer) clearInterval(timer); });
           </small>
           <small class="pl-wsub">同房好友 {{ players.length }} 人</small>
         </div>
-        <Button v-if="data.world && data.world.worldId" text size="small" icon="pi pi-external-link" title="查看世界资料" @click.stop="openWorld(data.world.worldId)" />
+        <Button v-if="data.world && data.world.worldId" text size="small" icon="pi pi-external-link" title="查看世界资料" @click.stop="openWorld(data.world.worldId)" aria-label="查看世界资料" />
       </button>
 
       <div class="pl-list">

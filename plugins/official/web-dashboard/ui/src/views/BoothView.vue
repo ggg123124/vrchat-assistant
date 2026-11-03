@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { get } from '../api.js';
 import { toast } from '../toast.js';
 import { copyText } from '../store.js';
@@ -38,6 +38,7 @@ function onInput() {
   timer = setTimeout(search, 600);
 }
 function onEnter() { clearTimeout(timer); search(); }
+onUnmounted(() => clearTimeout(timer));
 
 // 最近搜索
 async function loadRecent() {

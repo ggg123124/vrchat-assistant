@@ -1,6 +1,6 @@
 <script setup>
 import { toast } from '../toast.js';
-import { ref, watch, computed } from 'vue';
+import { ref, watch, computed, onUnmounted } from 'vue';
 import { store, openUser, openWorld } from '../store.js';
 import { get, imgUrl } from '../api.js';
 
@@ -46,6 +46,9 @@ watch(q, (v) => {
   }, 300);
 });
 
+// unload: clear pending debounce so no request fires after the view is gone
+onUnmounted(() => clearTimeout(timer));
+
 function pick(u) {
   store.quickSearchOpen = false;
   openUser(u.userId || u.id || u);
@@ -60,7 +63,7 @@ function pick(u) {
     <div v-else>
       <div v-if="local.length" class="qs-sec">
         <div class="qs-label">好友</div>
-        <div v-for="f in local" :key="f.userId" class="qs-item" @click="pick(f)" role="button" tabindex="0" @keydown.enter="pick(f)">
+        <div v-for="f in local" :key="f.userId" class="qs-item" v-clickable="(e) => (pick(f))" >
           <Avatar :image="imgUrl(f.userIcon || f.avatarUrl)" shape="circle" size="small" :label="imgUrl(f.userIcon || f.avatarUrl) ? '' : (f.displayName || '?').charAt(0).toUpperCase()" />
           <span class="qs-name">{{ f.displayName }}</span>
           <span class="qs-sub">{{ f.isOnline ? '在线' : '离线' }}</span>
@@ -68,7 +71,7 @@ function pick(u) {
       </div>
       <div v-if="remote.length" class="qs-sec">
         <div class="qs-label">VRChat 用户</div>
-        <div v-for="u in remote" :key="u.userId || u.id" class="qs-item" @click="pick(u)" role="button" tabindex="0" @keydown.enter="pick(u)">
+        <div v-for="u in remote" :key="u.userId || u.id" class="qs-item" v-clickable="(e) => (pick(u))" >
           <Avatar :image="imgUrl(u.image || u.currentAvatarImageUrl || u.currentAvatarThumbnailImageUrl || u.userIcon)" shape="circle" size="small" :label="imgUrl(u.image || u.currentAvatarImageUrl || u.currentAvatarThumbnailImageUrl || u.userIcon) ? '' : (u.name || u.displayName || '?').charAt(0).toUpperCase()" />
           <span class="qs-name">{{ u.name || u.displayName }}</span>
           <span class="qs-sub">{{ u.sub || u.status || '' }}</span>
