@@ -135,7 +135,7 @@ function offlineSince(f) {
         <div class="fg-head" title="点击折叠/展开" v-clickable="(e) => (toggleGroup('w:' + (g.worldId || g.label)))" >
           <img v-if="groupIcon(g)" :src="groupIcon(g)" class="fg-thumb" alt="" loading="lazy" />
           <span>{{ g.label }}</span>
-          <span v-if="g.loc && !g.mixedRooms" class="fg-loc" @click.stop="openInstance(g.list[0].location)" :title="'查看房间信息'">{{ g.loc }}</span>
+          <span v-if="g.loc && !g.mixedRooms" class="fg-loc" @click.stop="openInstance(g.locFrom || g.list[0].location)" :title="'查看房间信息'">{{ g.loc }}</span>
           <span v-if="g.mixedRooms" class="fg-mixed" :title="'该世界下有多个房间，成员分别在不同房间'">（{{ g.roomCount }} 个房间）</span>
           <span class="fg-count">{{ g.list.length }}</span>
           <i class="pi fg-arrow" :class="isCollapsed('w:' + (g.worldId || g.label)) ? 'pi-chevron-down' : 'pi-chevron-up'"></i>

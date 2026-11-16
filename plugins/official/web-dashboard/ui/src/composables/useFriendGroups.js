@@ -121,9 +121,13 @@ export function useFriendGroups() {
       // 取源也解耦（复审 EMeowAGENT 💡1）：**优先组内 location 是真实实例串的人**，
       // 原实现取 namedOne 或 l[0]，若那个人 location 是过期 offline，realLoc 仍为空、
       // 即使别人带完整实例串 —— 与「名字查不到 ≠ 位置拿不到」的初衷不符。
+      // 判据改用 parseLoc（复审 nixi 💡）：原先用 loc.startsWith('wrld_')，
+      // 漏掉 traveling:wrld_abc:1 这类「传送中但有目的地」的形态 —— 组头 chip 不显示，
+      // 而成员卡片上的 roomLabelOf() 却能渲染「公开 · 1」，两处口径不一致。
+      // parseLoc 已剥 traveling: 前缀，instanceId 非空即表示「这是个能打开的真实房间」。
       const locSource = l.find((f) => {
-        const loc = String(f.location || '');
-        return loc.startsWith('wrld_');
+        const p = parseLoc(String(f.location || ''));
+        return !!(p && p.instanceId);
       }) || namedOne || l[0];
       const realLoc = isRealWorld && locSource && locSource.location ? locLabelFull(locSource.location) : '';
       return {

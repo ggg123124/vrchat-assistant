@@ -16,7 +16,7 @@
  *  - 有 worldId 时位置标签（房间号·实例类型·区域）必须展示，与有无名字解耦
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { isWebOnline } from '../utils.js';
+import { isWebOnline, locLabelFull } from '../utils.js';
 
 const mountGroups = async () => {
   vi.resetModules();
@@ -208,4 +208,32 @@ describe('复审 EMeowAGENT 第 3 轮：offline 桶与 instanceKeyOf', () => {
     expect(gs[0].locFrom).not.toBe('offline');
   });
 
+
+describe('复审 nixi 第 5 轮：视图层与判据收口', () => {
+  let ctx;
+  beforeEach(async () => { ctx = await mountGroups(); });
+
+  // ⚠️ FriendsView 的组头 chip 与 RightBar 同源（此前只修了 RightBar）
+  it('locFrom 必须让它能打开「显示的那间房」（locLabelFull(locFrom) === loc）', () => {
+    const wid = 'wrld_abc';
+    const gs = ctx.g.groupByWorld([
+      F({ worldId: wid, worldName: '水底', location: 'offline' }),
+      F({ worldId: wid, worldName: '水底', location: wid + ':45176~region(jp)' }),
+    ]);
+    expect(gs[0].loc, '显示').toBeTruthy();
+    // 更强的不变式：点开的那个串解析出来的标签，必须与显示的一致
+    expect(locLabelFull(gs[0].locFrom), 'locFrom 解析结果应与 loc 一致').toBe(gs[0].loc);
+  });
+
+  // 💡 locSource 判据改用 parseLoc 后，traveling: 形态也能取到源
+  it('traveling: 形态的成员也能作为 loc 取源（组头 chip 不再空白）', () => {
+    const wid = 'wrld_abc';
+    const gs = ctx.g.groupByWorld([
+      F({ worldId: wid, worldName: '水底', location: 'offline' }),
+      F({ worldId: wid, worldName: '水底', location: 'traveling:' + wid + ':1' }),
+    ]);
+    expect(gs[0].loc, '传送中也有目的地，组头应显示').toBeTruthy();
+    expect(gs[0].locFrom).toContain('1');
+  });
+});
 });
