@@ -161,8 +161,15 @@ describe('复审 EMeowAGENT 第 3 轮：offline 桶与 instanceKeyOf', () => {
       F({ worldId: 'none', location: 'offline', worldName: '', platform: 'web', isOnline: true }),
     ]);
     const labels = gs.map((g) => g.label);
-    // 两个桶都可能叫「位置未知」或「网页端在线」，关键是**不允许出现「离线」**
-    expect(labels).not.toContain('离线');
+    // ⚠️ nixi 的变异实验证明第一版断言太弱：原来只写 not.toContain('离线')，
+    // 而 `offline:offline` 桶在**修复前**是「网页在线」而不是「离线」 ⇒ 旧代码同样通过。
+    // 删掉 `|| wid === 'offline:offline'` 半个条件，14/14 依然全绿，护栏名不副实。
+    // 改为钉住精确值：
+    //   · offline:offline 桶必须是「位置未知」（修复前是「网页在线」）
+    //   · none 桶（platform=web 的真网页在线）保持「网页端在线」
+    //   · 两者不得同名（否则 Vue key 冲突 + 视觉上两个组看起来一样）
+    expect(labels, 'offline:offline 桶必须是「位置未知」').toEqual(['位置未知', '网页端在线']);
+    expect(new Set(labels).size, '两个桶不得同名').toBe(2);
   });
 
   // 💡：instanceKeyOf 必须复用 parseLoc，否则 traveling 与已到达会被算成两间房
@@ -186,5 +193,19 @@ describe('复审 EMeowAGENT 第 3 轮：offline 桶与 instanceKeyOf', () => {
     expect(gs[0].mixedRooms).toBe(true);
   });
 });
+
+
+  // 复审 nixi 💡1：chip 点击目标必须与 loc 显示同源
+  it('组内第一人 location 过期时，locFrom 指向真正带实例串的那个人', () => {
+    const wid = 'wrld_abc';
+    const gs = ctx.g.groupByWorld([
+      F({ worldId: wid, worldName: '水底', location: 'offline' }),                  // 排第一但位置过期
+      F({ worldId: wid, worldName: '水底', location: wid + ':45176~region(jp)' }), // 真正有实例串
+    ]);
+    expect(gs[0].loc, '显示应取到 JP · 45176').toContain('45176');
+    expect(gs[0].locFrom, '点击目标必须与显示同源，不能是 list[0] 的 offline')
+      .toBe(wid + ':45176~region(jp)');
+    expect(gs[0].locFrom).not.toBe('offline');
+  });
 
 });

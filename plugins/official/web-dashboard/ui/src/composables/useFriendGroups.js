@@ -135,6 +135,10 @@ export function useFriendGroups() {
         mixedRooms: roomKeys.size > 1,
         // 供组头提示「世界名待补」——真实世界但没人知道名字（视图已接入，见 RightBar）
         nameUnavailable: !namedOne && isRealWorld,
+        // chip 点击目标必须与 loc 显示同源（复审 nixi 💡1）：
+        // g.loc 已按 locSource 取源，但原先 chip 点的是 g.list[0].location ⇒
+        // 组内第一人 location 是过期 offline 时，「显示 JP·45176」却「点开 offline」。
+        locFrom: (locSource && locSource.location) || '',
       };
     });
     if (web.length) gs.push({ label: '网页端在线', list: web });
