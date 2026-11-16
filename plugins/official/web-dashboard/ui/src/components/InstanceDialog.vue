@@ -56,7 +56,7 @@ watch(() => store.instanceModal, async (m) => {
                有 worldId 却查不到名字时显示 worldId 本身，不乱造「未公开」标签；
                worldId 与标题相同时不重复显示小字。 -->
           <b>{{ inst.worldName || inst.worldId || '未知世界' }}</b>
-          <small v-if="inst.worldId && inst.worldId !== inst.worldName" class="mono">{{ inst.worldId }}</small>
+          <small v-if="inst.worldName && inst.worldId !== inst.worldName" class="mono">{{ inst.worldId }}</small>
         </div>
         <i class="pi pi-angle-right inst-go"></i>
       </div>

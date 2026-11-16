@@ -37,13 +37,19 @@ export function dateTime(s) {
   return `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
+/** 位置/世界的展示名（当前无调用方，但保留为公共 API —— 口径已与 2026-11-17 的分组标题对齐：
+ *  ① 特殊纯值走 specialLocationLabel（私人房间 / 离线 / 传送中 / 本地房间），不另造一套；
+ *  ② 真实 worldId 无名字时**返回 worldId 本身**（VRCX getLocationText 同做法），
+ *     不再返回「未知世界」（那个词会让人以为系统不知道位置，实际只是名字没回源）；
+ *  ③ 其余空/异常值返回空串，由调用方决定兜底文案（不在这里发明词）。 */
 export function worldLabel(x) {
-  const v = String(x.worldName || x.worldId || '').toLowerCase();
-  const special = { private: '私人房间', offline: '离线', traveling: '传送中', local: '本地房间' };
-  if (special[v]) return special[v];
-  if (x.worldName) return x.worldName;
-  if (String(x.worldId || '').startsWith('wrld_')) return '未知世界';
-  return x.worldId || '未公开位置';
+  const o = x || {};
+  if (o.worldName) return o.worldName;
+  const wid = String(o.worldId || '');
+  const special = specialLocationLabel(wid);
+  if (special) return special;
+  if (wid.startsWith('wrld_')) return wid;
+  return '';
 }
 
 /** 特殊位置的中文名（不是"世界:实例"格式的那些值）：private→私人房间 / offline→离线 / traveling→传送中 / local→本地房间。
@@ -93,6 +99,13 @@ export function parseLoc(loc) {
   if (loc === 'offline' || loc === 'offline:offline' || loc === 'traveling') {
     return { worldId: loc, instanceId: null, type: null, ownerId: null, region: null, raw: loc };
   }
+  // 2026-11-17（复审 Lian-Hu 💡5）：traveling:wrld_xxx:12345 是「正在传送到某个世界」——
+  // 后面那半才是目的地实例串。不剥前缀时会把 'traveling' 当 worldId、把 'wrld_xxx:12345'
+  // 整体当房间号 ⇒ locLabelFull 输出「公开 · wrld_abc:1」（实测）。
+  // 剥掉后按普通实例串解析，得到「公开 · 1」与正确的 worldId。
+  let _loc = loc;
+  if (_loc.startsWith('traveling:')) _loc = _loc.slice('traveling:'.length);
+  loc = _loc;
   const r = { worldId: null, instanceId: null, type: null, ownerId: null, region: null };
   const sep = loc.indexOf(':');
   r.worldId = sep >= 0 ? loc.slice(0, sep) : loc;

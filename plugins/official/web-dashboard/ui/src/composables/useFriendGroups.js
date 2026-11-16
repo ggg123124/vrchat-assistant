@@ -2,7 +2,7 @@
 // 曾因两份独立实现导致"两边不一致"被用户抓到；状态色/签名/分组/折叠统一在此。
 import { computed, ref } from 'vue';
 import { store } from '../store.js';
-import { isWebOnline, locLabel, locLabelFull, statusLabels } from '../utils.js';
+import { isWebOnline, locLabel, locLabelFull, statusLabels, specialLocationLabel } from '../utils.js';
 
 export const STATUS_COLORS = { active: '#52c41a', 'join me': '#4287f5', 'ask me': '#fa8c16', busy: '#f5222d', offline: '#596778' };
 export function statusColor(s) { return STATUS_COLORS[s] || '#596778'; }
@@ -77,23 +77,41 @@ export function useFriendGroups() {
     const gs = [...m.entries()].map(([wid, l]) => {
       // 世界名：组内**任一人**有名字就用（2026-11-17 修）——
       // 原实现只看 l[0]，同一世界里只要排在第一的那个人 worldName 为空（缓存尚未回填），
-      // 整组就掉进 fallback，即使组内其他人明明有名字。
+      // 整组就掉 fallback，即使组内其他人明明有名字。
       const namedOne = l.find((f) => f.worldName && f.worldName !== wid);
-      const hasWorldId = wid && wid !== 'none' && wid !== 'private';
-      // 组标题三态（参照 VRCX 的 getLocationText：有 worldId 就显示它，绝不发明「未知」标签）：
-      //   ① 有名字           → 世界名
-      //   ② 有 worldId 没名字 → 直接显示 worldId（准确、可复制去查，VRCX 同做法）
-      //   ③ private          → 私密实例（VRChat 不公开房间号，无从得知）
-      //   ④ 其余（无 worldId）→ 只可能是网页/移动端在线，不该走到这里；兜底用「网页端在线」
-      const fallback = wid === 'private' ? '私密实例' : (hasWorldId ? wid : '网页端在线');
+      // 真实世界 ID：必须是 wrld_ 前缀（复审 EMeowAGENT ⚠️1）——
+      // 原判据只排除 'none' / 'private'，于是 traveling / offline / local 这类**特殊纯值**
+      // 会被当成世界 ID 直接上屏（实测标题出现英文裸值 "traveling" / "offline"）。
+      const isRealWorld = String(wid || '').startsWith('wrld_');
+      // 组标题（参照 VRCX 的 getLocationText：有真实 worldId 就显示它，绝不发明「未知」标签）：
+      //   ① 有名字             → 世界名
+      //   ② 真实 worldId 无名字 → 直接显示 worldId（准确、可复制去查，VRCX 同做法）
+      //   ③ private            → 私密实例（VRChat 不公开房间号，无从得知）
+      //   ④ 其余特殊纯值        → 复用 specialLocationLabel（传送中 / 离线 / 本地房间…），
+      //                          不另造第三套标签表（复审 EMeowAGENT ⚠️1）
+      //   ⑤ wid === 'none'     → 「位置未知」。
+      //      ⚠️ 不能写「网页端在线」（复审 Lian-Hu 🔴1 / EMeowAGENT 🔴1）：
+      //      落进这个桶的是「游戏端在线但 location 字段丢了」的人，而 isWebOnline 对他们返回 false
+      //      （那是本 PR 自己新增的判据）⇒ 两处打架，且会与真正的网页在线组**撞成两个同名分组**。
+      let fallback;
+      if (wid === 'private') fallback = '私密实例';
+      else if (isRealWorld) fallback = wid;
+      else if (wid && wid !== 'none') fallback = specialLocationLabel(wid) || '位置未知';
+      else fallback = '位置未知';
       // 房间维度（2026-09-15）：同一世界的不同实例此前会被当成一个组、组标题只有世界名，
       // 用户看到两人像在一起、实际不在同一房间（实测实例号 41317 vs 03806）。这里补出房间数，
       // 由视图在组头标注「N 个房间」、并在成员卡片上显示各自房间标签。
       const roomKeys = new Set(l.map((f) => instanceKeyOf(f)).filter(Boolean));
       // 位置标签（房间号 · 实例类型 · 区域）：只要有真实 worldId 就展示，
       // 与「有没有世界名」解耦 —— 名字查不到不代表位置信息拿不到。
-      const locSource = namedOne || l[0];
-      const realLoc = hasWorldId && locSource && locSource.location ? locLabelFull(locSource.location) : '';
+      // 取源也解耦（复审 EMeowAGENT 💡1）：**优先组内 location 是真实实例串的人**，
+      // 原实现取 namedOne 或 l[0]，若那个人 location 是过期 offline，realLoc 仍为空、
+      // 即使别人带完整实例串 —— 与「名字查不到 ≠ 位置拿不到」的初衷不符。
+      const locSource = l.find((f) => {
+        const loc = String(f.location || '');
+        return loc.startsWith('wrld_');
+      }) || namedOne || l[0];
+      const realLoc = isRealWorld && locSource && locSource.location ? locLabelFull(locSource.location) : '';
       return {
         label: namedOne ? namedOne.worldName : fallback,
         list: l,
@@ -101,7 +119,8 @@ export function useFriendGroups() {
         loc: realLoc,
         roomCount: roomKeys.size,
         mixedRooms: roomKeys.size > 1,
-        nameUnavailable: !namedOne && hasWorldId,   // 供视图决定是否提示「名字待补」
+        // 供组头提示「世界名待补」——真实世界但没人知道名字（视图已接入，见 RightBar）
+        nameUnavailable: !namedOne && isRealWorld,
       };
     });
     if (web.length) gs.push({ label: '网页端在线', list: web });

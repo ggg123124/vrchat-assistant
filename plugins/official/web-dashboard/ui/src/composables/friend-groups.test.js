@@ -16,6 +16,7 @@
  *  - 有 worldId 时位置标签（房间号·实例类型·区域）必须展示，与有无名字解耦
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { isWebOnline } from '../utils.js';
 
 const mountGroups = async () => {
   vi.resetModules();
@@ -75,4 +76,68 @@ describe('侧栏世界分组：标题与位置标签', () => {
     expect(labels).toContain('网页端在线');
     expect(labels.some((l) => /未公开/.test(l)), '这个词不该再出现在界面上').toBe(false);
   });
+
+
+describe('复审 2026-11-17：分组标题的兜底不该与 isWebOnline 打架', () => {
+  let ctx;
+  beforeEach(async () => { ctx = await mountGroups(); });
+
+  // 复审 Lian-Hu 🔴1 / EMeowAGENT 🔴1：wid === 'none' 桶的老人不能叫「网页端在线」
+  it('游戏端在线但 location 丢失 ⇒ 分组标题是「位置未知」，不是「网页端在线」', () => {
+    const gs = ctx.g.groupByWorld([
+      F({ platform: 'standalonewindows', location: '', worldId: '', worldName: '' }),
+    ]);
+    expect(gs.length).toBe(1);
+    expect(gs[0].label).toBe('位置未知');
+    // 与 isWebOnline 的判据保持一致（同一个人在 isWebOnline 里是 false）
+    expect(isWebOnline({ isOnline: true, platform: 'standalonewindows', location: '' })).toBe(false);
+  });
+
+  it('不会与真正的网页在线组撞名（两个分组标题必须不同）', () => {
+    const gs = ctx.g.groupByWorld([
+      F({ platform: 'standalonewindows', location: '', worldId: '', worldName: '' }),
+      F({ platform: 'web', location: 'offline', worldId: '', worldName: '' }),
+    ]);
+    const labels = gs.map((g) => g.label);
+    expect(labels.length, '应有两个分组').toBe(2);
+    expect(new Set(labels).size, '标题不得重复: ' + labels.join(',')).toBe(2);
+    expect(labels).toContain('位置未知');
+    expect(labels).toContain('网页端在线');
+  });
+
+  // 复审 EMeowAGENT ⚠️1：特殊纯值不能被当成世界 ID 上屏（英文裸值）
+  it('worldId = traveling / offline 等特殊纯值 ⇒ 走中文标签，不显示英文裸值', () => {
+    const a = ctx.g.groupByWorld([F({ worldId: 'traveling', location: 'traveling', worldName: '', platform: 'standalonewindows' })]);
+    expect(a[0].label, 'traveling 应显示「传送中」').toBe('传送中');
+    expect(a[0].label).not.toBe('traveling');
+
+    const b = ctx.g.groupByWorld([F({ worldId: 'offline', location: 'offline', worldName: '', platform: 'standalonewindows' })]);
+    expect(b[0].label).toBe('离线');
+    expect(b[0].label).not.toBe('offline');
+  });
+
+  it('nameUnavailable 只在「真实 worldId 但没名字」时为 true（供组头提示）', () => {
+    const wid = 'wrld_28d32731-dfc5-4ca1-a773-570037819e0b';
+    const named = ctx.g.groupByWorld([F({ worldId: wid, worldName: '水底', location: wid + ':1' })]);
+    expect(named[0].nameUnavailable).toBe(false);
+
+    const unnamed = ctx.g.groupByWorld([F({ worldId: wid, worldName: '', location: wid + ':1' })]);
+    expect(unnamed[0].nameUnavailable, '真实世界缺名字 ⇒ 提示待补').toBe(true);
+
+    const special = ctx.g.groupByWorld([F({ worldId: 'private', worldName: '', location: 'private' })]);
+    expect(special[0].nameUnavailable, '私密实例不是「名字待补」').toBe(false);
+  });
+
+  // 复审 EMeowAGENT 💡1：位置标签取源不能因为 namedOne 的 location 是过期 offline 就丢失
+  it('组内有人带完整实例串时，loc 必须取到（即使有名字那人的 location 已过期）', () => {
+    const wid = 'wrld_28d32731-dfc5-4ca1-a773-570037819e0b';
+    const gs = ctx.g.groupByWorld([
+      F({ worldId: wid, worldName: '水底 -Seabed-', location: 'offline' }),  // 有名字但位置过期
+      F({ worldId: wid, worldName: '', location: wid + ':45176~hidden(usr_x)~region(jp)' }),
+    ]);
+    expect(gs[0].loc, '名字查不到 ≠ 位置拿不到；位置过期也不该让整组没位置').toBeTruthy();
+    expect(gs[0].loc).toContain('45176');
+  });
+});
+
 });

@@ -1,6 +1,6 @@
 // utils 纯函数单测（重构行为等价锚点）
 import { describe, it, expect } from 'vitest';
-import { time, date, reltime, parseTs, parseLoc, avatarLabel, isWebOnline, platformLabel, platformIcon, dateTime } from './utils.js';
+import { time, date, reltime, parseTs, parseLoc, avatarLabel, isWebOnline, locLabelFull, parseLoc, platformLabel, platformIcon, dateTime } from './utils.js';
 
 describe('时间格式', () => {
   it('time/date 空值兜底', () => {
@@ -129,6 +129,17 @@ describe('isWebOnline 兜底（对齐 VRCX isRealInstance）', () => {
 
   it('platform 空 + location 空 ⇒ 网页在线（无任何游戏证据）', () => {
     expect(isWebOnline({ isOnline: true, platform: '', location: '' })).toBe(true);
+  });
+
+
+  // 复审 Lian-Hu 💡5：traveling:wrld_xxx:12345 的实例串解析
+  it('traveling: 前缀被剥离，房间号不再把世界 ID 一起吃进去', () => {
+    const a = parseLoc('traveling:wrld_abc:1');
+    expect(a.worldId).toBe('wrld_abc');
+    expect(a.instanceId).toBe('1');
+    expect(locLabelFull('traveling:wrld_abc:1')).toBe('公开 · 1');
+    // 不带前缀的同一实例串应得到相同结果（前缀只是状态，不该改变实例语义）
+    expect(locLabelFull('traveling:wrld_abc:1')).toBe(locLabelFull('wrld_abc:1'));
   });
 
 });

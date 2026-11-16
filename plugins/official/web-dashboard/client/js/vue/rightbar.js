@@ -179,7 +179,13 @@
           m.get(k).push(f);
         }
         const gs = [...m.entries()].map(([wid, list]) => ({
-          label: (list[0].worldName && list[0].worldName !== wid) ? list[0].worldName : (wid === 'none' ? '未公开位置' : wid.slice(0, 14)),
+          // 2026-11-17：与新 UI 同一口径（旧客户端在 ?legacy=1 或 ui/dist 缺失时仍会投递）——
+          // 有世界名用名字；真实 worldId 没名字就直接显示 ID；private → 私密实例；其余 → 位置未知。
+          // 不再输出「未公开位置」（那个词让人以为系统不知道位置，实际只是名字没回源）。
+          label: (list[0].worldName && list[0].worldName !== wid)
+            ? list[0].worldName
+            : (wid === 'private' ? '私密实例'
+              : (wid && wid !== 'none' && wid.indexOf('wrld_') === 0 ? wid.slice(0, 24) : (wid && wid !== 'none' ? wid : '位置未知'))),
           list,
         }));
         if (web.length) gs.push({ label: '仅网页端在线', list: web });
