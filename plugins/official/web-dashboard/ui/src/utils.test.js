@@ -1,6 +1,6 @@
 // utils 纯函数单测（重构行为等价锚点）
 import { describe, it, expect } from 'vitest';
-import { time, date, reltime, parseTs, parseLoc, avatarLabel, isWebOnline, locLabelFull, parseLoc, platformLabel, platformIcon, dateTime } from './utils.js';
+import { time, date, reltime, parseTs, parseLoc, avatarLabel, isWebOnline, locLabelFull, platformLabel, platformIcon, dateTime } from './utils.js';
 
 describe('时间格式', () => {
   it('time/date 空值兜底', () => {

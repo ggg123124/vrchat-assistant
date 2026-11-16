@@ -182,10 +182,17 @@
           // 2026-11-17：与新 UI 同一口径（旧客户端在 ?legacy=1 或 ui/dist 缺失时仍会投递）——
           // 有世界名用名字；真实 worldId 没名字就直接显示 ID；private → 私密实例；其余 → 位置未知。
           // 不再输出「未公开位置」（那个词让人以为系统不知道位置，实际只是名字没回源）。
-          label: (list[0].worldName && list[0].worldName !== wid)
-            ? list[0].worldName
-            : (wid === 'private' ? '私密实例'
-              : (wid && wid !== 'none' && wid.indexOf('wrld_') === 0 ? wid.slice(0, 24) : (wid && wid !== 'none' ? wid : '位置未知'))),
+          label: (function () {
+            if (list[0].worldName && list[0].worldName !== wid) return list[0].worldName;
+            if (wid === 'private') return '私密实例';
+            // 真实世界 ID：没名字就直接显示（VRCX getLocationText 同做法）
+            if (String(wid).indexOf('wrld_') === 0) return wid.slice(0, 24);
+            // 特殊纯值：与新 UI 同一口径（不再输出英文裸值 traveling / offline / local）
+            var SPECIAL = { private: '私密实例', offline: '离线', 'offline:offline': '位置未知',
+                            traveling: '传送中', local: '本地房间' };
+            if (SPECIAL[wid]) return SPECIAL[wid];
+            return '位置未知';
+          })(),
           list,
         }));
         if (web.length) gs.push({ label: '仅网页端在线', list: web });
