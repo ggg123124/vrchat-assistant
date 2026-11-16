@@ -111,8 +111,10 @@ describe('复审 2026-11-17：分组标题的兜底不该与 isWebOnline 打架'
     expect(a[0].label, 'traveling 应显示「传送中」').toBe('传送中');
     expect(a[0].label).not.toBe('traveling');
 
+    // 复审 EMeowAGENT WARN2: offline 桶里 isOnline=true（刚登录/在菜单，位置字段丢了），
+    // 所以组标题不能写「离线」——行文案会写「在线」，自相矛盾。
     const b = ctx.g.groupByWorld([F({ worldId: 'offline', location: 'offline', worldName: '', platform: 'standalonewindows' })]);
-    expect(b[0].label).toBe('离线');
+    expect(b[0].label).toBe('位置未知');
     expect(b[0].label).not.toBe('offline');
   });
 
@@ -137,6 +139,51 @@ describe('复审 2026-11-17：分组标题的兜底不该与 isWebOnline 打架'
     ]);
     expect(gs[0].loc, '名字查不到 ≠ 位置拿不到；位置过期也不该让整组没位置').toBeTruthy();
     expect(gs[0].loc).toContain('45176');
+  });
+});
+
+
+
+describe('复审 EMeowAGENT 第 3 轮：offline 桶与 instanceKeyOf', () => {
+  let ctx;
+  beforeEach(async () => { ctx = await mountGroups(); });
+
+  // ⚠️2：offline 桶里 isOnline=true（刚登录/在菜单），组标题不能写「离线」
+  it('worldId=offline 的桶标题不是「离线」（桶里人在线）', () => {
+    const gs = ctx.g.groupByWorld([F({ worldId: 'offline', location: 'offline', worldName: '', platform: 'standalonewindows' })]);
+    expect(gs[0].label).toBe('位置未知');
+    expect(gs[0].label).not.toBe('离线');
+  });
+
+  it('worldId=offline:offline 的桶标题也不是「离线」/ 不与真网页组撞名', () => {
+    const gs = ctx.g.groupByWorld([
+      F({ worldId: 'offline:offline', location: 'offline:offline', worldName: '', platform: 'standalonewindows' }),
+      F({ worldId: 'none', location: 'offline', worldName: '', platform: 'web', isOnline: true }),
+    ]);
+    const labels = gs.map((g) => g.label);
+    // 两个桶都可能叫「位置未知」或「网页端在线」，关键是**不允许出现「离线」**
+    expect(labels).not.toContain('离线');
+  });
+
+  // 💡：instanceKeyOf 必须复用 parseLoc，否则 traveling 与已到达会被算成两间房
+  it('traveling 与已到达同一实例 => 只算 1 个房间（不误报「2 房间」）', () => {
+    const wid = 'wrld_abc';
+    const gs = ctx.g.groupByWorld([
+      F({ worldId: wid, worldName: '水底', location: 'traveling:' + wid + ':1' }),
+      F({ worldId: wid, worldName: '水底', location: wid + ':1' }),
+    ]);
+    expect(gs[0].roomCount, '同一实例不该被算成两间').toBe(1);
+    expect(gs[0].mixedRooms).toBe(false);
+  });
+
+  it('同号不同 region 仍算两间（修饰段必须保留）', () => {
+    const wid = 'wrld_abc';
+    const gs = ctx.g.groupByWorld([
+      F({ worldId: wid, worldName: '水底', location: wid + ':1~region(jp)' }),
+      F({ worldId: wid, worldName: '水底', location: wid + ':1~region(us)' }),
+    ]);
+    expect(gs[0].roomCount).toBe(2);
+    expect(gs[0].mixedRooms).toBe(true);
   });
 });
 

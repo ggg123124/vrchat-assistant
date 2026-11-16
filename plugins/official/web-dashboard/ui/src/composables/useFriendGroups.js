@@ -2,7 +2,7 @@
 // 曾因两份独立实现导致"两边不一致"被用户抓到；状态色/签名/分组/折叠统一在此。
 import { computed, ref } from 'vue';
 import { store } from '../store.js';
-import { isWebOnline, locLabel, locLabelFull, statusLabels, specialLocationLabel } from '../utils.js';
+import { isWebOnline, locLabel, locLabelFull, statusLabels, specialLocationLabel, parseLoc } from '../utils.js';
 
 export const STATUS_COLORS = { active: '#52c41a', 'join me': '#4287f5', 'ask me': '#fa8c16', busy: '#f5222d', offline: '#596778' };
 export function statusColor(s) { return STATUS_COLORS[s] || '#596778'; }
@@ -50,10 +50,19 @@ export function useFriendGroups() {
   }
 
   // 实例键（location 里 `worldId:` 之后整段，含 ~region/~hidden 等修饰）——判断「是否同一房间」
+  // 实例键（房间号 + 修饰段）—— 判断「是否同一房间」。
+  // 2026-11-17（复审 EMeowAGENT 💡）：改用 parseLoc 而不是「第一个冒号之后整段」。
+  // 原实现把 traveling:wrld_abc:1 的房间键算成 'wrld_abc:1'，而 locLabelFull 已按 '1' 渲染 ⇒
+  // 同组内「传送中的同一实例」与「已到达的同一实例」被算成两间房，误显示「（N 房间）」。
   function instanceKeyOf(f) {
-    const loc = (f && f.location) || '';
-    const i = loc.indexOf(':');
-    return i > 0 ? loc.slice(i + 1) : '';
+    const raw = String((f && f.location) || '');
+    const p = parseLoc(raw);
+    if (!p || !p.instanceId) return '';
+    // 保留修饰段（~region/~hidden 等）：同号不同 region 是不同实例，不能合并
+    const i = raw.indexOf(':');
+    const rest = i > 0 ? raw.slice(i + 1) : '';
+    const tilde = rest.indexOf('~');
+    return p.instanceId + (tilde >= 0 ? rest.slice(tilde) : '');
   }
   // 房间标签（如「好友+ · JP · 41317」）——世界分组内每张卡片用它标明自己所在的房间
   function roomLabelOf(f) {
@@ -96,6 +105,11 @@ export function useFriendGroups() {
       let fallback;
       if (wid === 'private') fallback = '私密实例';
       else if (isRealWorld) fallback = wid;
+      //   ⑤ wid 是 offline / offline:offline → 「位置未知」，**不能**走 specialLocationLabel（'离线'）。
+      //      落进这个桶的人 isOnline=true、platform 是游戏客户端、只是位置字段丢了（刚登录/在菜单），
+      //      行文案会写「在线」而组标题写「离线」= 自相矛盾（复审 EMeowAGENT ⚠️2 独立探针复现）。
+      //      'offline:offline' 更糟：会落进 else 分支变成「位置未知」，但若无此判断则会与真网页组并列。
+      else if (wid === 'offline' || wid === 'offline:offline') fallback = '位置未知';
       else if (wid && wid !== 'none') fallback = specialLocationLabel(wid) || '位置未知';
       else fallback = '位置未知';
       // 房间维度（2026-09-15）：同一世界的不同实例此前会被当成一个组、组标题只有世界名，
