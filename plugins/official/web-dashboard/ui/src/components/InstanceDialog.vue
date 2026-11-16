@@ -52,8 +52,11 @@ watch(() => store.instanceModal, async (m) => {
       <div class="inst-world" v-clickable="(e) => (openWorld(inst.worldId))" >
         <img v-if="inst.worldImageUrl" :src="inst.worldImageUrl" class="inst-img" alt="" loading="lazy" />
         <div class="inst-wtext">
-          <b>{{ inst.worldName || '未公开位置' }}</b>
-          <small class="mono">{{ inst.worldId }}</small>
+          <!-- 2026-11-17：与侧栏分组同一口径（参照 VRCX getLocationText）——
+               有 worldId 却查不到名字时显示 worldId 本身，不乱造「未公开」标签；
+               worldId 与标题相同时不重复显示小字。 -->
+          <b>{{ inst.worldName || inst.worldId || '未知世界' }}</b>
+          <small v-if="inst.worldId && inst.worldId !== inst.worldName" class="mono">{{ inst.worldId }}</small>
         </div>
         <i class="pi pi-angle-right inst-go"></i>
       </div>

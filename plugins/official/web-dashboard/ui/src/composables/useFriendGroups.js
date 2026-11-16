@@ -75,20 +75,33 @@ export function useFriendGroups() {
       m.get(k).push(f);
     }
     const gs = [...m.entries()].map(([wid, l]) => {
-      const named = l[0].worldName && l[0].worldName !== wid;
-      // 无名世界：用地点语义区分（private=私密实例 / local / none=未公开位置），避免多个同名分组
-      const fallback = wid === 'private' ? '私密实例' : '未公开位置';
+      // 世界名：组内**任一人**有名字就用（2026-11-17 修）——
+      // 原实现只看 l[0]，同一世界里只要排在第一的那个人 worldName 为空（缓存尚未回填），
+      // 整组就掉进 fallback，即使组内其他人明明有名字。
+      const namedOne = l.find((f) => f.worldName && f.worldName !== wid);
+      const hasWorldId = wid && wid !== 'none' && wid !== 'private';
+      // 组标题三态（参照 VRCX 的 getLocationText：有 worldId 就显示它，绝不发明「未知」标签）：
+      //   ① 有名字           → 世界名
+      //   ② 有 worldId 没名字 → 直接显示 worldId（准确、可复制去查，VRCX 同做法）
+      //   ③ private          → 私密实例（VRChat 不公开房间号，无从得知）
+      //   ④ 其余（无 worldId）→ 只可能是网页/移动端在线，不该走到这里；兜底用「网页端在线」
+      const fallback = wid === 'private' ? '私密实例' : (hasWorldId ? wid : '网页端在线');
       // 房间维度（2026-09-15）：同一世界的不同实例此前会被当成一个组、组标题只有世界名，
       // 用户看到两人像在一起、实际不在同一房间（实测实例号 41317 vs 03806）。这里补出房间数，
       // 由视图在组头标注「N 个房间」、并在成员卡片上显示各自房间标签。
       const roomKeys = new Set(l.map((f) => instanceKeyOf(f)).filter(Boolean));
+      // 位置标签（房间号 · 实例类型 · 区域）：只要有真实 worldId 就展示，
+      // 与「有没有世界名」解耦 —— 名字查不到不代表位置信息拿不到。
+      const locSource = namedOne || l[0];
+      const realLoc = hasWorldId && locSource && locSource.location ? locLabelFull(locSource.location) : '';
       return {
-        label: named ? l[0].worldName : fallback,
+        label: namedOne ? namedOne.worldName : fallback,
         list: l,
         worldId: wid,
-        loc: named ? locLabelFull(l[0].location) : '',
+        loc: realLoc,
         roomCount: roomKeys.size,
         mixedRooms: roomKeys.size > 1,
+        nameUnavailable: !namedOne && hasWorldId,   // 供视图决定是否提示「名字待补」
       };
     });
     if (web.length) gs.push({ label: '网页端在线', list: web });

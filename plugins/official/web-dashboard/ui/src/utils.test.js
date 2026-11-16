@@ -82,4 +82,53 @@ describe('头像/平台', () => {
     expect(platformIcon('standalone')).toBeTruthy();
     expect(platformIcon('')).toBe('');
   });
+
+
+// ── 2026-11-17：参照 VRCX 的 isRealInstance 判据修正两处（用户报「侧栏显示未公开位置」）──
+describe('isWebOnline 兜底（对齐 VRCX isRealInstance）', () => {
+  const f = (o) => ({ isOnline: true, ...o });
+
+  it('web 平台 / offline / offline:offline 仍判为网页在线', () => {
+    expect(isWebOnline(f({ platform: 'web' }))).toBe(true);
+    expect(isWebOnline(f({ location: 'offline' }))).toBe(true);
+    expect(isWebOnline(f({ location: 'offline:offline' }))).toBe(true);
+  });
+
+  it('location 为空串也判为网页在线（原实现的漏判路径）', () => {
+    expect(isWebOnline(f({ platform: '', location: '' }))).toBe(true);
+    expect(isWebOnline(f({ location: undefined }))).toBe(true);
+  });
+
+  it("location 为 'traveling'（无冒号后缀）判为网页在线", () => {
+    expect(isWebOnline(f({ location: 'traveling' }))).toBe(true);
+  });
+
+  it("location 为 'traveling:wrld_x'（正在传送进世界）不算网页在线", () => {
+    expect(isWebOnline(f({ location: 'traveling:wrld_123:1' }))).toBe(false);
+  });
+
+  it('真实世界（wrld_ 前缀）不算网页在线', () => {
+    expect(isWebOnline(f({ location: 'wrld_28d3:45176~hidden(usr_x)' }))).toBe(false);
+  });
+
+  it('离线用户一律 false（就算 platform=web）', () => {
+    expect(isWebOnline({ isOnline: false, platform: 'web' })).toBe(false);
+    expect(isWebOnline({ isOnline: false, location: '' })).toBe(false);
+  });
+});
+
+
+
+  // ── 平台字段与位置冲突时的判据（2026-11-17）──
+  // 若 platform 明确是游戏客户端（standalone/安卓/iOS），即使 location 丢了也不能判成网页在线。
+  it('platform=standalone + location 空 ⇒ 不算网页在线（在游戏里，只是位置字段丢了）', () => {
+    expect(isWebOnline({ isOnline: true, platform: 'standalonewindows', location: '' })).toBe(false);
+    expect(isWebOnline({ isOnline: true, platform: 'android', location: '' })).toBe(false);
+    expect(isWebOnline({ isOnline: true, platform: 'ios', location: 'offline' })).toBe(false);
+  });
+
+  it('platform 空 + location 空 ⇒ 网页在线（无任何游戏证据）', () => {
+    expect(isWebOnline({ isOnline: true, platform: '', location: '' })).toBe(true);
+  });
+
 });

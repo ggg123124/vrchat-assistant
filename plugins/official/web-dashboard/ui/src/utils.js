@@ -169,9 +169,29 @@ export function isWebOnline(x) {
   if (!x.isOnline) return false;
   const p = String(x.platform || '').toLowerCase();
   if (p.includes('web')) return true;
-  // 兜底：网页端在线用户的 location 是 offline:offline（VRChat 网页端不在任何世界）
+  // 兜底判据：在线但**不在任何真实世界里** ⇒ 网页/移动端在线（VRChat 网页端不在世界）
+  //
+  // 2026-11-17 修：原实现只认 'offline' / 'offline:offline'，漏掉两种真实形态 ——
+  //   ① location 为空串（本地缓存 hydrate 出来的旧数据、或后端字段缺失）
+  //   ② location 为 'traveling'（不是 'traveling:xxx'）
+  // 漏判的后果：这些人既不进「网页端在线」组，也没有 worldId ⇒ 掉进 'none' 组，
+  // 显示成一个凭空发明的标签（原为「未公开位置」）。参照 VRCX 的 isRealInstance 判据：
+  // 只有 location 是真实世界（wrld_ 前缀）时才算在游戏里。
   const loc = String(x.location || '');
-  return loc === 'offline:offline' || loc === 'offline';
+  // 正在传送 = 在游戏里（traveling:wrld_xxx 是传送到某世界的过程）
+  if (loc.startsWith('traveling:')) return false;
+  // 空 / offline / offline:offline ⇒ 不在世界
+  if (!loc || loc === 'offline' || loc === 'offline:offline' || loc === 'traveling') {
+    // 但若平台字段明确写着是游戏客户端（standalone/安卓/iOS），说明人在游戏里、
+    // 只是位置字段丢了（陈旧缓存）⇒ 不能判成网页在线，否则会把「在游戏中」的人
+    // 错误地归到网页在线组。此时按「位置未知」处理。
+    if (/standalonewindows|standalone|android|ios/.test(p)) return false;
+    return true;
+  }
+  // private / private:private = 在私密房间里，属于游戏内（VRCX 的 isRealInstance 同样排除这两值）
+  if (loc === 'private' || loc === 'private:private') return false;
+  // 其余：以 wrld_ 开头 = 真在游戏世界；否则（local 测试房等）也算网页端在线
+  return !loc.startsWith('wrld_');
 }
 
 // 平台标签（VRChat platform：standalonewindows=PC桌面+VR / web=网页 / android=安卓 / ios=iOS）
