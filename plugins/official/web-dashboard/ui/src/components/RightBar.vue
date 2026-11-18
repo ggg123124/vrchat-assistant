@@ -193,8 +193,11 @@ async function submitStatus() {
         <div v-for="(g, gi) in groups" :key="(g.worldId || g.label) + '#' + gi" class="wg">
           <div class="wg-head" title="点击折叠/展开" v-clickable="(e) => (toggleGroup('w:' + (g.worldId || g.label) + '#' + gi))" >
             <img v-if="groupIcon(g)" :src="groupIcon(g)" class="wg-thumb" alt="" loading="lazy" />
-            <span :title="g.label">{{ g.label }}</span>
-            <span v-if="g.loc && !g.mixedRooms" class="wg-loc" @click.stop="openInstance(g.list[0].location)" :title="'查看房间信息'">{{ g.loc }}</span>
+            <span class="wg-label" :title="g.nameUnavailable ? g.label + '（世界名待补，服务会在后台回源；稍后刷新即可）' : g.label">{{ g.label }}</span>
+            <!-- 2026-11-17：nameUnavailable 此前是死字段（复审 Lian-Hu 💡3 / EMeow 💡2）。
+                 这里接入：世界名尚未回源时给一个明确的「待补」标记，用户知道不是数据错了。 -->
+            <i v-if="g.nameUnavailable" class="pi pi-hourglass wg-pending" title="世界名待补：服务正在后台回源，稍后刷新即显示真名" aria-label="世界名待补"></i>
+            <span v-if="g.loc && !g.mixedRooms" class="wg-loc" @click.stop="openInstance(g.locFrom || g.list[0].location)" :title="'查看房间信息'">{{ g.loc }}</span>
             <span v-if="g.mixedRooms" class="wg-mixed" :title="'该世界下有多个房间，成员分别在不同房间'">（{{ g.roomCount }} 房间）</span>
             <span class="wg-num">{{ g.list.length }}</span>
             <i class="pi wg-arrow" :class="isCollapsed('w:' + (g.worldId || g.label) + '#' + gi) ? 'pi-chevron-down' : 'pi-chevron-up'"></i>
@@ -388,7 +391,11 @@ async function submitStatus() {
   flex: none;
 }
 .wg.accent .wg-head { background: color-mix(in srgb, var(--accent) 14%, var(--surface-2)); color: var(--text); }
-.wg-head span:nth-child(2) { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 组标题必须显式 class 承担省略号（复审 nixi ⚠️2 / EMeow ⚠️1）：
+   原先用 :nth-child(2) 依赖 DOM 顺序 —— 无名世界的组没有缩略图（无 world_cache 行），
+   且「名字待补」沙漏图标又占了第 2 位 ⇒ 规则落空 ⇒ 41 字符的完整 worldId 在 248px 侧栏
+   折成 3 行（CDP 实测 58px 高，是成员卡片两倍）。改为显式 class 后任何 DOM 形态都能正确截断。 */
+.wg-label { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wg-mixed {
   font-size: 10px;
   color: var(--text-dim, #8a93a3);
@@ -442,10 +449,11 @@ async function submitStatus() {
   .me-item { padding: 10px; }
   .mp-row .p-button { width: 34px; height: 34px; }
   .wg-head { padding: 8px; }
-  .wg-head span:nth-child(2) { font-size: 11px; }
+  .wg-label { font-size: 11px; }
   .rb-friend { padding: 8px 9px; }
   .rb-friend b { font-size: 12.5px; }
   .rf-text small { font-size: 10.5px; }
   /* 搜索框全端统一 36px（桌面+移动一致，不再分裂） */
 }
+.wg-pending { font-size: 10px; color: var(--warn); margin-left: 2px; flex: none; }
 </style>

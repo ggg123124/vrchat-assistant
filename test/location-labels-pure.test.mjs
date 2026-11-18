@@ -42,12 +42,22 @@ test('空/无类型输入不得抛错', () => {
 //   locLabelFull('…~invite(usr_x)') / '…~private'（无 ownerId）时，parseLoc 判 type='public'
 //   ⇒ specialLocationLabel 不返回「私人房间」。当前实现只对 parseLoc 判出 private/invite/invite+
 //   的形态生效；这两种形态 parseLoc 不给那些 type，需要另案评估（改 parseLoc 影响面更大）。
-test('traveling 变体：前端只认归一后的 traveling（变体本身会被 parseLoc 判成 public）', () => {
-  // 2026-09-25 #261 回归用例：钉住「为何必须在 DTO 层把 traveling:traveling 归一为 traveling」——
-  // 未归一时 parseLoc 会判成 public 且 instanceId=traveling ⇒ 渲染出荒谬的「公开 · traveling」。
+test('traveling 变体：parseLoc 会剥前缀，但仍需上游归一才能拿到「传送中」标签', () => {
+  // 2026-09-25 #261 回归用例：钉住「为何必须在 DTO 层把 traveling:traveling 归一为 traveling」。
+  //
+  // 2026-11-17 更新：parseLoc 现在会剥掉 traveling: 前缀（此前 'traveling:wrld_abc:1' 会把
+  // 世界 ID 当成房间号，输出「公开 · wrld_abc:1」）。因此**不再**出现 type='public' 那类荒谬渲染；
+  // 但 specialLocationLabel 仍只认归一后的纯值 'traveling' ⇒ **上游归一依然必要**，
+  // 否则该好友的位置标签会是空串而不是「传送中」。
   assert.equal(specialLocationLabel('traveling'), '传送中');
-  assert.equal(specialLocationLabel('traveling:traveling'), '', '变体不是特殊值 ⇒ 必须由上游归一');
-  assert.equal(parseLoc('traveling:traveling').type, 'public', '未归一会被判成公开实例（这正是症状来源）');
+  assert.equal(specialLocationLabel('traveling:traveling'), '', '变体不是特殊值 ⇒ 仍必须由上游归一');
+  const v = parseLoc('traveling:traveling');
+  assert.notEqual(v.type, 'public', '剥前缀后不得再被判成公开实例');
+  assert.equal(v.worldId, 'traveling', '剥前缀后剩下的是这个纯值自身');
+  // 真正要保护的是「传送中目的地」能正确解析：
+  assert.equal(parseLoc('traveling:wrld_abc:1').worldId, 'wrld_abc');
+  assert.equal(parseLoc('traveling:wrld_abc:1').instanceId, '1');
+  assert.equal(locLabelFull('traveling:wrld_abc:1'), '公开 · 1', '房间号不得把世界 ID 一起吃进去');
 });
 
 // ── 位置行左端「从哪来」（用户 2026-10-17 定）────────────────────────────────

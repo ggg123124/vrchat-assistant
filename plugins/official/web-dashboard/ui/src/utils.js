@@ -37,13 +37,19 @@ export function dateTime(s) {
   return `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
+/** 位置/世界的展示名（当前无调用方，但保留为公共 API —— 口径已与 2026-11-17 的分组标题对齐：
+ *  ① 特殊纯值走 specialLocationLabel（私人房间 / 离线 / 传送中 / 本地房间），不另造一套；
+ *  ② 真实 worldId 无名字时**返回 worldId 本身**（VRCX getLocationText 同做法），
+ *     不再返回「未知世界」（那个词会让人以为系统不知道位置，实际只是名字没回源）；
+ *  ③ 其余空/异常值返回空串，由调用方决定兜底文案（不在这里发明词）。 */
 export function worldLabel(x) {
-  const v = String(x.worldName || x.worldId || '').toLowerCase();
-  const special = { private: '私人房间', offline: '离线', traveling: '传送中', local: '本地房间' };
-  if (special[v]) return special[v];
-  if (x.worldName) return x.worldName;
-  if (String(x.worldId || '').startsWith('wrld_')) return '未知世界';
-  return x.worldId || '未公开位置';
+  const o = x || {};
+  if (o.worldName) return o.worldName;
+  const wid = String(o.worldId || '');
+  const special = specialLocationLabel(wid);
+  if (special) return special;
+  if (wid.startsWith('wrld_')) return wid;
+  return '';
 }
 
 /** 特殊位置的中文名（不是"世界:实例"格式的那些值）：private→私人房间 / offline→离线 / traveling→传送中 / local→本地房间。
@@ -93,6 +99,13 @@ export function parseLoc(loc) {
   if (loc === 'offline' || loc === 'offline:offline' || loc === 'traveling') {
     return { worldId: loc, instanceId: null, type: null, ownerId: null, region: null, raw: loc };
   }
+  // 2026-11-17（复审 Lian-Hu 💡5）：traveling:wrld_xxx:12345 是「正在传送到某个世界」——
+  // 后面那半才是目的地实例串。不剥前缀时会把 'traveling' 当 worldId、把 'wrld_xxx:12345'
+  // 整体当房间号 ⇒ locLabelFull 输出「公开 · wrld_abc:1」（实测）。
+  // 剥掉后按普通实例串解析，得到「公开 · 1」与正确的 worldId。
+  let _loc = loc;
+  if (_loc.startsWith('traveling:')) _loc = _loc.slice('traveling:'.length);
+  loc = _loc;
   const r = { worldId: null, instanceId: null, type: null, ownerId: null, region: null };
   const sep = loc.indexOf(':');
   r.worldId = sep >= 0 ? loc.slice(0, sep) : loc;
@@ -169,9 +182,29 @@ export function isWebOnline(x) {
   if (!x.isOnline) return false;
   const p = String(x.platform || '').toLowerCase();
   if (p.includes('web')) return true;
-  // 兜底：网页端在线用户的 location 是 offline:offline（VRChat 网页端不在任何世界）
+  // 兜底判据：在线但**不在任何真实世界里** ⇒ 网页/移动端在线（VRChat 网页端不在世界）
+  //
+  // 2026-11-17 修：原实现只认 'offline' / 'offline:offline'，漏掉两种真实形态 ——
+  //   ① location 为空串（本地缓存 hydrate 出来的旧数据、或后端字段缺失）
+  //   ② location 为 'traveling'（不是 'traveling:xxx'）
+  // 漏判的后果：这些人既不进「网页端在线」组，也没有 worldId ⇒ 掉进 'none' 组，
+  // 显示成一个凭空发明的标签（原为「未公开位置」）。参照 VRCX 的 isRealInstance 判据：
+  // 只有 location 是真实世界（wrld_ 前缀）时才算在游戏里。
   const loc = String(x.location || '');
-  return loc === 'offline:offline' || loc === 'offline';
+  // 正在传送 = 在游戏里（traveling:wrld_xxx 是传送到某世界的过程）
+  if (loc.startsWith('traveling:')) return false;
+  // 空 / offline / offline:offline ⇒ 不在世界
+  if (!loc || loc === 'offline' || loc === 'offline:offline' || loc === 'traveling') {
+    // 但若平台字段明确写着是游戏客户端（standalone/安卓/iOS），说明人在游戏里、
+    // 只是位置字段丢了（陈旧缓存）⇒ 不能判成网页在线，否则会把「在游戏中」的人
+    // 错误地归到网页在线组。此时按「位置未知」处理。
+    if (/standalonewindows|standalone|android|ios/.test(p)) return false;
+    return true;
+  }
+  // private / private:private = 在私密房间里，属于游戏内（VRCX 的 isRealInstance 同样排除这两值）
+  if (loc === 'private' || loc === 'private:private') return false;
+  // 其余：以 wrld_ 开头 = 真在游戏世界；否则（local 测试房等）也算网页端在线
+  return !loc.startsWith('wrld_');
 }
 
 // 平台标签（VRChat platform：standalonewindows=PC桌面+VR / web=网页 / android=安卓 / ios=iOS）
