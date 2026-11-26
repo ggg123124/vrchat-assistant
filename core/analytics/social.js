@@ -479,10 +479,17 @@ export class SocialAnalytics {
       const dt = row.created_at;
       if (loc.startsWith('wrld_')) {
         const wid = loc.split(':')[0];
-        if (curWorld && wid !== curWorld) {
-          sessions.push({ worldId: curWorld, start: curStart, end: dt });
+        // 仅当 worldId 变化时才切分并重置起点（#316）：同 worldId 的重复位置事件
+        // （去重窗口外的同实例心跳、同世界换实例）不重置 curStart，否则长场次会被
+        // 压短，甚至整场被 <3 分钟过滤掉。
+        // 已知限制：同世界两条事件相隔很久（如应用崩溃/重启期间无 offline 行）会被
+        // 合并成一场、可能偏长。刻意不加「间隔 N 分钟就切分」阈值——VRChat 静止时
+        // 不发事件，阈值会砍碎真实长场次。
+        if (curWorld !== wid) {
+          if (curWorld) sessions.push({ worldId: curWorld, start: curStart, end: dt });
+          curWorld = wid;
+          curStart = dt;
         }
-        curWorld = wid; curStart = dt;
       } else {
         if (curWorld) { sessions.push({ worldId: curWorld, start: curStart, end: dt }); curWorld = null; }
       }
