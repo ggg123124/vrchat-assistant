@@ -32,7 +32,7 @@ import https from 'node:https';
 import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { HttpsProxyAgent } from 'https-proxy-agent';
-import { eventTzInfo, selectWithinLimit } from './lib.js';
+import { eventTzInfo, selectWithinLimit, decodeEntities, parseVrcSearchCards } from './lib.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // 注意：环境变量名刻意避开 KEY/SECRET/TOKEN/PASSWORD/COOKIE/AUTH 子串，
@@ -260,58 +260,23 @@ export default function register(api) {
       }
       api.log(`[重试] VRC Search 首批 0 命中 → 整批重试 1 次（${targets.length} 页）`);
     }
+    if (parsed.okCount > 0 && parsed.opened.length > 0) cleanupLegacyVrcSearchRows();
     return { events: parsed.opened, okCount: parsed.okCount, failCount: parsed.failCount };
   }
 
-  function parseVrcSearchCards(page, category, win, lang) {
-    const cards = page.split('<article class="list-group-item result-row result-row-event">').slice(1);
-    const out = [];
-    for (const card of cards) {
-      try {
-        const t = card.match(/result-row-title">([^<]+)</);
-        if (!t) continue;
-        const name = decodeEntities(t[1]).trim();
-        // 时间（ISO 或英文长格式）
-        let start = (card.match(/(?:開始|시작|开始|Starts?)\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})/) || [])[1];
-        let end = (card.match(/(?:終了|종료|结束|Ends?)\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})/) || [])[1];
-        if (!start) {
-          const m = card.match(/Starts?\s+\w{3},\s+(\w{3})\s+(\d{1,2}),\s+(\d{4})\s+(\d{1,2}):(\d{2})\s*(AM|PM)/);
-          if (m) {
-            const months = { Jan:1,Feb:2,Mar:3,Apr:4,May:5,Jun:6,Jul:7,Aug:8,Sep:9,Oct:10,Nov:11,Dec:12 };
-            const hh = (parseInt(m[4]) % 12) + (m[6] === 'PM' ? 12 : 0);
-            start = `${m[3]}-${String(months[m[1]]).padStart(2,'0')}-${String(+m[2]).padStart(2,'0')}T${String(hh).padStart(2,'0')}:${m[5]}`;
-          }
-        }
-        if (!end) {
-          const m = card.match(/Ends?\s+\w{3},\s+(\w{3})\s+(\d{1,2}),\s+(\d{4})\s+(\d{1,2}):(\d{2})\s*(AM|PM)/);
-          if (m) {
-            const months = { Jan:1,Feb:2,Mar:3,Apr:4,May:5,Jun:6,Jul:7,Aug:8,Sep:9,Oct:10,Nov:11,Dec:12 };
-            const hh = (parseInt(m[4]) % 12) + (m[6] === 'PM' ? 12 : 0);
-            end = `${m[3]}-${String(months[m[1]]).padStart(2,'0')}-${String(+m[2]).padStart(2,'0')}T${String(hh).padStart(2,'0')}:${m[5]}`;
-          }
-        }
-        start = start ? start.replace(' ', 'T') : '';
-        end = end ? end.replace(' ', 'T') : '';
-        const descM = card.match(/result-row-desc[^>]*>(.*?)<\/p>/s);
-        const desc = stripHtml(descM ? descM[1] : '').slice(0, 300);
-        const grp = card.match(/href="\/groups\/(grp_[^"]+)"[^>]*>([^<]+)</);
-        const cal = card.match(/calendar\/(cal_[a-f0-9-]+)/);
-        const img = card.match(/<img[^>]*src="([^"]+)"[^>]*result-row-thumb/);
-        const langs = (card.match(/badge bg-secondary">([^<]+)</g) || []).map(x => x.replace('badge bg-secondary">','').replace(/</g,''));
-        out.push({
-          name: name.slice(0, 100),
-          start, end,
-          category, category_zh: CAT_ZH[category] || category,
-          lang, languages: langs.slice(0, 5),
-          desc, group_id: grp ? grp[1].replace(/\/$/, '') : '',
-          group_name: grp ? decodeEntities(grp[2]).trim().slice(0, 60) : '',
-          cal_id: cal ? cal[1] : '',
-          image: img ? img[1] : '',
-          src: 'VRC Search',
-        });
-      } catch (e) { continue; }
+  // 旧解析器（改版前 result-row-event）落库的 start_iso 是**无秒**形态（YYYY-MM-DDTHH:MM，16 字符）。
+  // 新版按秒落库后 PK=(source,name,start_iso) 会与旧行并存成重复条目，故在新解析器确实命中后清一次。
+  // 只在 parsed.okCount>0 && opened>0 时调用：降级轮 / 0 命中轮绝不执行（避免误删与无谓写库）。
+  function cleanupLegacyVrcSearchRows() {
+    try {
+      const r = api.db.table('store').run(
+        `DELETE FROM store WHERE (src = 'VRC Search' OR source = 'VRC Search')
+           AND length(start_iso) = 16 AND start_iso LIKE '____-__-__T__:__'`
+      );
+      api.log(`[清理] VRC Search 旧解析器无秒行 ${r.changes} 条（新 event-card 解析已接管）`);
+    } catch (e) {
+      api.log(`[警告] VRC Search 旧行清理失败（不影响本次采集）：${String(e.message || e).slice(0, 160)}`);
     }
-    return out;
   }
 
   // ════════════ 数据源 2：RLVRC（中文，JSON API）════════════
@@ -1066,20 +1031,7 @@ export default function register(api) {
 }
 
 // ── 工具函数（模块级，不依赖 api）──
-const CAT_ZH = { music:'音乐',dance:'舞蹈',hangout:'聚会',gaming:'游戏',roleplaying:'角色扮演',performance:'演出',education:'教育' };
-function decodeEntities(s) {
-  const map = { amp:'&', lt:'<', gt:'>', quot:'"', '#39':"'", apos:"'", '#x27':"'" };
-  return String(s || '').replace(/&(#?\w+);/g, (m, ent) => {
-    const k = ent.toLowerCase();
-    return Object.prototype.hasOwnProperty.call(map, k) ? map[k] : m;
-  });
-}
-function stripHtml(s) {
-  return decodeEntities(String(s || ''))
-    .replace(/<[^>]*>/g, ' ')
-    .replace(/</g, ' ').replace(/>/g, ' ')
-    .replace(/\s+/g, ' ').trim();
-}
+// decodeEntities / stripHtml / CAT_ZH 已迁至 ./lib.js（VRC Search 解析器与落库共用一份实现）
 function normName(s) {
   return decodeEntities(String(s || '').toLowerCase()).replace(/[\s【】()（）\[\]＿_\-＃#:：、，。·中\.\"'`]/g, '');
 }

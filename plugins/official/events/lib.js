@@ -130,6 +130,109 @@ export function eventStartMs(e) {
   return Number.isFinite(ms2) ? ms2 : NaN;
 }
 
+// ── VRC Search 分类 → 中文名（落库 category 列用 zh）──────────────────
+export const CAT_ZH = { music:'音乐',dance:'舞蹈',hangout:'聚会',gaming:'游戏',roleplaying:'角色扮演',performance:'演出',education:'教育' };
+
+// ── HTML 实体/标签清洗（原 index.js 模块级实现，原样迁出供解析器共用）──
+export function decodeEntities(s) {
+  const map = { amp:'&', lt:'<', gt:'>', quot:'"', '#39':"'", apos:"'", '#x27':"'" };
+  return String(s || '').replace(/&(#?\w+);/g, (m, ent) => {
+    const k = ent.toLowerCase();
+    return Object.prototype.hasOwnProperty.call(map, k) ? map[k] : m;
+  });
+}
+
+export function stripHtml(s) {
+  return decodeEntities(String(s || ''))
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/</g, ' ').replace(/>/g, ' ')
+    .replace(/\s+/g, ' ').trim();
+}
+
+// data-starts/data-ends 实测形如 `2026-11-26T00:00:00.000Z`。
+// VRC Search 的 naive 口径是 **UTC**（naiveBaseOffsetH=0），故剥成「无 Z 无毫秒」的
+// YYYY-MM-DDTHH:MM:SS：留着 Z 会走 eventTzInfo 的 aware 分支，本地时间列语义失真。
+function toNaiveUtc(raw) {
+  const m = String(raw || '').trim().match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
+  return m ? `${m[1]}T${m[2]}:${m[3]}:${m[4] || '00'}` : '';
+}
+
+/**
+ * 解析 VRC Search（search.vrcwwt.com）SSR 页面里的活动卡片。
+ *
+ * 站点 2026-11 改版后卡片从 `article.list-group-item.result-row-event` 换成
+ * `article.event-card`（class 还带 `is-live` 等修饰，故切分串**不能带闭合引号**），
+ * 数据改由 data-* 属性承载。旧解析器零匹配；本函数按新结构取字段，
+ * 单卡异常 continue，一页坏卡不影响其余卡片。
+ *
+ * @param {string} page 页面 HTML
+ * @param {string} category 目标分类（music/dance/…）
+ * @param {string} win 窗口（保留旧签名，解析本身不依赖）
+ * @param {string} lang 页面语言标记
+ * @returns {Array<object>} 字段与旧实现一致（含 icon_url，落库/前端只认它）
+ */
+export function parseVrcSearchCards(page, category, win, lang) {
+  const cards = String(page || '').split('<article class="event-card').slice(1);
+  const out = [];
+  for (const card of cards) {
+    try {
+      const titleM = card.match(/<h3 class="ec-title">([\s\S]*?)<\/h3>/);
+      if (!titleM) continue;
+      const name = stripHtml(titleM[1]).slice(0, 100);
+
+      // 时间是硬字段：缺失/不可解析 → 整卡跳过（start_iso 是 PK 组成部分）
+      const start = toNaiveUtc((card.match(/data-starts="([^"]*)"/) || [])[1]);
+      if (!start) continue;
+      const end = toNaiveUtc((card.match(/data-ends="([^"]*)"/) || [])[1]);
+
+      // group_id / cal_id 首选 data-result-id="grp_x/cal_y"；形态变了再从 href 兜底
+      let group_id = '', cal_id = '';
+      const rid = (card.match(/data-result-id="([^"]+)"/) || [])[1] || '';
+      for (const part of rid.split('/')) {
+        const v = part.trim();
+        if (!group_id && /^grp_/.test(v)) group_id = v;
+        else if (!cal_id && /^cal_/.test(v)) cal_id = v;
+      }
+      if (!group_id) {
+        const g = card.match(/href="\/groups\/(grp_[^"\/]+)/);
+        if (g) group_id = g[1];
+      }
+      if (!cal_id) {
+        const c = card.match(/calendar\/(cal_[^"\/]+)/);
+        if (c) cal_id = c[1];
+      }
+
+      const hostM = card.match(/<a class="ec-host-name"[^>]*>([\s\S]*?)<\/a>/);
+      const group_name = hostM ? stripHtml(hostM[1]).slice(0, 60) : '';
+
+      // 中文页常见整段缺 .ec-lang：必须容忍缺失（[] 而不是抛错）
+      const languages = [];
+      for (const m of card.matchAll(/<span class="ec-lang"[^>]*>([\s\S]*?)<\/span>/g)) {
+        const v = stripHtml(m[1]);
+        if (v && !languages.includes(v)) languages.push(v);
+      }
+
+      const descM = card.match(/<p class="ec-desc">([\s\S]*?)<\/p>/);
+      const desc = descM ? stripHtml(descM[1]).slice(0, 300) : '';
+      const iconM = card.match(/<span class="ec-host-icon"[^>]*>[\s\S]*?<img[^>]*?src="([^"]+)"/);
+
+      out.push({
+        name,
+        start, end,
+        category, category_zh: CAT_ZH[category] || category,
+        lang, languages: languages.slice(0, 5),
+        desc,
+        group_id,
+        group_name: group_name || group_id || '',
+        cal_id,
+        icon_url: iconM ? iconM[1] : '',
+        src: 'VRC Search',
+      });
+    } catch (e) { continue; }
+  }
+  return out;
+}
+
 /**
  * limit 截断：窗口内活动上千场时，「按现有顺序 slice(0,limit)」会把未来几天整段砍掉
  * （排序主键是群组人数，与时间无关）。故超限时**优先保留未开始/刚开头的活动**，
